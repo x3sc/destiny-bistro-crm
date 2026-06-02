@@ -15,10 +15,77 @@ O projeto sera construido de forma incremental. As primeiras entregas devem orga
 ## Estrutura inicial
 
 ```text
-backend/   API e regras de negocio
-frontend/  Aplicativo mobile
+backend/      API Fastify, Prisma e testes
+frontend/     Aplicativo mobile Expo
+compose.yaml  MySQL local para desenvolvimento
+```
+
+## Requisitos
+
+- Node.js 22
+- npm
+- Docker Desktop
+- Expo Go no celular
+
+## Configuracao local
+
+Crie os arquivos locais de ambiente a partir dos exemplos:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
+```
+
+No `frontend/.env`, substitua o IP de exemplo pelo IP local do computador na
+rede Wi-Fi. Nao use `localhost`, pois o aplicativo sera executado no celular.
+
+## Banco e API
+
+Inicie o Docker Desktop e execute:
+
+```powershell
+docker compose --env-file backend/.env up -d
+Set-Location backend
+npm.cmd install
+npm.cmd run dev
+```
+
+A API fica disponivel em `http://localhost:3333`:
+
+- `GET /health`: confirma que a API esta online.
+- `GET /ready`: confirma que o MySQL esta conectado.
+
+## Aplicativo mobile
+
+Em outro terminal:
+
+```powershell
+Set-Location frontend
+npm.cmd install
+npm.cmd start
+```
+
+Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
+computador.
+
+## Validacao
+
+Execute antes de abrir uma pull request:
+
+```powershell
+Set-Location backend
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd test
+
+Set-Location ../frontend
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd test
 ```
 
 ## Status
 
-Estrutura inicial separada em backend e frontend. Os aplicativos ainda nao foram criados.
+Primeira fatia vertical em desenvolvimento: tela mobile de verificacao da API e
+do banco MySQL.
