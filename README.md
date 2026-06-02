@@ -12,6 +12,13 @@ O projeto sera construido de forma incremental. As primeiras entregas devem orga
 - Validar cada etapa antes de ampliar o escopo.
 - Evitar incluir credenciais e configuracoes locais no repositorio.
 
+## Estrutura inicial
+
+```text
+backend/   API e regras de negocio
+frontend/  Aplicativo mobile
+```
+
 ## Status
 
-Repositorio inicial. O aplicativo ainda nao foi criado.
+Estrutura inicial separada em backend e frontend. Os aplicativos ainda nao foram criados.
