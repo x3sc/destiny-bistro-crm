@@ -1,0 +1,33 @@
+{
+  "name": "destiny-bistro-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run prisma:generate && tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "lint": "eslint .",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "start": "node dist/server.js",
+    "test": "node --import tsx --test test/unit/app.test.ts",
+    "test:integration": "node --import tsx --test test/integration/ready.integration.test.ts",
+    "typecheck": "npm run prisma:generate && tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@prisma/adapter-mariadb": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "eslint": "^10.4.1",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1"
+  }
+}
