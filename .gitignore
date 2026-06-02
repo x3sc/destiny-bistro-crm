@@ -10,13 +10,22 @@ web-build/
 *.p8
 *.p12
 *.key
+*.pem
+*.keystore
 *.mobileprovision
 *.orig.*
+local.properties
 
 # Environment files
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
+
+# Local package manager configuration
+.npmrc
+!.npmrc.example
 
 # Logs
 *.log
@@ -42,5 +51,7 @@ Desktop.ini
 
 # Local tooling
 .cache/
+.eslintcache
+*.tsbuildinfo
 tmp/
 temp/
