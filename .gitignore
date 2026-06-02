@@ -27,6 +27,9 @@ yarn-error.log*
 # Test coverage
 coverage/
 
+# Generated code
+backend/src/generated/
+
 # Editors and IDEs
 .idea/
 .vscode/
