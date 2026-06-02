@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 it('loads tables from a normalized API URL', async () => {
-  const tables = [{ id: 1, number: 1, status: 'FREE' }];
+  const tables = [{ activeComanda: null, id: 1, number: 1, status: 'FREE' }];
   mockFetch.mockResolvedValueOnce({
     json: () => Promise.resolve({ tables }),
     ok: true,
@@ -36,7 +36,10 @@ it('rejects unsuccessful responses', async () => {
 
 it('rejects malformed responses', async () => {
   mockFetch.mockResolvedValueOnce({
-    json: () => Promise.resolve({ tables: [{ id: 1, number: '1', status: 'FREE' }] }),
+    json: () =>
+      Promise.resolve({
+        tables: [{ activeComanda: null, id: 1, number: '1', status: 'FREE' }],
+      }),
     ok: true,
   });
 

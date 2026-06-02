@@ -3,10 +3,25 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import type { RestaurantTable } from '../../services/tables-api';
 import { TableGridScreen } from '../table-grid-screen';
 
+jest.mock('expo-router', () => {
+  const react = jest.requireActual<typeof import('react')>('react');
+
+  return {
+    useFocusEffect: (callback: React.EffectCallback) => {
+      react.useEffect(callback, [callback]);
+    },
+  };
+});
+
 const tables: RestaurantTable[] = [
-  { id: 1, number: 1, status: 'FREE' },
-  { id: 2, number: 2, status: 'OPEN' },
-  { id: 3, number: 3, status: 'AWAITING_CHECK' },
+  { activeComanda: null, id: 1, number: 1, status: 'FREE' },
+  {
+    activeComanda: { id: 'comanda-id', number: 42 },
+    id: 2,
+    number: 2,
+    status: 'OPEN',
+  },
+  { activeComanda: null, id: 3, number: 3, status: 'AWAITING_CHECK' },
 ];
 
 it('shows a configuration error when the API URL is absent', () => {
@@ -47,7 +62,44 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(screen.getByText('Livre')).toBeTruthy();
   expect(screen.getByText('Aberta')).toBeTruthy();
   expect(screen.getByText('Aguardando caixa')).toBeTruthy();
+  expect(screen.getByText('Comanda #42')).toBeTruthy();
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
+});
+
+it('selects a free restaurant table', async () => {
+  const loadTables = jest.fn(() => Promise.resolve(tables));
+  const onSelectTable = jest.fn();
+
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={loadTables}
+      onSelectTable={onSelectTable}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Mesa 1 Livre' }));
+
+  expect(onSelectTable).toHaveBeenCalledWith(tables[0]);
+});
+
+it('selects an occupied restaurant table', async () => {
+  const loadTables = jest.fn(() => Promise.resolve(tables));
+  const onSelectTable = jest.fn();
+
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={loadTables}
+      onSelectTable={onSelectTable}
+    />,
+  );
+
+  fireEvent.press(
+    await screen.findByRole('button', { name: 'Mesa 2 Aberta Comanda #42' }),
+  );
+
+  expect(onSelectTable).toHaveBeenCalledWith(tables[1]);
 });
 
 it('shows an empty state when no restaurant table exists', async () => {

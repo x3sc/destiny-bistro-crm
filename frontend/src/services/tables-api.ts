@@ -1,6 +1,12 @@
+import { normalizeApiBaseUrl } from './api-base-url';
+
 export type RestaurantTableStatus = 'FREE' | 'OPEN' | 'AWAITING_CHECK';
 
 export interface RestaurantTable {
+  activeComanda: {
+    id: string;
+    number: number;
+  } | null;
   id: number;
   number: number;
   status: RestaurantTableStatus;
@@ -16,10 +22,6 @@ const restaurantTableStatuses = new Set<RestaurantTableStatus>([
   'AWAITING_CHECK',
 ]);
 
-export function normalizeApiBaseUrl(value: string | undefined) {
-  return value?.trim().replace(/\/+$/, '');
-}
-
 function isRestaurantTable(value: unknown): value is RestaurantTable {
   if (!value || typeof value !== 'object') {
     return false;
@@ -28,6 +30,11 @@ function isRestaurantTable(value: unknown): value is RestaurantTable {
   const table = value as Partial<RestaurantTable>;
 
   return (
+    (table.activeComanda === null ||
+      (!!table.activeComanda &&
+        typeof table.activeComanda === 'object' &&
+        typeof table.activeComanda.id === 'string' &&
+        Number.isInteger(table.activeComanda.number))) &&
     Number.isInteger(table.id) &&
     Number.isInteger(table.number) &&
     restaurantTableStatuses.has(table.status as RestaurantTableStatus)
