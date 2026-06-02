@@ -1,56 +1,32 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyServerOptions } from "fastify";
+import type { ComandaRepository } from "./comanda-repository.js";
 import type { Database } from "./database.js";
 import type { RestaurantTableRepository } from "./restaurant-table-repository.js";
+import { registerComandaRoutes } from "./routes/comanda-routes.js";
+import { registerRestaurantTableRoutes } from "./routes/restaurant-table-routes.js";
+import { registerSystemRoutes } from "./routes/system-routes.js";
 
 interface BuildAppOptions {
+  comandas: ComandaRepository;
   database: Database;
   logger?: FastifyServerOptions["logger"];
   restaurantTables: RestaurantTableRepository;
 }
 
-export async function buildApp({ database, logger = false, restaurantTables }: BuildAppOptions) {
+export async function buildApp({
+  comandas,
+  database,
+  logger = false,
+  restaurantTables,
+}: BuildAppOptions) {
   const app = Fastify({ logger });
 
   await app.register(cors);
 
-  app.get("/health", () => ({
-    status: "ok",
-    service: "api",
-  }));
-
-  app.get("/ready", async (_request, reply) => {
-    try {
-      await database.ping();
-
-      return {
-        status: "ok",
-        database: "connected",
-      };
-    } catch (error) {
-      app.log.error(error, "Database readiness check failed");
-
-      return reply.code(503).send({
-        status: "error",
-        database: "unavailable",
-      });
-    }
-  });
-
-  app.get("/tables", async (_request, reply) => {
-    try {
-      return {
-        tables: await restaurantTables.list(),
-      };
-    } catch (error) {
-      app.log.error(error, "Restaurant table query failed");
-
-      return reply.code(503).send({
-        status: "error",
-        message: "Tables unavailable",
-      });
-    }
-  });
+  registerSystemRoutes(app, database);
+  registerRestaurantTableRoutes(app, restaurantTables, comandas);
+  registerComandaRoutes(app, comandas);
 
   app.addHook("onClose", async () => {
     await database.close();

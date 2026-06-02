@@ -13,10 +13,55 @@ enum RestaurantTableStatus {
   AWAITING_CHECK
 }
 
+enum ComandaStatus {
+  OPEN
+  CANCELLED
+}
+
+enum ComandaEventType {
+  OPENED
+  CANCELLED
+}
+
+enum ComandaCancellationReason {
+  OPENED_BY_MISTAKE
+}
+
 model RestaurantTable {
-  id        Int                   @id @default(autoincrement())
-  number    Int                   @unique
-  status    RestaurantTableStatus @default(FREE)
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  id              Int                   @id @default(autoincrement())
+  number          Int                   @unique
+  status          RestaurantTableStatus @default(FREE)
+  activeComandaId String?               @unique
+  activeComanda   Comanda?              @relation("ActiveComanda", fields: [activeComandaId], references: [id], onDelete: SetNull)
+  comandas        Comanda[]             @relation("TableComandas")
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+model Comanda {
+  id                 String                     @id @default(cuid())
+  number             Int                        @unique @default(autoincrement())
+  tableId            Int
+  table              RestaurantTable            @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
+  activeForTable     RestaurantTable?           @relation("ActiveComanda")
+  status             ComandaStatus              @default(OPEN)
+  openedAt           DateTime                   @default(now())
+  cancelledAt        DateTime?
+  cancellationReason ComandaCancellationReason?
+  events             ComandaEvent[]
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([tableId])
+}
+
+model ComandaEvent {
+  id        String                    @id @default(cuid())
+  comandaId String
+  comanda   Comanda                   @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  type      ComandaEventType
+  reason    ComandaCancellationReason?
+  createdAt DateTime                  @default(now())
+
+  @@index([comandaId])
 }

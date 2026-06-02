@@ -3,6 +3,10 @@ import type { PrismaClient } from "./generated/prisma/client.js";
 export type RestaurantTableStatus = "FREE" | "OPEN" | "AWAITING_CHECK";
 
 export interface RestaurantTable {
+  activeComanda: {
+    id: string;
+    number: number;
+  } | null;
   id: number;
   number: number;
   status: RestaurantTableStatus;
@@ -22,6 +26,12 @@ export function createRestaurantTableRepository(
           number: "asc",
         },
         select: {
+          activeComanda: {
+            select: {
+              id: true,
+              number: true,
+            },
+          },
           id: true,
           number: true,
           status: true,
