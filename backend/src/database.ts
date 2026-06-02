@@ -33,7 +33,7 @@ export function createDatabase(): Database {
       await prisma.$disconnect();
     },
     async ping() {
-      await prisma.$queryRawUnsafe("SELECT 1");
+      await prisma.$queryRaw`SELECT 1`;
     },
   };
 }

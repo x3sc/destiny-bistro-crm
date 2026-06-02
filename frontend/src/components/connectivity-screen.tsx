@@ -60,13 +60,15 @@ export function ConnectivityScreen({
 
   useEffect(() => {
     const timeout = setTimeout(() => {
+      setApiStatus(normalizedApiBaseUrl ? 'loading' : 'idle');
+      setDatabaseStatus('idle');
       void checkConnectivity();
     }, 0);
 
     return () => {
       clearTimeout(timeout);
     };
-  }, [checkConnectivity]);
+  }, [checkConnectivity, normalizedApiBaseUrl]);
 
   const retryConnectivity = () => {
     setApiStatus('loading');

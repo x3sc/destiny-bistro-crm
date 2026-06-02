@@ -3,8 +3,15 @@ import { render, screen } from '@testing-library/react-native';
 import { ConnectivityScreen } from '../connectivity-screen';
 
 const mockFetch = jest.fn();
+const originalFetch = globalThis.fetch;
 
-globalThis.fetch = mockFetch;
+beforeAll(() => {
+  globalThis.fetch = mockFetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 afterEach(() => {
   mockFetch.mockReset();
@@ -55,4 +62,19 @@ it('shows an unavailable MySQL database after the API responds', async () => {
   expect(await screen.findByText('Indisponível')).toBeOnTheScreen();
   expect(screen.getByText('Conectado')).toBeOnTheScreen();
   expect(mockFetch).toHaveBeenCalledTimes(2);
+});
+
+it('returns to loading when the API URL changes', async () => {
+  mockFetch
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: true })
+    .mockReturnValueOnce(new Promise(() => undefined));
+  const view = render(<ConnectivityScreen apiBaseUrl="http://192.168.0.10:3333" />);
+
+  expect(await screen.findAllByText('Conectado')).toHaveLength(2);
+
+  view.rerender(<ConnectivityScreen apiBaseUrl="http://192.168.0.11:3333" />);
+
+  expect(await screen.findByText('Verificando...')).toBeOnTheScreen();
+  expect(mockFetch).toHaveBeenNthCalledWith(3, 'http://192.168.0.11:3333/health');
 });
