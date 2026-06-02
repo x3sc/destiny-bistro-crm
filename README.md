@@ -22,7 +22,7 @@ compose.yaml  MySQL local para desenvolvimento
 
 ## Requisitos
 
-- Node.js 22
+- Node.js 22.13+
 - npm
 - Docker Desktop
 - Expo Go no celular
@@ -39,6 +39,10 @@ Copy-Item frontend/.env.example frontend/.env
 No `frontend/.env`, substitua o IP de exemplo pelo IP local do computador na
 rede Wi-Fi. Nao use `localhost`, pois o aplicativo sera executado no celular.
 
+Por padrao, o MySQL usa a porta `3306`. Se ela ja estiver ocupada, altere apenas
+o `backend/.env` local. Por exemplo, para usar a porta `3308`, ajuste
+`MYSQL_PORT`, `DATABASE_PORT` e a porta presente em `DATABASE_URL`.
+
 ## Banco e API
 
 Inicie o Docker Desktop e execute:
@@ -47,6 +51,8 @@ Inicie o Docker Desktop e execute:
 docker compose --env-file backend/.env up -d
 Set-Location backend
 npm.cmd install
+npm.cmd run prisma:migrate:deploy
+npm.cmd run prisma:seed
 npm.cmd run dev
 ```
 
@@ -54,6 +60,7 @@ A API fica disponivel em `http://localhost:3333`:
 
 - `GET /health`: confirma que a API esta online.
 - `GET /ready`: confirma que o MySQL esta conectado.
+- `GET /tables`: lista as mesas persistidas e seus estados.
 
 ## Aplicativo mobile
 
@@ -78,6 +85,10 @@ npm.cmd run lint
 npm.cmd run typecheck
 npm.cmd run build
 npm.cmd test
+npm.cmd run prisma:migrate:deploy
+npm.cmd run prisma:seed
+npm.cmd run prisma:seed
+npm.cmd run test:integration
 
 Set-Location ../frontend
 npm.cmd run lint
@@ -87,5 +98,5 @@ npm.cmd test
 
 ## Status
 
-Primeira fatia vertical em desenvolvimento: tela mobile de verificacao da API e
-do banco MySQL.
+Segunda fatia vertical em desenvolvimento: grade mobile somente leitura com 12
+mesas persistidas no MySQL.

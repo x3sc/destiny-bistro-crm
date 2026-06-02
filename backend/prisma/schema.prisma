@@ -6,3 +6,17 @@ generator client {
 datasource db {
   provider = "mysql"
 }
+
+enum RestaurantTableStatus {
+  FREE
+  OPEN
+  AWAITING_CHECK
+}
+
+model RestaurantTable {
+  id        Int                   @id @default(autoincrement())
+  number    Int                   @unique
+  status    RestaurantTableStatus @default(FREE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+}
