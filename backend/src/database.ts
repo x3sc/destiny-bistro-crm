@@ -2,6 +2,10 @@ import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "./generated/prisma/client.js";
 import {
+  createComandaRepository,
+  type ComandaRepository,
+} from "./comanda-repository.js";
+import {
   createRestaurantTableRepository,
   type RestaurantTableRepository,
 } from "./restaurant-table-repository.js";
@@ -12,6 +16,7 @@ export interface Database {
 }
 
 export interface Persistence {
+  comandas: ComandaRepository;
   database: Database;
   restaurantTables: RestaurantTableRepository;
 }
@@ -43,6 +48,7 @@ export function createPersistence(): Persistence {
   const prisma = createPrismaClient();
 
   return {
+    comandas: createComandaRepository(prisma),
     database: {
       async close() {
         await prisma.$disconnect();

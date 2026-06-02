@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -11,10 +11,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   loadTables,
-  normalizeApiBaseUrl,
   type RestaurantTable,
   type RestaurantTableStatus,
 } from '../services/tables-api';
+import { normalizeApiBaseUrl } from '../services/api-base-url';
+import { styles, tableStatusStyles } from './table-grid-screen.styles';
 
 type TableGridState =
   | { apiBaseUrl: string; kind: 'error' }
@@ -24,8 +25,8 @@ type TableGridState =
 interface TableGridScreenProps {
   apiBaseUrl?: string;
   loadTablesRequest?: typeof loadTables;
+  onSelectTable?: (table: RestaurantTable) => void;
 }
-
 const tableStatusLabels: Record<RestaurantTableStatus, string> = {
   AWAITING_CHECK: 'Aguardando caixa',
   FREE: 'Livre',
@@ -35,6 +36,7 @@ const tableStatusLabels: Record<RestaurantTableStatus, string> = {
 export function TableGridScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
   loadTablesRequest = loadTables,
+  onSelectTable,
 }: TableGridScreenProps) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [state, setState] = useState<TableGridState | undefined>(
@@ -65,7 +67,8 @@ export function TableGridScreen({
     );
   }, [loadTablesRequest, normalizedApiBaseUrl]);
 
-  useEffect(() => {
+  useFocusEffect(
+    useCallback(() => {
     if (!normalizedApiBaseUrl) {
       return;
     }
@@ -88,7 +91,8 @@ export function TableGridScreen({
     return () => {
       active = false;
     };
-  }, [loadTablesRequest, normalizedApiBaseUrl]);
+    }, [loadTablesRequest, normalizedApiBaseUrl]),
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -137,7 +141,9 @@ export function TableGridScreen({
               data={visibleState.tables}
               keyExtractor={(table) => String(table.id)}
               numColumns={2}
-              renderItem={({ item }) => <TableCard table={item} />}
+              renderItem={({ item }) => (
+                <TableCard onPress={onSelectTable} table={item} />
+              )}
             />
             <RetryButton label="Atualizar mesas" onPress={refreshTables} />
           </>
@@ -146,7 +152,6 @@ export function TableGridScreen({
     </SafeAreaView>
   );
 }
-
 function MessageCard({ message, tone = 'neutral' }: { message: string; tone?: 'error' | 'neutral' }) {
   return (
     <Text style={[styles.messageCard, tone === 'error' && styles.errorMessage]}>
@@ -167,119 +172,36 @@ function RetryButton({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
-function TableCard({ table }: { table: RestaurantTable }) {
+function TableCard({
+  onPress,
+  table,
+}: {
+  onPress?: (table: RestaurantTable) => void;
+  table: RestaurantTable;
+}) {
+  const isSelectable = table.status === 'FREE' || !!table.activeComanda;
+
   return (
-    <View style={[styles.tableCard, tableStatusStyles[table.status]]}>
+    <Pressable
+      accessibilityLabel={`Mesa ${table.number} ${tableStatusLabels[table.status]}${
+        table.activeComanda ? ` Comanda #${table.activeComanda.number}` : ''
+      }`}
+      accessibilityRole="button"
+      disabled={!isSelectable}
+      onPress={() => {
+        onPress?.(table);
+      }}
+      style={({ pressed }) => [
+        styles.tableCard,
+        tableStatusStyles[table.status],
+        pressed && isSelectable && styles.tableCardPressed,
+      ]}
+    >
       <Text style={styles.tableNumber}>Mesa {table.number}</Text>
       <Text style={styles.tableStatus}>{tableStatusLabels[table.status]}</Text>
-    </View>
+      {table.activeComanda && (
+        <Text style={styles.comandaNumber}>Comanda #{table.activeComanda.number}</Text>
+      )}
+    </Pressable>
   );
 }
-
-const tableStatusStyles = StyleSheet.create({
-  AWAITING_CHECK: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#ffca2c',
-  },
-  FREE: {
-    backgroundColor: '#d1e7dd',
-    borderColor: '#75b798',
-  },
-  OPEN: {
-    backgroundColor: '#f8d7da',
-    borderColor: '#ea868f',
-  },
-});
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f2eb',
-  },
-  content: {
-    flex: 1,
-    gap: 20,
-    padding: 24,
-  },
-  heading: {
-    gap: 8,
-  },
-  eyebrow: {
-    color: '#795548',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  title: {
-    color: '#2f241f',
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  description: {
-    color: '#5d514b',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  loading: {
-    alignItems: 'center',
-    flex: 1,
-    gap: 12,
-    justifyContent: 'center',
-  },
-  feedback: {
-    gap: 16,
-  },
-  message: {
-    color: '#5d514b',
-    fontSize: 16,
-  },
-  messageCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    color: '#5d514b',
-    padding: 16,
-  },
-  errorMessage: {
-    backgroundColor: '#f8d7da',
-    color: '#842029',
-  },
-  tableGrid: {
-    gap: 12,
-  },
-  tableRow: {
-    gap: 12,
-  },
-  tableCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    flex: 1,
-    gap: 8,
-    minHeight: 108,
-    padding: 16,
-  },
-  tableNumber: {
-    color: '#2f241f',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  tableStatus: {
-    color: '#5d514b',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  button: {
-    alignItems: 'center',
-    backgroundColor: '#6f4e37',
-    borderRadius: 12,
-    padding: 16,
-  },
-  buttonPressed: {
-    opacity: 0.8,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-});
