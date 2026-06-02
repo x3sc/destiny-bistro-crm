@@ -1,10 +1,19 @@
 import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "./generated/prisma/client.js";
+import {
+  createRestaurantTableRepository,
+  type RestaurantTableRepository,
+} from "./restaurant-table-repository.js";
 
 export interface Database {
   close(): Promise<void>;
   ping(): Promise<void>;
+}
+
+export interface Persistence {
+  database: Database;
+  restaurantTables: RestaurantTableRepository;
 }
 
 function requiredEnvironmentVariable(name: string): string {
@@ -17,7 +26,7 @@ function requiredEnvironmentVariable(name: string): string {
   return value;
 }
 
-export function createDatabase(): Database {
+export function createPrismaClient() {
   const adapter = new PrismaMariaDb({
     host: requiredEnvironmentVariable("DATABASE_HOST"),
     port: Number(process.env.DATABASE_PORT ?? 3306),
@@ -26,14 +35,22 @@ export function createDatabase(): Database {
     database: requiredEnvironmentVariable("DATABASE_NAME"),
     connectionLimit: 5,
   });
-  const prisma = new PrismaClient({ adapter });
+
+  return new PrismaClient({ adapter });
+}
+
+export function createPersistence(): Persistence {
+  const prisma = createPrismaClient();
 
   return {
-    async close() {
-      await prisma.$disconnect();
+    database: {
+      async close() {
+        await prisma.$disconnect();
+      },
+      async ping() {
+        await prisma.$queryRaw`SELECT 1`;
+      },
     },
-    async ping() {
-      await prisma.$queryRaw`SELECT 1`;
-    },
+    restaurantTables: createRestaurantTableRepository(prisma),
   };
 }
