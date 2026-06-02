@@ -61,6 +61,9 @@ A API fica disponivel em `http://localhost:3333`:
 - `GET /health`: confirma que a API esta online.
 - `GET /ready`: confirma que o MySQL esta conectado.
 - `GET /tables`: lista as mesas persistidas e seus estados.
+- `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre.
+- `GET /comandas/:comandaId`: consulta os detalhes da comanda.
+- `POST /comandas/:comandaId/cancel`: cancela uma comanda vazia aberta por engano.
 
 ## Aplicativo mobile
 
@@ -98,5 +101,6 @@ npm.cmd test
 
 ## Status
 
-Segunda fatia vertical em desenvolvimento: grade mobile somente leitura com 12
-mesas persistidas no MySQL.
+Terceira fatia vertical em desenvolvimento: abertura confirmada de comandas,
+detalhes somente leitura, auditoria das transicoes e cancelamento de comandas
+vazias abertas por engano.
