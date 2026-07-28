@@ -6,6 +6,10 @@ import {
   type ComandaRepository,
 } from "./comanda-repository.js";
 import {
+  createProductRepository,
+  type ProductRepository,
+} from "./product-repository.js";
+import {
   createRestaurantTableRepository,
   type RestaurantTableRepository,
 } from "./restaurant-table-repository.js";
@@ -18,6 +22,7 @@ export interface Database {
 export interface Persistence {
   comandas: ComandaRepository;
   database: Database;
+  products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
 }
 
@@ -57,6 +62,7 @@ export function createPersistence(): Persistence {
         await prisma.$queryRaw`SELECT 1`;
       },
     },
+    products: createProductRepository(prisma),
     restaurantTables: createRestaurantTableRepository(prisma),
   };
 }

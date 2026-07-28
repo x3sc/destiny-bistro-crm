@@ -11,10 +11,16 @@ export default function ComandaDetailsRoute() {
   return (
     <ComandaDetailsScreen
       comandaId={comandaId}
+      onAddProducts={(id) => {
+        router.push(`/comandas/${encodeURIComponent(id)}/products`);
+      }}
       onBack={() => {
         router.back();
       }}
       onCancelled={() => {
+        router.replace('/');
+      }}
+      onClosed={() => {
         router.replace('/');
       }}
     />

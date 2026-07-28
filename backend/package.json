@@ -13,7 +13,7 @@
     "prisma:seed": "prisma db seed",
     "prisma:validate": "prisma validate",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test test/unit/app.test.ts",
+    "test": "node --import tsx --test test/unit/app.test.ts test/unit/product-catalog.test.ts",
     "test:integration": "node --import tsx --test test/integration/ready.integration.test.ts",
     "typecheck": "npm run prisma:generate && tsc --noEmit"
   },

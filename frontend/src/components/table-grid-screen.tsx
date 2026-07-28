@@ -184,7 +184,9 @@ function TableCard({
   return (
     <Pressable
       accessibilityLabel={`Mesa ${table.number} ${tableStatusLabels[table.status]}${
-        table.activeComanda ? ` Comanda #${table.activeComanda.number}` : ''
+        table.activeComanda
+          ? `${table.activeComanda.name ? ` ${table.activeComanda.name}` : ''} Comanda #${table.activeComanda.number}`
+          : ''
       }`}
       accessibilityRole="button"
       disabled={!isSelectable}
@@ -199,6 +201,9 @@ function TableCard({
     >
       <Text style={styles.tableNumber}>Mesa {table.number}</Text>
       <Text style={styles.tableStatus}>{tableStatusLabels[table.status]}</Text>
+      {table.activeComanda?.name && (
+        <Text style={styles.comandaName}>{table.activeComanda.name}</Text>
+      )}
       {table.activeComanda && (
         <Text style={styles.comandaNumber}>Comanda #{table.activeComanda.number}</Text>
       )}

@@ -61,9 +61,30 @@ A API fica disponivel em `http://localhost:3333`:
 - `GET /health`: confirma que a API esta online.
 - `GET /ready`: confirma que o MySQL esta conectado.
 - `GET /tables`: lista as mesas persistidas e seus estados.
-- `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre.
-- `GET /comandas/:comandaId`: consulta os detalhes da comanda.
+- `GET /products`: lista os produtos ativos do catalogo seedado.
+- `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre e aceita
+  o campo opcional `name`.
+- `GET /comandas/:comandaId`: consulta os detalhes da comanda, itens e total.
+- `POST /comandas/:comandaId/items`: adiciona produto a uma comanda aberta.
+- `PATCH /comandas/:comandaId/items/:itemId`: ajusta quantidade com `+1` ou `-1`.
+- `POST /comandas/:comandaId/items/:itemId/confirm`: confirma a quantidade atual.
+- `DELETE /comandas/:comandaId/items/:itemId`: remove apenas a quantidade ainda
+  nao confirmada.
+- `POST /comandas/:comandaId/close`: fecha uma comanda sem itens pendentes e
+  libera a mesa.
 - `POST /comandas/:comandaId/cancel`: cancela uma comanda vazia aberta por engano.
+
+Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
+unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
+separadas dos itens imutaveis no aplicativo.
+
+O fechamento grava o status `CLOSED`, a data `closedAt` e um evento `CLOSED`.
+Itens, valores e eventos permanecem persistidos para o historico, enquanto a mesa
+volta ao estado `FREE`.
+
+Na abertura, o aplicativo permite informar um nome opcional de ate 80 caracteres.
+O valor e normalizado, salvo na comanda e exibido na grade de mesas e nos detalhes;
+por permanecer na comanda, tambem fica disponivel para o historico futuro.
 
 ## Aplicativo mobile
 
@@ -77,6 +98,13 @@ npm.cmd start
 
 Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
 computador.
+
+### Compatibilidade do Expo
+
+`expo-modules-core`, `react-native-reanimated` e `react-native-worklets` ficam
+declarados explicitamente nas versões compatíveis com o Expo SDK 56. Isso evita
+que a resolucao automatica de dependencias do npm selecione uma versao de
+`react-native-worklets` incompatível com o `jest-expo`.
 
 ## Validacao
 
@@ -101,6 +129,6 @@ npm.cmd test
 
 ## Status
 
-Terceira fatia vertical em desenvolvimento: abertura confirmada de comandas,
-detalhes somente leitura, auditoria das transicoes e cancelamento de comandas
-vazias abertas por engano.
+Quarta fatia vertical em desenvolvimento: catalogo seedado, lancamento de itens
+consolidados na comanda, quantidades novas e imutaveis, subtotais, total geral em
+centavos, nome opcional, fechamento de mesa e auditoria das alteracoes de consumo.

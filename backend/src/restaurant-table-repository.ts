@@ -5,6 +5,7 @@ export type RestaurantTableStatus = "FREE" | "OPEN" | "AWAITING_CHECK";
 export interface RestaurantTable {
   activeComanda: {
     id: string;
+    name: string | null;
     number: number;
   } | null;
   id: number;
@@ -29,6 +30,7 @@ export function createRestaurantTableRepository(
           activeComanda: {
             select: {
               id: true,
+              name: true,
               number: true,
             },
           },

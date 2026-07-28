@@ -16,15 +16,34 @@ enum RestaurantTableStatus {
 enum ComandaStatus {
   OPEN
   CANCELLED
+  CLOSED
 }
 
 enum ComandaEventType {
   OPENED
   CANCELLED
+  CLOSED
+  ITEM_ADDED
+  ITEM_CONFIRMED
+  ITEM_QUANTITY_CHANGED
+  ITEM_REMOVED
 }
 
 enum ComandaCancellationReason {
   OPENED_BY_MISTAKE
+}
+
+enum ProductCategory {
+  CLASSIC_BURGERS
+  ARTISAN_BURGERS
+  EXTRAS
+  BEVERAGES
+  COCKTAILS
+  BEERS
+  SIDES
+  SNACKS
+  COMBOS
+  OTHER
 }
 
 model RestaurantTable {
@@ -41,13 +60,16 @@ model RestaurantTable {
 model Comanda {
   id                 String                     @id @default(cuid())
   number             Int                        @unique @default(autoincrement())
+  name               String?                    @db.VarChar(80)
   tableId            Int
   table              RestaurantTable            @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
   status             ComandaStatus              @default(OPEN)
   openedAt           DateTime                   @default(now())
   cancelledAt        DateTime?
+  closedAt           DateTime?
   cancellationReason ComandaCancellationReason?
+  items              ComandaItem[]
   events             ComandaEvent[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
@@ -55,13 +77,49 @@ model Comanda {
   @@index([tableId])
 }
 
+model Product {
+  id           String          @id @default(cuid())
+  code         String          @unique
+  category     ProductCategory @default(OTHER)
+  name         String
+  priceCents   Int
+  active       Boolean         @default(true)
+  comandaItems ComandaItem[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model ComandaItem {
+  id                String   @id @default(cuid())
+  comandaId         String
+  comanda           Comanda  @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productName       String
+  unitPriceCents    Int
+  quantity          Int
+  confirmedQuantity Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([comandaId, productId])
+  @@index([comandaId])
+  @@index([productId])
+}
+
 model ComandaEvent {
-  id        String                    @id @default(cuid())
-  comandaId String
-  comanda   Comanda                   @relation(fields: [comandaId], references: [id], onDelete: Restrict)
-  type      ComandaEventType
-  reason    ComandaCancellationReason?
-  createdAt DateTime                  @default(now())
+  id               String                     @id @default(cuid())
+  comandaId        String
+  comanda          Comanda                    @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  type             ComandaEventType
+  reason           ComandaCancellationReason?
+  itemId           String?
+  productId        String?
+  productName      String?
+  unitPriceCents   Int?
+  previousQuantity Int?
+  newQuantity      Int?
+  createdAt        DateTime                   @default(now())
 
   @@index([comandaId])
 }

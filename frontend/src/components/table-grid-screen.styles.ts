@@ -91,6 +91,11 @@ export const styles = StyleSheet.create({
     color: '#5d514b',
     fontSize: 14,
   },
+  comandaName: {
+    color: '#2f241f',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   tableCardPressed: {
     opacity: 0.75,
   },

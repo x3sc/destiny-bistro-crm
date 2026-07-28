@@ -16,7 +16,7 @@ jest.mock('expo-router', () => {
 const tables: RestaurantTable[] = [
   { activeComanda: null, id: 1, number: 1, status: 'FREE' },
   {
-    activeComanda: { id: 'comanda-id', number: 42 },
+    activeComanda: { id: 'comanda-id', name: 'João', number: 42 },
     id: 2,
     number: 2,
     status: 'OPEN',
@@ -63,6 +63,7 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(screen.getByText('Aberta')).toBeTruthy();
   expect(screen.getByText('Aguardando caixa')).toBeTruthy();
   expect(screen.getByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByText('João')).toBeTruthy();
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
 });
 
@@ -96,7 +97,9 @@ it('selects an occupied restaurant table', async () => {
   );
 
   fireEvent.press(
-    await screen.findByRole('button', { name: 'Mesa 2 Aberta Comanda #42' }),
+    await screen.findByRole('button', {
+      name: 'Mesa 2 Aberta João Comanda #42',
+    }),
   );
 
   expect(onSelectTable).toHaveBeenCalledWith(tables[1]);
