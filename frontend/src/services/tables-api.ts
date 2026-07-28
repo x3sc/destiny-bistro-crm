@@ -5,6 +5,7 @@ export type RestaurantTableStatus = 'FREE' | 'OPEN' | 'AWAITING_CHECK';
 export interface RestaurantTable {
   activeComanda: {
     id: string;
+    name: string | null;
     number: number;
   } | null;
   id: number;
@@ -34,6 +35,8 @@ function isRestaurantTable(value: unknown): value is RestaurantTable {
       (!!table.activeComanda &&
         typeof table.activeComanda === 'object' &&
         typeof table.activeComanda.id === 'string' &&
+        (table.activeComanda.name === null ||
+          typeof table.activeComanda.name === 'string') &&
         Number.isInteger(table.activeComanda.number))) &&
     Number.isInteger(table.id) &&
     Number.isInteger(table.number) &&

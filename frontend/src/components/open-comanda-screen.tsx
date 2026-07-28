@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openComanda, type Comanda } from '../services/comandas-api';
@@ -25,6 +25,7 @@ export function OpenComandaScreen({
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [error, setError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [name, setName] = useState('');
   const isValidTable = Number.isInteger(tableId) && tableId > 0 && Number.isInteger(tableNumber);
 
   const submit = async () => {
@@ -36,7 +37,7 @@ export function OpenComandaScreen({
     setIsSubmitting(true);
 
     try {
-      onOpened(await openRequest(normalizedApiBaseUrl, tableId));
+      onOpened(await openRequest(normalizedApiBaseUrl, tableId, name.trim()));
     } catch {
       setError('Não foi possível abrir a comanda.');
       setIsSubmitting(false);
@@ -64,6 +65,18 @@ export function OpenComandaScreen({
               <Text style={styles.description}>
                 Confirme a abertura de uma nova comanda para esta mesa.
               </Text>
+              <Text style={styles.inputLabel}>Nome da mesa (opcional)</Text>
+              <TextInput
+                accessibilityLabel="Nome da mesa (opcional)"
+                autoCapitalize="words"
+                editable={!isSubmitting}
+                maxLength={80}
+                onChangeText={setName}
+                placeholder="Ex.: João ou Família Silva"
+                placeholderTextColor="#8c817b"
+                style={styles.input}
+                value={name}
+              />
             </View>
 
             {error && <Text style={styles.error}>{error}</Text>}
@@ -153,6 +166,22 @@ const styles = StyleSheet.create({
     color: '#5d514b',
     fontSize: 16,
     lineHeight: 24,
+  },
+  inputLabel: {
+    color: '#2f241f',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  input: {
+    backgroundColor: '#ffffff',
+    borderColor: '#b8aaa1',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#2f241f',
+    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   error: {
     backgroundColor: '#f8d7da',

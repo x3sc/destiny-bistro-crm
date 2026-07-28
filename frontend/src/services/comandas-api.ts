@@ -1,18 +1,44 @@
 import { normalizeApiBaseUrl } from './api-base-url';
 
-export type ComandaStatus = 'OPEN' | 'CANCELLED';
-export type ComandaEventType = 'OPENED' | 'CANCELLED';
+export type ComandaStatus = 'OPEN' | 'CANCELLED' | 'CLOSED';
+export type ComandaEventType =
+  | 'OPENED'
+  | 'CANCELLED'
+  | 'CLOSED'
+  | 'ITEM_ADDED'
+  | 'ITEM_CONFIRMED'
+  | 'ITEM_QUANTITY_CHANGED'
+  | 'ITEM_REMOVED';
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
+
+export interface ComandaItem {
+  confirmedQuantity: number;
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  subtotalCents: number;
+  unitPriceCents: number;
+}
 
 export interface Comanda {
   cancellationReason: ComandaCancellationReason | null;
   cancelledAt: string | null;
+  closedAt: string | null;
   events: {
     createdAt: string;
+    itemId: string | null;
+    newQuantity: number | null;
+    previousQuantity: number | null;
+    productId: string | null;
+    productName: string | null;
     reason: ComandaCancellationReason | null;
     type: ComandaEventType;
+    unitPriceCents: number | null;
   }[];
   id: string;
+  items: ComandaItem[];
+  name: string | null;
   number: number;
   openedAt: string;
   status: ComandaStatus;
@@ -20,6 +46,7 @@ export interface Comanda {
     id: number;
     number: number;
   };
+  totalCents: number;
 }
 
 function isComandaEvent(value: unknown): value is Comanda['events'][number] {
@@ -31,8 +58,40 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
 
   return (
     typeof event.createdAt === 'string' &&
+    (event.itemId === null || typeof event.itemId === 'string') &&
+    (event.newQuantity === null || Number.isInteger(event.newQuantity)) &&
+    (event.previousQuantity === null || Number.isInteger(event.previousQuantity)) &&
+    (event.productId === null || typeof event.productId === 'string') &&
+    (event.productName === null || typeof event.productName === 'string') &&
     (event.reason === null || event.reason === 'OPENED_BY_MISTAKE') &&
-    (event.type === 'OPENED' || event.type === 'CANCELLED')
+    (event.type === 'OPENED' ||
+      event.type === 'CANCELLED' ||
+      event.type === 'CLOSED' ||
+      event.type === 'ITEM_ADDED' ||
+      event.type === 'ITEM_CONFIRMED' ||
+      event.type === 'ITEM_QUANTITY_CHANGED' ||
+      event.type === 'ITEM_REMOVED') &&
+    (event.unitPriceCents === null || Number.isInteger(event.unitPriceCents))
+  );
+}
+
+function isComandaItem(value: unknown): value is ComandaItem {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const item = value as Partial<ComandaItem>;
+
+  return (
+    Number.isInteger(item.confirmedQuantity) &&
+    (item.confirmedQuantity ?? -1) >= 0 &&
+    typeof item.id === 'string' &&
+    typeof item.productId === 'string' &&
+    typeof item.productName === 'string' &&
+    Number.isInteger(item.quantity) &&
+    (item.confirmedQuantity ?? 0) <= (item.quantity ?? -1) &&
+    Number.isInteger(item.subtotalCents) &&
+    Number.isInteger(item.unitPriceCents)
   );
 }
 
@@ -45,17 +104,24 @@ function isComanda(value: unknown): value is Comanda {
 
   return (
     typeof comanda.id === 'string' &&
+    (comanda.name === null || typeof comanda.name === 'string') &&
     Number.isInteger(comanda.number) &&
     typeof comanda.openedAt === 'string' &&
     (comanda.cancelledAt === null || typeof comanda.cancelledAt === 'string') &&
+    (comanda.closedAt === null || typeof comanda.closedAt === 'string') &&
     (comanda.cancellationReason === null ||
       comanda.cancellationReason === 'OPENED_BY_MISTAKE') &&
-    (comanda.status === 'OPEN' || comanda.status === 'CANCELLED') &&
+    (comanda.status === 'OPEN' ||
+      comanda.status === 'CANCELLED' ||
+      comanda.status === 'CLOSED') &&
     !!comanda.table &&
     Number.isInteger(comanda.table.id) &&
     Number.isInteger(comanda.table.number) &&
     Array.isArray(comanda.events) &&
-    comanda.events.every(isComandaEvent)
+    comanda.events.every(isComandaEvent) &&
+    Array.isArray(comanda.items) &&
+    comanda.items.every(isComandaItem) &&
+    Number.isInteger(comanda.totalCents)
   );
 }
 
@@ -83,15 +149,32 @@ function requireApiBaseUrl(value: string) {
   return normalizedApiBaseUrl;
 }
 
-export async function openComanda(apiBaseUrl: string, tableId: number) {
+function jsonMutationInit(method: 'DELETE' | 'PATCH' | 'POST', body: object = {}) {
+  return {
+    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method,
+  };
+}
+
+export async function openComanda(
+  apiBaseUrl: string,
+  tableId: number,
+  name?: string,
+) {
   if (!Number.isInteger(tableId) || tableId <= 0) {
     throw new Error('Invalid table id');
   }
 
+  const normalizedName = name?.trim();
+
   return readComanda(
-    await fetch(`${requireApiBaseUrl(apiBaseUrl)}/tables/${tableId}/comandas`, {
-      method: 'POST',
-    }),
+    await fetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/tables/${tableId}/comandas`,
+      jsonMutationInit('POST', normalizedName ? { name: normalizedName } : {}),
+    ),
   );
 }
 
@@ -105,9 +188,68 @@ export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
   return readComanda(
     await fetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
-      {
-        method: 'POST',
-      },
+      jsonMutationInit('POST'),
+    ),
+  );
+}
+
+export async function closeComanda(apiBaseUrl: string, comandaId: string) {
+  return readComanda(
+    await fetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/close`,
+      jsonMutationInit('POST'),
+    ),
+  );
+}
+
+export async function addComandaItem(
+  apiBaseUrl: string,
+  comandaId: string,
+  productId: string,
+) {
+  return readComanda(
+    await fetch(`${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items`, {
+      ...jsonMutationInit('POST', { productId }),
+    }),
+  );
+}
+
+export async function changeComandaItemQuantity(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  delta: 1 | -1,
+) {
+  return readComanda(
+    await fetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
+      jsonMutationInit('PATCH', { delta }),
+    ),
+  );
+}
+
+export async function confirmComandaItem(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+) {
+  return readComanda(
+    await fetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
+      jsonMutationInit('POST'),
+    ),
+  );
+}
+
+export async function removeComandaItem(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+) {
+  return readComanda(
+    await fetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
+      jsonMutationInit('DELETE'),
     ),
   );
 }

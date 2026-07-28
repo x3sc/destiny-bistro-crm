@@ -10,6 +10,10 @@ interface TableParams {
   tableId: string;
 }
 
+interface OpenComandaBody {
+  name?: unknown;
+}
+
 export function registerRestaurantTableRoutes(
   app: FastifyInstance,
   restaurantTables: RestaurantTableRepository,
@@ -30,41 +34,62 @@ export function registerRestaurantTableRoutes(
     }
   });
 
-  app.post<{ Params: TableParams }>("/tables/:tableId/comandas", async (request, reply) => {
-    const tableId = Number(request.params.tableId);
+  app.post<{ Body: OpenComandaBody; Params: TableParams }>(
+    "/tables/:tableId/comandas",
+    async (request, reply) => {
+      const tableId = Number(request.params.tableId);
 
-    if (!Number.isInteger(tableId) || tableId <= 0) {
-      return reply.code(404).send({
-        status: "error",
-        message: "Table not found",
-      });
-    }
-
-    try {
-      return reply.code(201).send({
-        comanda: await comandas.openForTable(tableId),
-      });
-    } catch (error) {
-      if (error instanceof TableNotFoundError) {
+      if (!Number.isInteger(tableId) || tableId <= 0) {
         return reply.code(404).send({
           status: "error",
           message: "Table not found",
         });
       }
 
-      if (error instanceof TableUnavailableError) {
+      const rawName = request.body?.name;
+
+      if (rawName !== undefined && typeof rawName !== "string") {
         return reply.code(409).send({
           status: "error",
-          message: "Table unavailable",
+          message: "Invalid comanda name",
         });
       }
 
-      app.log.error(error, "Comanda opening failed");
+      const name = rawName?.trim() || null;
 
-      return reply.code(503).send({
-        status: "error",
-        message: "Comanda unavailable",
-      });
-    }
-  });
+      if (name && name.length > 80) {
+        return reply.code(409).send({
+          status: "error",
+          message: "Invalid comanda name",
+        });
+      }
+
+      try {
+        return reply.code(201).send({
+          comanda: await comandas.openForTable(tableId, name),
+        });
+      } catch (error) {
+        if (error instanceof TableNotFoundError) {
+          return reply.code(404).send({
+            status: "error",
+            message: "Table not found",
+          });
+        }
+
+        if (error instanceof TableUnavailableError) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Table unavailable",
+          });
+        }
+
+        app.log.error(error, "Comanda opening failed");
+
+        return reply.code(503).send({
+          status: "error",
+          message: "Comanda unavailable",
+        });
+      }
+    },
+  );
 }

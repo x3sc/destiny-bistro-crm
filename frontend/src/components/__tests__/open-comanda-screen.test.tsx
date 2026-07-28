@@ -6,8 +6,11 @@ import { OpenComandaScreen } from '../open-comanda-screen';
 const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
+  closedAt: null,
   events: [],
   id: 'comanda-id',
+  items: [],
+  name: 'João',
   number: 42,
   openedAt: '2026-06-02T19:00:00.000Z',
   status: 'OPEN',
@@ -15,6 +18,7 @@ const comanda: Comanda = {
     id: 1,
     number: 1,
   },
+  totalCents: 0,
 };
 
 it('opens a comanda after explicit confirmation', async () => {
@@ -32,10 +36,18 @@ it('opens a comanda after explicit confirmation', async () => {
     />,
   );
 
+  fireEvent.changeText(
+    screen.getByLabelText('Nome da mesa (opcional)'),
+    '  João  ',
+  );
   fireEvent.press(screen.getByRole('button', { name: 'Confirmar abertura' }));
 
   expect(await screen.findByText('Abrindo...')).toBeTruthy();
-  expect(openRequest).toHaveBeenCalledWith('http://192.168.0.10:3333', 1);
+  expect(openRequest).toHaveBeenCalledWith(
+    'http://192.168.0.10:3333',
+    1,
+    'João',
+  );
   expect(onOpened).toHaveBeenCalledWith(comanda);
 });
 
