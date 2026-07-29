@@ -16,6 +16,12 @@ import { verifyPassword } from "./password.js";
 export * from "./auth-types.js";
 
 const authUserSelect = {
+  establishment: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
   id: true,
   name: true,
   roles: {
@@ -110,6 +116,7 @@ export function createAuthRepository(prisma: PrismaClient): AuthRepository {
       const user = await prisma.user.findUnique({
         select: {
           active: true,
+          establishmentId: true,
           id: true,
           passwordHash: true,
         },
@@ -129,6 +136,7 @@ export function createAuthRepository(prisma: PrismaClient): AuthRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "USER_LOGGED_IN",
+            establishmentId: user.establishmentId,
             resourceId: user.id,
             resourceType: "USER",
             userId: user.id,
@@ -143,7 +151,15 @@ export function createAuthRepository(prisma: PrismaClient): AuthRepository {
       const tokenHash = hashSessionToken(token);
       await prisma.$transaction(async (transaction) => {
         const session = await transaction.authSession.findUnique({
-          select: { id: true, userId: true },
+          select: {
+            id: true,
+            user: {
+              select: {
+                establishmentId: true,
+              },
+            },
+            userId: true,
+          },
           where: { tokenHash },
         });
 
@@ -158,6 +174,7 @@ export function createAuthRepository(prisma: PrismaClient): AuthRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "USER_LOGGED_OUT",
+            establishmentId: session.user.establishmentId,
             resourceId: session.userId,
             resourceType: "USER",
             userId: session.userId,
@@ -200,6 +217,7 @@ function mapAuthUser(
   user: Prisma.UserGetPayload<{ select: typeof authUserSelect }>,
 ): AuthUser {
   return {
+    establishment: user.establishment,
     id: user.id,
     name: user.name,
     permissions: [

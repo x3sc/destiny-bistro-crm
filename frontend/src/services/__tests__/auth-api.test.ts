@@ -5,6 +5,10 @@ import {
 } from '../auth-session';
 
 const user = {
+  establishment: {
+    id: 'establishment-id',
+    name: 'Destiny Bistro',
+  },
   id: 'user-id',
   name: 'Gustavo',
   permissions: ['tables.read'],

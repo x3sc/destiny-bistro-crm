@@ -16,20 +16,21 @@ const maxItemQuantity = 99;
 
 export async function addComandaItem(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
   productId: string,
   actorUserId: string,
 ): Promise<Comanda> {
-  await findOpenComanda(transaction, comandaId);
+  await findOpenComanda(transaction, establishmentId, comandaId);
 
-  const product = await transaction.product.findUnique({
+  const product = await transaction.product.findFirst({
     select: {
       active: true,
       id: true,
       name: true,
       priceCents: true,
     },
-    where: { id: productId },
+    where: { establishmentId, id: productId },
   });
 
   if (!product?.active) {
@@ -57,6 +58,7 @@ export async function addComandaItem(
     return createFirstComandaItem(transaction, {
       actorUserId,
       comandaId,
+      establishmentId,
       productId: product.id,
       productName: product.name,
       unitPriceCents: product.priceCents,
@@ -89,6 +91,7 @@ export async function addComandaItem(
   await recordItemEvent(transaction, {
     actorUserId,
     comandaId,
+    establishmentId,
     itemId: existingItem.id,
     newQuantity: existingItem.quantity + 1,
     previousQuantity: existingItem.quantity,
@@ -98,17 +101,18 @@ export async function addComandaItem(
     unitPriceCents: existingItem.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
 }
 
 export async function changeComandaItemQuantity(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
   itemId: string,
   delta: 1 | -1,
   actorUserId: string,
 ): Promise<Comanda> {
-  await findOpenComanda(transaction, comandaId);
+  await findOpenComanda(transaction, establishmentId, comandaId);
 
   const item = await transaction.comandaItem.findFirst({
     select: {
@@ -154,6 +158,7 @@ export async function changeComandaItemQuantity(
   await recordItemEvent(transaction, {
     actorUserId,
     comandaId,
+    establishmentId,
     itemId,
     newQuantity: nextQuantity,
     previousQuantity: item.quantity,
@@ -163,16 +168,17 @@ export async function changeComandaItemQuantity(
     unitPriceCents: item.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
 }
 
 export async function confirmComandaItem(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
   itemId: string,
   actorUserId: string,
 ): Promise<Comanda> {
-  await findOpenComanda(transaction, comandaId);
+  await findOpenComanda(transaction, establishmentId, comandaId);
 
   const item = await transaction.comandaItem.findFirst({
     select: {
@@ -216,6 +222,7 @@ export async function confirmComandaItem(
   await recordItemEvent(transaction, {
     actorUserId,
     comandaId,
+    establishmentId,
     itemId,
     newQuantity: item.quantity,
     previousQuantity: item.confirmedQuantity,
@@ -225,16 +232,17 @@ export async function confirmComandaItem(
     unitPriceCents: item.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
 }
 
 export async function removeComandaItem(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
   itemId: string,
   actorUserId: string,
 ): Promise<Comanda> {
-  await findOpenComanda(transaction, comandaId);
+  await findOpenComanda(transaction, establishmentId, comandaId);
 
   const item = await transaction.comandaItem.findUnique({
     select: {
@@ -277,6 +285,7 @@ export async function removeComandaItem(
     await recordItemEvent(transaction, {
       actorUserId,
       comandaId,
+      establishmentId,
       itemId,
       newQuantity: item.confirmedQuantity,
       previousQuantity: item.quantity,
@@ -286,12 +295,13 @@ export async function removeComandaItem(
       unitPriceCents: item.unitPriceCents,
     });
 
-    return getComandaAfterItemMutation(transaction, comandaId);
+    return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
   }
 
   await recordItemEvent(transaction, {
     actorUserId,
     comandaId,
+    establishmentId,
     itemId,
     newQuantity: 0,
     previousQuantity: item.quantity,
@@ -305,7 +315,7 @@ export async function removeComandaItem(
     where: { id: itemId },
   });
 
-  return getComandaAfterItemMutation(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
 }
 
 async function createFirstComandaItem(
@@ -313,6 +323,7 @@ async function createFirstComandaItem(
   product: {
     actorUserId: string;
     comandaId: string;
+    establishmentId: string;
     productId: string;
     productName: string;
     unitPriceCents: number;
@@ -334,6 +345,7 @@ async function createFirstComandaItem(
   await recordItemEvent(transaction, {
     actorUserId: product.actorUserId,
     comandaId: product.comandaId,
+    establishmentId: product.establishmentId,
     itemId: item.id,
     newQuantity: 1,
     previousQuantity: 0,
@@ -343,15 +355,20 @@ async function createFirstComandaItem(
     unitPriceCents: product.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, product.comandaId);
+  return getComandaAfterItemMutation(
+    transaction,
+    product.establishmentId,
+    product.comandaId,
+  );
 }
 
 async function getComandaAfterItemMutation(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
 ) {
-  await syncOpenCreditOrderTotal(transaction, comandaId);
-  return getComandaOrThrow(transaction, comandaId);
+  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId);
+  return getComandaOrThrow(transaction, establishmentId, comandaId);
 }
 
 async function updateComandaItemQuantity(
