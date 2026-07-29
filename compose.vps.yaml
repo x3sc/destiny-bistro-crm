@@ -2,6 +2,8 @@ services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -13,21 +15,26 @@ services:
       test:
         [
           "CMD-SHELL",
-          "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD}",
+          "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -u \"$${MYSQL_USER}\" --silent",
         ]
       interval: 5s
       timeout: 5s
       retries: 30
+    networks:
+      - database
 
   api:
     build:
       context: ./backend
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3333
-      CORS_ORIGINS: ${PUBLIC_WEB_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
       DATABASE_HOST: mysql
@@ -46,6 +53,9 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${API_PORT:-3333}:3333"
+    networks:
+      - database
+      - edge
     healthcheck:
       test:
         [
@@ -64,11 +74,21 @@ services:
       args:
         EXPO_PUBLIC_API_URL: ${PUBLIC_API_URL}
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       api:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    networks:
+      - edge
 
 volumes:
   mysql-data:
+
+networks:
+  database:
+    internal: true
+  edge:
