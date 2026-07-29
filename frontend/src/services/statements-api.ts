@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from './api-base-url';
+import { authenticatedFetch } from './auth-session';
 
 export type StatementOrigin = 'TABLE' | 'CREDIT_MANUAL' | 'CREDIT_TABLE';
 export type StatementEvent =
@@ -54,7 +55,7 @@ export async function loadStatement(
   from: string,
   to: string,
 ) {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${requireApiBaseUrl(apiBaseUrl)}/statements?${periodQuery(from, to)}`,
   );
 

@@ -2,39 +2,63 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function MainMenuScreen({
+  canAccessCredits = true,
+  canAccessStatements = true,
+  canAccessTables = true,
   onCredits,
+  onLogout,
   onStatements,
   onTables,
+  userName,
 }: {
+  canAccessCredits?: boolean;
+  canAccessStatements?: boolean;
+  canAccessTables?: boolean;
   onCredits: () => void;
+  onLogout?: () => void;
   onStatements: () => void;
   onTables: () => void;
+  userName?: string;
 }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
         <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
         <Text style={styles.title}>Menu principal</Text>
+        {userName && (
+          <View style={styles.session}>
+            <Text style={styles.sessionText}>Conectado como {userName}</Text>
+            <Pressable accessibilityRole="button" onPress={onLogout}>
+              <Text style={styles.logout}>Sair</Text>
+            </Pressable>
+          </View>
+        )}
         <Text style={styles.description}>
           Escolha a área que deseja acessar.
         </Text>
 
         <View style={styles.cards}>
-          <MenuCard
-            description="Abra e acompanhe as comandas do salão."
-            label="Mesas"
-            onPress={onTables}
-          />
-          <MenuCard
-            description="Registre pedidos e acompanhe valores a receber."
-            label="Fiados"
-            onPress={onCredits}
-          />
-          <MenuCard
-            description="Consulte vendas, recebimentos e comandas por período."
-            label="Extratos"
-            onPress={onStatements}
-          />
+          {canAccessTables && (
+            <MenuCard
+              description="Abra e acompanhe as comandas do salão."
+              label="Mesas"
+              onPress={onTables}
+            />
+          )}
+          {canAccessCredits && (
+            <MenuCard
+              description="Registre pedidos e acompanhe valores a receber."
+              label="Fiados"
+              onPress={onCredits}
+            />
+          )}
+          {canAccessStatements && (
+            <MenuCard
+              description="Consulte vendas, recebimentos e comandas por período."
+              label="Extratos"
+              onPress={onStatements}
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -132,6 +156,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
+  logout: {
+    color: '#80583f',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   pressedCard: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
@@ -139,6 +168,16 @@ const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: '#f7f3ed',
     flex: 1,
+  },
+  session: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  sessionText: {
+    color: '#6c5d54',
+    fontSize: 14,
   },
   title: {
     color: '#382b25',

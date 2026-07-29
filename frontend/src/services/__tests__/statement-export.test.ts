@@ -1,7 +1,7 @@
 import { exportStatementPdf } from '../statement-export';
 
-it('opens the PDF endpoint directly on web', async () => {
-  const openWeb = jest.fn(() => Promise.resolve());
+it('downloads the authenticated PDF on web', async () => {
+  const downloadWeb = jest.fn(() => Promise.resolve());
   const downloadAndShare = jest.fn(() => Promise.resolve());
 
   await exportStatementPdf(
@@ -10,19 +10,20 @@ it('opens the PDF endpoint directly on web', async () => {
     '2026-07-30',
     {
       downloadAndShare,
-      openWeb,
+      downloadWeb,
       platform: 'web',
     },
   );
 
-  expect(openWeb).toHaveBeenCalledWith(
+  expect(downloadWeb).toHaveBeenCalledWith(
     'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30',
+    'extrato-2026-07-28-a-2026-07-30.pdf',
   );
   expect(downloadAndShare).not.toHaveBeenCalled();
 });
 
 it('downloads and shares the PDF on native platforms', async () => {
-  const openWeb = jest.fn(() => Promise.resolve());
+  const downloadWeb = jest.fn(() => Promise.resolve());
   const downloadAndShare = jest.fn(() => Promise.resolve());
 
   await exportStatementPdf(
@@ -31,7 +32,7 @@ it('downloads and shares the PDF on native platforms', async () => {
     '2026-07-30',
     {
       downloadAndShare,
-      openWeb,
+      downloadWeb,
       platform: 'android',
     },
   );
@@ -39,6 +40,7 @@ it('downloads and shares the PDF on native platforms', async () => {
   expect(downloadAndShare).toHaveBeenCalledWith(
     'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30',
     'extrato-2026-07-28-a-2026-07-30.pdf',
+    null,
   );
-  expect(openWeb).not.toHaveBeenCalled();
+  expect(downloadWeb).not.toHaveBeenCalled();
 });

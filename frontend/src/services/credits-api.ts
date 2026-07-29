@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from './api-base-url';
+import { authenticatedFetch } from './auth-session';
 import type { CreditOrderSource, CreditOrderStatus } from './comandas-api';
 
 export interface CreditOrder {
@@ -44,7 +45,7 @@ export async function loadCreditCustomers(
   includeInactive = false,
 ) {
   const query = includeInactive ? '?includeInactive=true' : '';
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${requireApiBaseUrl(apiBaseUrl)}/credit-customers${query}`,
   );
 
@@ -67,7 +68,7 @@ export async function loadCreditCustomers(
 
 export async function createCreditCustomer(apiBaseUrl: string, name: string) {
   return readCustomerSummary(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/credit-customers`,
       jsonPost({ name: name.trim() }),
     ),
@@ -78,7 +79,7 @@ export async function loadCreditCustomer(
   apiBaseUrl: string,
   customerId: string,
 ) {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${requireApiBaseUrl(apiBaseUrl)}/credit-customers/${encodeURIComponent(customerId)}`,
   );
 
@@ -104,7 +105,7 @@ export async function createCreditOrder(
   customerId: string,
 ) {
   return readOrder(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/credit-customers/${encodeURIComponent(customerId)}/orders`,
       jsonPost(),
     ),
@@ -116,7 +117,7 @@ export async function finalizeCreditOrder(
   orderId: string,
 ) {
   return readOrder(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/credit-orders/${encodeURIComponent(orderId)}/finalize`,
       jsonPost(),
     ),
@@ -128,7 +129,7 @@ export async function cancelCreditOrder(
   orderId: string,
 ) {
   return readOrder(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/credit-orders/${encodeURIComponent(orderId)}/cancel`,
       jsonPost(),
     ),
@@ -139,7 +140,7 @@ export async function settleCreditOrder(
   apiBaseUrl: string,
   orderId: string,
 ) {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${requireApiBaseUrl(apiBaseUrl)}/credit-orders/${encodeURIComponent(orderId)}/settle`,
     jsonPost(),
   );
@@ -167,7 +168,7 @@ export async function convertComandaToCredit(
   customerId: string,
 ) {
   return readOrder(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/credit`,
       jsonPost({ customerId }),
     ),

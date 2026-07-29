@@ -1,9 +1,11 @@
 import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { ComandaDetailsScreen } from '@/components/comanda-details-screen';
+import { hasPermission, useAuth } from '@/auth/auth-context';
 
 export default function ComandaDetailsRoute() {
   const router = useRouter();
+  const { user } = useAuth();
   const { comandaId = '' } = useLocalSearchParams<{
     comandaId?: string;
   }>();
@@ -34,6 +36,7 @@ export default function ComandaDetailsRoute() {
       onCreditFinished={(customerId) => {
         router.replace(`/credits/${encodeURIComponent(customerId)}` as Href);
       }}
+      readOnly={!hasPermission(user, 'comandas.write')}
     />
   );
 }

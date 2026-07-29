@@ -21,6 +21,7 @@ const comanda: Comanda = {
   credit: null,
   events: [
     {
+      actor: null,
       createdAt: '2026-06-02T19:00:00.000Z',
       itemId: null,
       newQuantity: null,
@@ -105,6 +106,7 @@ const closedComanda: Comanda = {
   events: [
     ...comandaWithConfirmedItem.events,
     {
+      actor: null,
       createdAt: '2026-06-02T20:00:00.000Z',
       itemId: null,
       newQuantity: null,

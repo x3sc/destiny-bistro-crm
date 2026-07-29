@@ -20,6 +20,7 @@ import {
 import {
   ActionButton,
   ComandaActions,
+  ComandaHistory,
   ComandaItems,
   Message,
   statusLabels,
@@ -42,6 +43,7 @@ interface ComandaDetailsScreenProps {
   onCloseAsCredit?: (comanda: Comanda) => void;
   onClosed?: () => void;
   onCreditFinished?: (customerId: string) => void;
+  readOnly?: boolean;
   removeItemRequest?: typeof removeComandaItem;
 }
 
@@ -66,6 +68,7 @@ export function ComandaDetailsScreen({
   onCloseAsCredit,
   onClosed = onCancelled,
   onCreditFinished = onCancelled,
+  readOnly = false,
   removeItemRequest = removeComandaItem,
 }: ComandaDetailsScreenProps) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
@@ -205,7 +208,7 @@ export function ComandaDetailsScreen({
             <ComandaSummary comanda={state.comanda} />
             <ComandaItems
               comanda={state.comanda}
-              disabled={isMutating}
+              disabled={isMutating || readOnly}
               onChangeQuantity={(item, delta) => {
                 if (!normalizedApiBaseUrl) {
                   return;
@@ -233,6 +236,7 @@ export function ComandaDetailsScreen({
                 }
               }}
             />
+            <ComandaHistory comanda={state.comanda} />
             <ComandaActions
               canCancel={state.comanda.items.length === 0}
               canClose={state.comanda.items.every(
@@ -267,6 +271,7 @@ export function ComandaDetailsScreen({
                 void finalizeCreditDraft(state.comanda);
               }}
               status={state.comanda.status}
+              readOnly={readOnly}
             />
           </>
         )}
