@@ -52,13 +52,22 @@ docker compose --env-file backend/.env up -d
 Set-Location backend
 npm.cmd install
 npm.cmd run prisma:migrate:deploy
-npm.cmd run prisma:seed
-npm.cmd run user:provision
 npm.cmd run dev
 ```
 
-Antes de executar `user:provision`, informe a senha somente na sessão atual do
-PowerShell:
+Cadastre primeiro o estabelecimento e seu primeiro owner. Informe a senha
+somente na sessão atual do PowerShell:
+
+```powershell
+$senha = Read-Host "Senha inicial" -AsSecureString
+$env:USER_PROVISION_PASSWORD = [Net.NetworkCredential]::new("", $senha).Password
+npm.cmd run establishment:provision
+Remove-Item Env:\USER_PROVISION_PASSWORD
+```
+
+O provisionamento cria as 12 mesas, o catálogo e o primeiro usuário com papel
+`OWNER`. Para cadastrar outros owners ou funcionários dentro de um
+estabelecimento existente, carregue a nova senha da mesma forma e execute:
 
 ```powershell
 $senha = Read-Host "Senha inicial" -AsSecureString
@@ -67,8 +76,10 @@ npm.cmd run user:provision
 Remove-Item Env:\USER_PROVISION_PASSWORD
 ```
 
-O comando solicita o nome e os cargos e grava diretamente no MySQL. Não existe
-tela de criação de conta no aplicativo. Os cargos iniciais são `OWNER`,
+O comando solicita o estabelecimento, o nome e os cargos e grava diretamente no
+MySQL. Não existe tela de criação de conta no aplicativo. Um estabelecimento
+pode ter vários owners, e todo usuário pertence obrigatoriamente a um
+estabelecimento. Os cargos iniciais são `OWNER`,
 `MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
 modo que outros poderão ser adicionados posteriormente.
 
@@ -77,7 +88,7 @@ A API fica disponivel em `http://localhost:3333`:
 - `GET /health`: confirma que a API esta online.
 - `GET /ready`: confirma que o MySQL esta conectado.
 - `POST /auth/login`: autentica nome e senha e cria uma sessão opaca.
-- `GET /auth/me`: retorna usuário, cargos e permissões da sessão.
+- `GET /auth/me`: retorna estabelecimento, usuário, cargos e permissões da sessão.
 - `POST /auth/logout`: revoga a sessão atual.
 - `GET /tables`: lista as mesas persistidas e seus estados.
 - `GET /products`: lista os produtos ativos do catalogo seedado.
@@ -110,7 +121,10 @@ Somente `/health`, `/ready` e `/auth/login` são públicos. Todas as demais rota
 exigem `Authorization: Bearer <token>` e validam permissões no backend. Senhas
 são derivadas com `scrypt`, cada sessão pode ser revogada e usuários inativos
 não conseguem autenticar. Eventos de comanda e o log geral de auditoria guardam
-o `userId`, a ação, o recurso e a data/hora.
+o `establishmentId`, o `userId`, a ação, o recurso e a data/hora. O
+estabelecimento usado nas consultas vem exclusivamente da sessão autenticada;
+mesas, produtos, comandas, fiados e extratos não aceitam um tenant informado
+pelo cliente.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem

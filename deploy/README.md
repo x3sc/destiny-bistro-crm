@@ -105,7 +105,7 @@ curl --fail https://api.seu-dominio.com/health
 curl --fail https://api.seu-dominio.com/ready
 ```
 
-## Criar o primeiro usuário
+## Criar o estabelecimento e o primeiro owner
 
 Não passe a senha como argumento nem grave-a no histórico do shell. Carregue-a
 somente na sessão atual:
@@ -116,12 +116,15 @@ export USER_PROVISION_PASSWORD
 docker compose \
   --env-file deploy/.env.production \
   -f compose.vps.yaml \
-  exec -e USER_PROVISION_PASSWORD api npm run user:provision
+  exec -e USER_PROVISION_PASSWORD api npm run establishment:provision
 unset USER_PROVISION_PASSWORD
 ```
 
-O comando solicita nome e cargos. Os cargos iniciais são `OWNER`, `MANAGER`,
-`WAITER` e `KITCHEN`.
+O comando cria o estabelecimento, o primeiro owner, as mesas e o catálogo
+isolados dessa unidade. Para adicionar outros owners ou funcionários, carregue
+uma nova senha da mesma forma e execute `npm run user:provision`; o comando
+solicita em qual estabelecimento o usuário será cadastrado. Os cargos iniciais
+são `OWNER`, `MANAGER`, `WAITER` e `KITCHEN`.
 
 ## Backup
 

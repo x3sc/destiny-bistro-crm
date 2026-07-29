@@ -5,6 +5,10 @@ export interface AuthRole {
 }
 
 export interface AuthUser {
+  establishment: {
+    id: string;
+    name: string;
+  };
   id: string;
   name: string;
   permissions: string[];
@@ -25,4 +29,6 @@ export interface AuthRepository {
 
 export class AuthCredentialsError extends Error {}
 export class AuthInputError extends Error {}
+export class EstablishmentNotFoundError extends Error {}
+export class EstablishmentProvisionConflictError extends Error {}
 export class UserProvisionConflictError extends Error {}

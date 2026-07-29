@@ -17,6 +17,7 @@
     "test": "node --import tsx --test test/unit/app.test.ts test/unit/password.test.ts test/unit/product-catalog.test.ts test/unit/statement-report.test.ts",
     "test:integration": "node --import tsx --test test/integration/ready.integration.test.ts",
     "typecheck": "npm run prisma:generate && tsc --noEmit",
+    "establishment:provision": "tsx scripts/provision-establishment.ts",
     "user:provision": "tsx scripts/provision-user.ts"
   },
   "dependencies": {

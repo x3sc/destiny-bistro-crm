@@ -62,19 +62,40 @@ export interface Comanda {
 }
 
 export interface ComandaRepository {
-  addItem(comandaId: string, productId: string, actorUserId: string): Promise<Comanda>;
-  cancel(id: string, actorUserId: string): Promise<Comanda>;
+  addItem(
+    establishmentId: string,
+    comandaId: string,
+    productId: string,
+    actorUserId: string,
+  ): Promise<Comanda>;
+  cancel(establishmentId: string, id: string, actorUserId: string): Promise<Comanda>;
   changeItemQuantity(
+    establishmentId: string,
     comandaId: string,
     itemId: string,
     delta: 1 | -1,
     actorUserId: string,
   ): Promise<Comanda>;
-  close(id: string, actorUserId: string): Promise<Comanda>;
-  confirmItem(comandaId: string, itemId: string, actorUserId: string): Promise<Comanda>;
-  findById(id: string): Promise<Comanda>;
-  openForTable(tableId: number, name: string | null, actorUserId: string): Promise<Comanda>;
-  removeItem(comandaId: string, itemId: string, actorUserId: string): Promise<Comanda>;
+  close(establishmentId: string, id: string, actorUserId: string): Promise<Comanda>;
+  confirmItem(
+    establishmentId: string,
+    comandaId: string,
+    itemId: string,
+    actorUserId: string,
+  ): Promise<Comanda>;
+  findById(establishmentId: string, id: string): Promise<Comanda>;
+  openForTable(
+    establishmentId: string,
+    tableId: number,
+    name: string | null,
+    actorUserId: string,
+  ): Promise<Comanda>;
+  removeItem(
+    establishmentId: string,
+    comandaId: string,
+    itemId: string,
+    actorUserId: string,
+  ): Promise<Comanda>;
 }
 
 export class TableNotFoundError extends Error {}

@@ -15,6 +15,7 @@ export default function HomeScreen() {
         canAccessCredits={hasPermission(user, 'credits.read')}
         canAccessStatements={hasPermission(user, 'statements.read')}
         canAccessTables={hasPermission(user, 'tables.read')}
+        establishmentName={user?.establishment.name}
         onCredits={() => {
           router.push('/credits' as Href);
         }}

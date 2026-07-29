@@ -25,14 +25,20 @@ export * from "./comanda-types.js";
 
 export function createComandaRepository(prisma: PrismaClient): ComandaRepository {
   return {
-    async addItem(comandaId, productId, actorUserId) {
+    async addItem(establishmentId, comandaId, productId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        addComandaItem(transaction, comandaId, productId, actorUserId),
+        addComandaItem(
+          transaction,
+          establishmentId,
+          comandaId,
+          productId,
+          actorUserId,
+        ),
       );
     },
-    async cancel(id, actorUserId) {
+    async cancel(establishmentId, id, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const activeComanda = await transaction.comanda.findUnique({
+        const activeComanda = await transaction.comanda.findFirst({
           select: {
             activeForTable: {
               select: {
@@ -47,7 +53,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             status: true,
             tableId: true,
           },
-          where: { id },
+          where: { establishmentId, id },
         });
 
         if (!activeComanda) {
@@ -65,11 +71,12 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         await releaseActiveTable(
           transaction,
+          establishmentId,
           id,
           activeComanda.tableId,
           () => new ComandaNotCancellableError(),
         );
-        await cancelOpenComanda(transaction, id);
+        await cancelOpenComanda(transaction, establishmentId, id);
 
         await transaction.comandaEvent.create({
           data: {
@@ -82,19 +89,27 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         await transaction.auditLog.create({
           data: createAuditData({
             action: "COMANDA_CANCELLED",
+            establishmentId,
             resourceId: id,
             resourceType: "COMANDA",
             userId: actorUserId,
           }),
         });
 
-        return getComandaOrThrow(transaction, id);
+        return getComandaOrThrow(transaction, establishmentId, id);
       });
     },
-    async changeItemQuantity(comandaId, itemId, delta, actorUserId) {
+    async changeItemQuantity(
+      establishmentId,
+      comandaId,
+      itemId,
+      delta,
+      actorUserId,
+    ) {
       return prisma.$transaction((transaction) =>
         changeComandaItemQuantity(
           transaction,
+          establishmentId,
           comandaId,
           itemId,
           delta,
@@ -102,9 +117,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         ),
       );
     },
-    async close(id, actorUserId) {
+    async close(establishmentId, id, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const activeComanda = await transaction.comanda.findUnique({
+        const activeComanda = await transaction.comanda.findFirst({
           select: {
             activeForTable: {
               select: {
@@ -120,7 +135,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             status: true,
             tableId: true,
           },
-          where: { id },
+          where: { establishmentId, id },
         });
 
         if (!activeComanda) {
@@ -142,6 +157,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         await releaseActiveTable(
           transaction,
+          establishmentId,
           id,
           activeComanda.tableId,
           () => new ComandaNotClosableError(),
@@ -154,6 +170,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           },
           where: {
             id,
+            establishmentId,
             status: "OPEN",
           },
         });
@@ -172,24 +189,31 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         await transaction.auditLog.create({
           data: createAuditData({
             action: "COMANDA_CLOSED",
+            establishmentId,
             resourceId: id,
             resourceType: "COMANDA",
             userId: actorUserId,
           }),
         });
 
-        return getComandaOrThrow(transaction, id);
+        return getComandaOrThrow(transaction, establishmentId, id);
       });
     },
-    async confirmItem(comandaId, itemId, actorUserId) {
+    async confirmItem(establishmentId, comandaId, itemId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        confirmComandaItem(transaction, comandaId, itemId, actorUserId),
+        confirmComandaItem(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          actorUserId,
+        ),
       );
     },
-    async findById(id) {
-      const comanda = await prisma.comanda.findUnique({
+    async findById(establishmentId, id) {
+      const comanda = await prisma.comanda.findFirst({
         select: comandaSelect,
-        where: { id },
+        where: { establishmentId, id },
       });
 
       if (!comanda) {
@@ -198,7 +222,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
       return mapComanda(comanda);
     },
-    async openForTable(tableId, name, actorUserId) {
+    async openForTable(establishmentId, tableId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const claimedTable = await transaction.restaurantTable.updateMany({
           data: {
@@ -206,17 +230,19 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           },
           where: {
             activeComandaId: null,
+            establishmentId,
             id: tableId,
             status: "FREE",
           },
         });
 
         if (claimedTable.count !== 1) {
-          const tableExists = await transaction.restaurantTable.findUnique({
+          const tableExists = await transaction.restaurantTable.findFirst({
             select: {
               id: true,
             },
             where: {
+              establishmentId,
               id: tableId,
             },
           });
@@ -230,6 +256,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         const comanda = await transaction.comanda.create({
           data: {
+            establishmentId,
             events: {
               create: {
                 actorUserId,
@@ -242,17 +269,24 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           select: comandaSelect,
         });
 
-        await transaction.restaurantTable.update({
+        const linkedTable = await transaction.restaurantTable.updateMany({
           data: {
             activeComandaId: comanda.id,
           },
           where: {
+            establishmentId,
             id: tableId,
           },
         });
+
+        if (linkedTable.count !== 1) {
+          throw new TableUnavailableError();
+        }
+
         await transaction.auditLog.create({
           data: createAuditData({
             action: "COMANDA_OPENED",
+            establishmentId,
             metadata: {
               name,
               tableId,
@@ -266,9 +300,15 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         return mapComanda(comanda);
       });
     },
-    async removeItem(comandaId, itemId, actorUserId) {
+    async removeItem(establishmentId, comandaId, itemId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        removeComandaItem(transaction, comandaId, itemId, actorUserId),
+        removeComandaItem(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          actorUserId,
+        ),
       );
     },
   };
@@ -276,6 +316,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
 async function releaseActiveTable(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
   tableId: number,
   conflictError: () => Error,
@@ -287,6 +328,7 @@ async function releaseActiveTable(
     },
     where: {
       activeComandaId: comandaId,
+      establishmentId,
       id: tableId,
       status: "OPEN",
     },
@@ -297,7 +339,11 @@ async function releaseActiveTable(
   }
 }
 
-async function cancelOpenComanda(transaction: Transaction, id: string) {
+async function cancelOpenComanda(
+  transaction: Transaction,
+  establishmentId: string,
+  id: string,
+) {
   const cancelledComanda = await transaction.comanda.updateMany({
     data: {
       cancellationReason: "OPENED_BY_MISTAKE",
@@ -305,6 +351,7 @@ async function cancelOpenComanda(transaction: Transaction, id: string) {
       status: "CANCELLED",
     },
     where: {
+      establishmentId,
       id,
       status: "OPEN",
     },

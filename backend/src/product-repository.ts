@@ -9,12 +9,12 @@ export interface Product {
 }
 
 export interface ProductRepository {
-  listActive(): Promise<Product[]>;
+  listActive(establishmentId: string): Promise<Product[]>;
 }
 
 export function createProductRepository(prisma: PrismaClient): ProductRepository {
   return {
-    async listActive() {
+    async listActive(establishmentId) {
       return prisma.product.findMany({
         orderBy: {
           name: "asc",
@@ -27,6 +27,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
         },
         where: {
           active: true,
+          establishmentId,
         },
       });
     },

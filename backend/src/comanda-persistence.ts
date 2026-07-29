@@ -110,8 +110,12 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
   };
 }
 
-export async function findOpenComanda(transaction: Transaction, id: string) {
-  const comanda = await transaction.comanda.findUnique({
+export async function findOpenComanda(
+  transaction: Transaction,
+  establishmentId: string,
+  id: string,
+) {
+  const comanda = await transaction.comanda.findFirst({
     select: {
       activeForTable: {
         select: {
@@ -125,7 +129,7 @@ export async function findOpenComanda(transaction: Transaction, id: string) {
       },
       status: true,
     },
-    where: { id },
+    where: { establishmentId, id },
   });
 
   if (!comanda) {
@@ -141,26 +145,34 @@ export async function findOpenComanda(transaction: Transaction, id: string) {
   }
 }
 
-export async function getComandaOrThrow(transaction: Transaction, id: string) {
+export async function getComandaOrThrow(
+  transaction: Transaction,
+  establishmentId: string,
+  id: string,
+) {
   return mapComanda(
-    await transaction.comanda.findUniqueOrThrow({
+    await transaction.comanda.findFirstOrThrow({
       select: comandaSelect,
-      where: { id },
+      where: { establishmentId, id },
     }),
   );
 }
 
 export async function syncOpenCreditOrderTotal(
   transaction: Transaction,
+  establishmentId: string,
   comandaId: string,
 ) {
-  const order = await transaction.creditOrder.findUnique({
+  const order = await transaction.creditOrder.findFirst({
     select: {
       id: true,
       status: true,
     },
     where: {
       comandaId,
+      comanda: {
+        establishmentId,
+      },
     },
   });
 
@@ -199,6 +211,7 @@ export async function syncOpenCreditOrderTotal(
 export async function recordItemEvent(
   transaction: Transaction,
   data: {
+    establishmentId: string;
     comandaId: string;
     itemId: string;
     newQuantity: number;
@@ -211,11 +224,22 @@ export async function recordItemEvent(
   },
 ) {
   await transaction.comandaEvent.create({
-    data,
+    data: {
+      actorUserId: data.actorUserId,
+      comandaId: data.comandaId,
+      itemId: data.itemId,
+      newQuantity: data.newQuantity,
+      previousQuantity: data.previousQuantity,
+      productId: data.productId,
+      productName: data.productName,
+      type: data.type,
+      unitPriceCents: data.unitPriceCents,
+    },
   });
   await transaction.auditLog.create({
     data: createAuditData({
       action: `COMANDA_${data.type}`,
+      establishmentId: data.establishmentId,
       metadata: {
         comandaId: data.comandaId,
         newQuantity: data.newQuantity,

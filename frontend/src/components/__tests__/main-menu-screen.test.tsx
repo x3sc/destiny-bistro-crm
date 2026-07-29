@@ -33,6 +33,7 @@ it('shows only permitted areas and logs out the identified user', () => {
       canAccessCredits={false}
       canAccessStatements={false}
       canAccessTables
+      establishmentName="Destiny Centro"
       onCredits={jest.fn()}
       onLogout={onLogout}
       onStatements={jest.fn()}
@@ -45,6 +46,7 @@ it('shows only permitted areas and logs out the identified user', () => {
   expect(screen.queryByText('Fiados')).toBeNull();
   expect(screen.queryByText('Extratos')).toBeNull();
   expect(screen.getByText('Conectado como Cozinha')).toBeTruthy();
+  expect(screen.getByText('Destiny Centro')).toBeTruthy();
   fireEvent.press(screen.getByText('Sair'));
   expect(onLogout).toHaveBeenCalledTimes(1);
 });

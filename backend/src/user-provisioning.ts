@@ -5,6 +5,7 @@ import {
 } from "./auth-repository.js";
 import {
   AuthInputError,
+  EstablishmentNotFoundError,
   UserProvisionConflictError,
 } from "./auth-types.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
@@ -13,15 +14,21 @@ import { hashPassword } from "./password.js";
 export async function provisionUser(
   prisma: PrismaClient,
   {
+    establishmentName: rawEstablishmentName,
     name: rawName,
     password,
     roleCodes: rawRoleCodes,
   }: {
+    establishmentName: string;
     name: string;
     password: string;
     roleCodes: string[];
   },
 ) {
+  const normalizedEstablishmentName = rawEstablishmentName
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase("pt-BR");
   const { name, normalizedName } = normalizeUserName(rawName);
   validatePassword(password);
   const roleCodes = [
@@ -33,6 +40,15 @@ export async function provisionUser(
   }
 
   await ensureSystemAccessControl(prisma);
+  const establishment = await prisma.establishment.findUnique({
+    select: { id: true },
+    where: { normalizedName: normalizedEstablishmentName },
+  });
+
+  if (!establishment) {
+    throw new EstablishmentNotFoundError();
+  }
+
   const roles = await prisma.role.findMany({
     select: { id: true },
     where: { code: { in: roleCodes } },
@@ -47,6 +63,7 @@ export async function provisionUser(
   try {
     return await prisma.user.create({
       data: {
+        establishmentId: establishment.id,
         name,
         normalizedName,
         passwordHash,
@@ -55,6 +72,12 @@ export async function provisionUser(
         },
       },
       select: {
+        establishment: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         id: true,
         name: true,
         roles: {

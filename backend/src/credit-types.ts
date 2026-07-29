@@ -40,18 +40,45 @@ export interface CreditCustomerDetails extends CreditCustomerSummary {
 }
 
 export interface CreditRepository {
-  cancelOrder(orderId: string, actorUserId: string): Promise<CreditOrder>;
+  cancelOrder(
+    establishmentId: string,
+    orderId: string,
+    actorUserId: string,
+  ): Promise<CreditOrder>;
   convertComanda(
+    establishmentId: string,
     comandaId: string,
     customerId: string,
     actorUserId: string,
   ): Promise<CreditOrder>;
-  createCustomer(name: string, actorUserId: string): Promise<CreditCustomerSummary>;
-  createOrder(customerId: string, actorUserId: string): Promise<CreditOrder>;
-  finalizeOrder(orderId: string, actorUserId: string): Promise<CreditOrder>;
-  findCustomer(customerId: string): Promise<CreditCustomerDetails>;
-  listCustomers(includeInactive?: boolean): Promise<CreditCustomerSummary[]>;
-  settleOrder(orderId: string, actorUserId: string): Promise<CreditSettlement>;
+  createCustomer(
+    establishmentId: string,
+    name: string,
+    actorUserId: string,
+  ): Promise<CreditCustomerSummary>;
+  createOrder(
+    establishmentId: string,
+    customerId: string,
+    actorUserId: string,
+  ): Promise<CreditOrder>;
+  finalizeOrder(
+    establishmentId: string,
+    orderId: string,
+    actorUserId: string,
+  ): Promise<CreditOrder>;
+  findCustomer(
+    establishmentId: string,
+    customerId: string,
+  ): Promise<CreditCustomerDetails>;
+  listCustomers(
+    establishmentId: string,
+    includeInactive?: boolean,
+  ): Promise<CreditCustomerSummary[]>;
+  settleOrder(
+    establishmentId: string,
+    orderId: string,
+    actorUserId: string,
+  ): Promise<CreditSettlement>;
 }
 
 export class CreditCustomerNotFoundError extends Error {}
