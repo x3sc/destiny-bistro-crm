@@ -73,6 +73,15 @@ A API fica disponivel em `http://localhost:3333`:
 - `POST /comandas/:comandaId/close`: fecha uma comanda sem itens pendentes e
   libera a mesa.
 - `POST /comandas/:comandaId/cancel`: cancela uma comanda vazia aberta por engano.
+- `GET/POST /credit-customers`: lista pessoas com saldo/rascunho e cadastra
+  pessoas por nome normalizado.
+- `GET /credit-customers/:customerId`: consulta pedidos, saldo e quitacoes.
+- `POST /credit-customers/:customerId/orders`: cria um fiado manual em rascunho.
+- `POST /credit-orders/:orderId/finalize`: finaliza um rascunho sem itens
+  pendentes.
+- `POST /credit-orders/:orderId/cancel`: cancela um rascunho com auditoria.
+- `POST /credit-orders/:orderId/settle`: quita apenas o fiado selecionado.
+- `POST /comandas/:comandaId/credit`: fecha uma mesa como fiado e libera a mesa.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
@@ -98,6 +107,13 @@ npm.cmd start
 
 Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
 computador.
+
+O menu principal separa **Mesas**, **Fiados** e **Extratos**. Extratos permanece
+identificado como "Em breve". Em Fiados, o aplicativo permite cadastrar ou
+selecionar uma pessoa, retomar rascunhos, fechar comandas de mesa como divida e
+quitar cada fiado individualmente. Fiados em aberto continuam editaveis; a
+comanda exibe a data e hora em que cada produto foi adicionado. O detalhe da
+pessoa permite filtrar pedidos em aberto e quitados e abrir a comanda completa.
 
 ### Compatibilidade do Expo
 
@@ -129,6 +145,6 @@ npm.cmd test
 
 ## Status
 
-Quarta fatia vertical em desenvolvimento: catalogo seedado, lancamento de itens
-consolidados na comanda, quantidades novas e imutaveis, subtotais, total geral em
-centavos, nome opcional, fechamento de mesa e auditoria das alteracoes de consumo.
+Quinta fatia vertical em desenvolvimento: menu principal, comandas de mesa,
+catalogo e quantidades confirmadas, alem de fiados manuais ou convertidos de mesa,
+saldo agrupado por pessoa, quitacao individual e preservacao do historico financeiro.
