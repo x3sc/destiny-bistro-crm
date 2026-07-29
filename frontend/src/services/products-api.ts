@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from './api-base-url';
+import { authenticatedFetch } from './auth-session';
 
 export const PRODUCT_CATEGORY_OPTIONS = [
   { label: 'Hambúrgueres clássicos', value: 'CLASSIC_BURGERS' },
@@ -52,7 +53,7 @@ function requireApiBaseUrl(value: string) {
 }
 
 export async function loadProducts(apiBaseUrl: string) {
-  const response = await fetch(`${requireApiBaseUrl(apiBaseUrl)}/products`);
+  const response = await authenticatedFetch(`${requireApiBaseUrl(apiBaseUrl)}/products`);
 
   if (!response.ok) {
     throw new Error('Products request failed');

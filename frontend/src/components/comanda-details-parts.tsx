@@ -10,6 +10,16 @@ export const statusLabels: Record<Comanda['status'], string> = {
   OPEN: 'Aberta',
 };
 
+const eventLabels: Record<Comanda['events'][number]['type'], string> = {
+  CANCELLED: 'Comanda cancelada',
+  CLOSED: 'Comanda fechada',
+  ITEM_ADDED: 'Produto adicionado',
+  ITEM_CONFIRMED: 'Quantidade confirmada',
+  ITEM_QUANTITY_CHANGED: 'Quantidade alterada',
+  ITEM_REMOVED: 'Produto removido',
+  OPENED: 'Comanda aberta',
+};
+
 export function Message({
   text,
   tone = 'error',
@@ -107,6 +117,29 @@ function formatItemDateTime(value: string) {
   return new Date(value).toLocaleString('pt-BR');
 }
 
+export function ComandaHistory({ comanda }: { comanda: Comanda }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.sectionTitle}>Histórico</Text>
+      {[...comanda.events].reverse().map((event, index) => (
+        <View
+          key={`${event.type}-${event.createdAt}-${index}`}
+          style={styles.itemRow}
+        >
+          <Text style={styles.itemName}>{eventLabels[event.type]}</Text>
+          {event.productName && (
+            <Text style={styles.description}>{event.productName}</Text>
+          )}
+          <Text style={styles.description}>
+            {event.actor?.name ?? 'Operador anterior à autenticação'} ·{' '}
+            {new Date(event.createdAt).toLocaleString('pt-BR')}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function ComandaActions({
   canCancel,
   canClose,
@@ -121,6 +154,7 @@ export function ComandaActions({
   onClose,
   onCloseAsCredit,
   onFinalizeCredit,
+  readOnly,
   status,
 }: {
   canCancel: boolean;
@@ -136,8 +170,21 @@ export function ComandaActions({
   onClose: () => void;
   onCloseAsCredit: () => void;
   onFinalizeCredit: () => void;
+  readOnly: boolean;
   status: Comanda['status'];
 }) {
+  if (readOnly) {
+    return (
+      <View style={styles.actions}>
+        <Message
+          text="Seu cargo permite consultar esta comanda, sem realizar alterações."
+          tone="notice"
+        />
+        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
+      </View>
+    );
+  }
+
   if (status !== 'OPEN') {
     return <ActionButton label="Voltar" onPress={onBack} tone="secondary" />;
   }

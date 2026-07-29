@@ -75,6 +75,24 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  deployment:
+    name: VPS deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production Compose
+        run: >-
+          docker compose
+          --env-file deploy/.env.example
+          -f compose.vps.yaml
+          config --quiet
+      - name: Build production images
+        run: >-
+          docker compose
+          --env-file deploy/.env.example
+          -f compose.vps.yaml
+          build api web
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest

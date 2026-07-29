@@ -24,3 +24,27 @@ it('navigates to tables, credits and statements', () => {
   expect(onStatements).toHaveBeenCalledTimes(1);
   expect(screen.queryByText('Em breve')).toBeNull();
 });
+
+it('shows only permitted areas and logs out the identified user', () => {
+  const onLogout = jest.fn();
+
+  render(
+    <MainMenuScreen
+      canAccessCredits={false}
+      canAccessStatements={false}
+      canAccessTables
+      onCredits={jest.fn()}
+      onLogout={onLogout}
+      onStatements={jest.fn()}
+      onTables={jest.fn()}
+      userName="Cozinha"
+    />,
+  );
+
+  expect(screen.getByText('Mesas')).toBeTruthy();
+  expect(screen.queryByText('Fiados')).toBeNull();
+  expect(screen.queryByText('Extratos')).toBeNull();
+  expect(screen.getByText('Conectado como Cozinha')).toBeTruthy();
+  fireEvent.press(screen.getByText('Sair'));
+  expect(onLogout).toHaveBeenCalledTimes(1);
+});

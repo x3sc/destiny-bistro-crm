@@ -18,6 +18,7 @@ const comanda = {
   credit: null,
   events: [
     {
+      actor: null,
       createdAt: '2026-06-02T19:00:00.000Z',
       itemId: null,
       newQuantity: null,

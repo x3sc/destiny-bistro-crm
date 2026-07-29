@@ -1,4 +1,5 @@
 import { type Prisma, type PrismaClient } from "./generated/prisma/client.js";
+import { createAuditData } from "./audit.js";
 import {
   CreditCustomerNameError,
   CreditCustomerNotFoundError,
@@ -68,7 +69,7 @@ export function normalizeCreditCustomerName(value: string) {
 
 export function createCreditRepository(prisma: PrismaClient): CreditRepository {
   return {
-    async cancelOrder(orderId) {
+    async cancelOrder(orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const order = await transaction.creditOrder.findUnique({
           select: {
@@ -120,16 +121,26 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
         await transaction.comandaEvent.create({
           data: {
+            actorUserId,
             comandaId: order.comandaId,
             reason: "OPENED_BY_MISTAKE",
             type: "CANCELLED",
           },
         });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "CREDIT_ORDER_CANCELLED",
+            metadata: { comandaId: order.comandaId },
+            resourceId: orderId,
+            resourceType: "CREDIT_ORDER",
+            userId: actorUserId,
+          }),
+        });
 
         return getOrderOrThrow(transaction, orderId);
       });
     },
-    async convertComanda(comandaId, customerId) {
+    async convertComanda(comandaId, customerId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         await ensureCustomerExists(transaction, customerId);
 
@@ -203,30 +214,52 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           },
           select: creditOrderSelect,
         });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "COMANDA_CONVERTED_TO_CREDIT",
+            metadata: { comandaId, customerId },
+            resourceId: order.id,
+            resourceType: "CREDIT_ORDER",
+            userId: actorUserId,
+          }),
+        });
 
         return mapOrder(order);
       });
     },
-    async createCustomer(rawName) {
+    async createCustomer(rawName, actorUserId) {
       const { name, normalizedName } = normalizeCreditCustomerName(rawName);
-      const customer = await prisma.creditCustomer.upsert({
-        create: {
-          name,
-          normalizedName,
-        },
-        select: {
-          id: true,
-          name: true,
-        },
-        update: {},
-        where: {
-          normalizedName,
-        },
+      const customer = await prisma.$transaction(async (transaction) => {
+        const persisted = await transaction.creditCustomer.upsert({
+          create: {
+            name,
+            normalizedName,
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+          update: {},
+          where: {
+            normalizedName,
+          },
+        });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "CREDIT_CUSTOMER_SELECTED",
+            metadata: { name: persisted.name },
+            resourceId: persisted.id,
+            resourceType: "CREDIT_CUSTOMER",
+            userId: actorUserId,
+          }),
+        });
+
+        return persisted;
       });
 
       return emptyCustomerSummary(customer);
     },
-    async createOrder(customerId) {
+    async createOrder(customerId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const customer = await transaction.creditCustomer.findUnique({
           select: {
@@ -244,6 +277,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             events: {
               create: {
+                actorUserId,
                 type: "OPENED",
               },
             },
@@ -263,11 +297,20 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           },
           select: creditOrderSelect,
         });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "CREDIT_ORDER_CREATED",
+            metadata: { comandaId: comanda.id, customerId },
+            resourceId: order.id,
+            resourceType: "CREDIT_ORDER",
+            userId: actorUserId,
+          }),
+        });
 
         return mapOrder(order);
       });
     },
-    async finalizeOrder(orderId) {
+    async finalizeOrder(orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const order = await transaction.creditOrder.findUnique({
           select: {
@@ -318,6 +361,15 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         if (finalizedOrder.count !== 1) {
           throw new CreditOrderConflictError();
         }
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "CREDIT_ORDER_FINALIZED",
+            metadata: { comandaId: order.comandaId },
+            resourceId: orderId,
+            resourceType: "CREDIT_ORDER",
+            userId: actorUserId,
+          }),
+        });
 
         return getOrderOrThrow(transaction, orderId);
       });
@@ -394,7 +446,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
       return customers.map(mapCustomerSummary);
     },
-    async settleOrder(orderId) {
+    async settleOrder(orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const order = await transaction.creditOrder.findUnique({
           select: {
@@ -471,9 +523,23 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
         await transaction.comandaEvent.create({
           data: {
+            actorUserId,
             comandaId: order.comandaId,
             type: "CLOSED",
           },
+        });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "CREDIT_ORDER_SETTLED",
+            metadata: {
+              amountCents: settlement.amountCents,
+              comandaId: order.comandaId,
+              settlementId: settlement.id,
+            },
+            resourceId: orderId,
+            resourceType: "CREDIT_ORDER",
+            userId: actorUserId,
+          }),
         });
 
         return mapSettlement(settlement, orderId);

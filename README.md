@@ -53,13 +53,32 @@ Set-Location backend
 npm.cmd install
 npm.cmd run prisma:migrate:deploy
 npm.cmd run prisma:seed
+npm.cmd run user:provision
 npm.cmd run dev
 ```
+
+Antes de executar `user:provision`, informe a senha somente na sessão atual do
+PowerShell:
+
+```powershell
+$senha = Read-Host "Senha inicial" -AsSecureString
+$env:USER_PROVISION_PASSWORD = [Net.NetworkCredential]::new("", $senha).Password
+npm.cmd run user:provision
+Remove-Item Env:\USER_PROVISION_PASSWORD
+```
+
+O comando solicita o nome e os cargos e grava diretamente no MySQL. Não existe
+tela de criação de conta no aplicativo. Os cargos iniciais são `OWNER`,
+`MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
+modo que outros poderão ser adicionados posteriormente.
 
 A API fica disponivel em `http://localhost:3333`:
 
 - `GET /health`: confirma que a API esta online.
 - `GET /ready`: confirma que o MySQL esta conectado.
+- `POST /auth/login`: autentica nome e senha e cria uma sessão opaca.
+- `GET /auth/me`: retorna usuário, cargos e permissões da sessão.
+- `POST /auth/logout`: revoga a sessão atual.
 - `GET /tables`: lista as mesas persistidas e seus estados.
 - `GET /products`: lista os produtos ativos do catalogo seedado.
 - `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre e aceita
@@ -86,6 +105,12 @@ A API fica disponivel em `http://localhost:3333`:
   detalhamento diario e movimentacoes do periodo no fuso `America/Sao_Paulo`.
 - `GET /statements/export.pdf?from=AAAA-MM-DD&to=AAAA-MM-DD`: exporta o mesmo
   extrato como PDF.
+
+Somente `/health`, `/ready` e `/auth/login` são públicos. Todas as demais rotas
+exigem `Authorization: Bearer <token>` e validam permissões no backend. Senhas
+são derivadas com `scrypt`, cada sessão pode ser revogada e usuários inativos
+não conseguem autenticar. Eventos de comanda e o log geral de auditoria guardam
+o `userId`, a ação, o recurso e a data/hora.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
@@ -119,6 +144,11 @@ continuam editaveis; a comanda exibe a data e hora em que cada produto foi
 adicionado. O detalhe da pessoa permite filtrar pedidos em aberto e quitados e
 abrir a comanda completa.
 
+Antes do menu, o aplicativo exige login. A sessão fica no `expo-secure-store` no
+Android/iOS e os módulos são exibidos conforme as permissões do usuário.
+`KITCHEN` pode consultar mesas, comandas e itens confirmados sem alterar valores;
+o histórico da comanda identifica o operador e o horário de cada evento.
+
 Em Extratos, um unico calendario seleciona um dia ou intervalo. A tela separa
 valores e itens vendidos dos recebidos, mostra comandas processadas, fechadas e
 canceladas e detalha cada dia. O botao de exportacao baixa o PDF no navegador ou
@@ -133,8 +163,31 @@ que a resolucao automatica de dependencias do npm selecione uma versao de
 
 `react-native-calendars` fornece a selecao visual do periodo.
 `expo-file-system` e `expo-sharing` permitem baixar e compartilhar o PDF no
-dispositivo. No backend, `pdfkit` gera o documento diretamente em memoria, sem
-arquivos temporarios. Os lockfiles registram as versoes resolvidas.
+dispositivo. `expo-secure-store` preserva o token de sessão no armazenamento
+protegido do Android/iOS. No backend, `pdfkit` gera o documento diretamente em
+memoria, sem arquivos temporarios. Os lockfiles registram as versoes resolvidas.
+
+## Limpeza operacional
+
+O comando abaixo apaga comandas, itens, eventos, clientes e fiados, libera todas
+as mesas e preserva produtos, mesas, usuários, cargos e permissões:
+
+```powershell
+Set-Location backend
+$env:RESET_OPERATIONAL_DATA = "CONFIRMAR"
+npm.cmd run data:reset:operational
+Remove-Item Env:\RESET_OPERATIONAL_DATA
+```
+
+Ele é protegido por confirmação explícita e não deve ser executado na VPS sem
+backup verificado.
+
+## Implantação em VPS
+
+Os arquivos `compose.vps.yaml`, `backend/Dockerfile` e `frontend/Dockerfile`
+preparam MySQL, API e frontend web. O procedimento completo, incluindo HTTPS,
+migrations, provisionamento do primeiro usuário e atualizações, está em
+[`deploy/README.md`](deploy/README.md).
 
 ## Validacao
 
@@ -159,6 +212,6 @@ npm.cmd test
 
 ## Status
 
-Sexta fatia vertical em desenvolvimento: extratos por periodo com valores e itens
-vendidos ou recebidos, detalhamento diario, comandas processadas e exportacao PDF,
-mantendo mesas, fiados e alteracoes de consumo auditaveis.
+Setima fatia vertical em desenvolvimento: autenticação por usuário, sessões
+revogáveis, cargos e permissões extensíveis, auditoria por `userId`, limpeza
+operacional controlada e preparação para implantação em VPS.

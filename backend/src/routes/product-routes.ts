@@ -2,7 +2,10 @@ import type { FastifyInstance } from "fastify";
 import type { ProductRepository } from "../product-repository.js";
 
 export function registerProductRoutes(app: FastifyInstance, products: ProductRepository) {
-  app.get("/products", async (_request, reply) => {
+  app.get(
+    "/products",
+    { config: { permission: "products.read" } },
+    async (_request, reply) => {
     try {
       return {
         products: await products.listActive(),
@@ -15,5 +18,6 @@ export function registerProductRoutes(app: FastifyInstance, products: ProductRep
         message: "Products unavailable",
       });
     }
-  });
+    },
+  );
 }

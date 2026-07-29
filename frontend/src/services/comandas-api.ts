@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from './api-base-url';
+import { authenticatedFetch } from './auth-session';
 
 export type ComandaStatus = 'OPEN' | 'CANCELLED' | 'CLOSED';
 export type ComandaEventType =
@@ -38,6 +39,10 @@ export interface Comanda {
   closedAt: string | null;
   credit: ComandaCreditSummary | null;
   events: {
+    actor: {
+      id: string;
+      name: string;
+    } | null;
     createdAt: string;
     itemId: string | null;
     newQuantity: number | null;
@@ -69,6 +74,11 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
   const event = value as Partial<Comanda['events'][number]>;
 
   return (
+    (event.actor === null ||
+      (!!event.actor &&
+        typeof event.actor === 'object' &&
+        typeof event.actor.id === 'string' &&
+        typeof event.actor.name === 'string')) &&
     typeof event.createdAt === 'string' &&
     (event.itemId === null || typeof event.itemId === 'string') &&
     (event.newQuantity === null || Number.isInteger(event.newQuantity)) &&
@@ -204,7 +214,7 @@ export async function openComanda(
   const normalizedName = name?.trim();
 
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/tables/${tableId}/comandas`,
       jsonMutationInit('POST', normalizedName ? { name: normalizedName } : {}),
     ),
@@ -213,13 +223,13 @@ export async function openComanda(
 
 export async function loadComanda(apiBaseUrl: string, comandaId: string) {
   return readComanda(
-    await fetch(`${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}`),
+    await authenticatedFetch(`${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}`),
   );
 }
 
 export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
       jsonMutationInit('POST'),
     ),
@@ -228,7 +238,7 @@ export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
 
 export async function closeComanda(apiBaseUrl: string, comandaId: string) {
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/close`,
       jsonMutationInit('POST'),
     ),
@@ -241,7 +251,7 @@ export async function addComandaItem(
   productId: string,
 ) {
   return readComanda(
-    await fetch(`${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items`, {
+    await authenticatedFetch(`${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items`, {
       ...jsonMutationInit('POST', { productId }),
     }),
   );
@@ -254,7 +264,7 @@ export async function changeComandaItemQuantity(
   delta: 1 | -1,
 ) {
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
       jsonMutationInit('PATCH', { delta }),
     ),
@@ -267,7 +277,7 @@ export async function confirmComandaItem(
   itemId: string,
 ) {
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
       jsonMutationInit('POST'),
     ),
@@ -280,7 +290,7 @@ export async function removeComandaItem(
   itemId: string,
 ) {
   return readComanda(
-    await fetch(
+    await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
       jsonMutationInit('DELETE'),
     ),

@@ -1,7 +1,11 @@
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { Linking, Platform } from 'react-native';
+import { Platform } from 'react-native';
 
+import {
+  authenticatedFetch,
+  getActiveAuthToken,
+} from './auth-session';
 import { statementPdfUrl } from './statements-api';
 
 export async function exportStatementPdf(
@@ -11,35 +15,45 @@ export async function exportStatementPdf(
   runtime: StatementExportRuntime = defaultRuntime,
 ) {
   const url = statementPdfUrl(apiBaseUrl, from, to);
+  const filename = `extrato-${from}-a-${to}.pdf`;
 
   if (runtime.platform === 'web') {
-    await runtime.openWeb(url);
+    await runtime.downloadWeb(url, filename);
     return;
   }
 
-  const filename = `extrato-${from}-a-${to}.pdf`;
-  await runtime.downloadAndShare(url, filename);
+  await runtime.downloadAndShare(url, filename, getActiveAuthToken());
 }
 
 interface StatementExportRuntime {
-  downloadAndShare: (url: string, filename: string) => Promise<void>;
-  openWeb: (url: string) => Promise<unknown>;
+  downloadAndShare: (
+    url: string,
+    filename: string,
+    token: string | null,
+  ) => Promise<void>;
+  downloadWeb: (url: string, filename: string) => Promise<void>;
   platform: string;
 }
 
 const defaultRuntime: StatementExportRuntime = {
   downloadAndShare,
-  openWeb: (url) => Linking.openURL(url),
+  downloadWeb,
   platform: Platform.OS,
 };
 
-async function downloadAndShare(url: string, filename: string) {
+async function downloadAndShare(
+  url: string,
+  filename: string,
+  token: string | null,
+) {
   const destination = new File(Paths.cache, filename);
   if (destination.exists) {
     destination.delete();
   }
 
-  const file = await File.downloadFileAsync(url, destination);
+  const file = await File.downloadFileAsync(url, destination, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error('Compartilhamento indisponível neste dispositivo.');
   }
@@ -49,4 +63,19 @@ async function downloadAndShare(url: string, filename: string) {
     mimeType: 'application/pdf',
     UTI: 'com.adobe.pdf',
   });
+}
+
+async function downloadWeb(url: string, filename: string) {
+  const response = await authenticatedFetch(url);
+
+  if (!response.ok) {
+    throw new Error('Não foi possível exportar o extrato.');
+  }
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(objectUrl);
 }

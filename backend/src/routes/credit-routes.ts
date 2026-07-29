@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { requireAuthUser } from "../authentication.js";
 import {
   CreditCustomerNameError,
   CreditCustomerNotFoundError,
@@ -38,6 +39,7 @@ export function registerCreditRoutes(
 ) {
   app.get<{ Querystring: CustomerListQuery }>(
     "/credit-customers",
+    { config: { permission: "credits.read" } },
     async (request, reply) => {
       try {
         return {
@@ -58,6 +60,7 @@ export function registerCreditRoutes(
 
   app.post<{ Body: CreateCustomerBody }>(
     "/credit-customers",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       if (!request.body || typeof request.body.name !== "string") {
         return reply.code(409).send({
@@ -68,7 +71,10 @@ export function registerCreditRoutes(
 
       try {
         return reply.code(201).send({
-          customer: await credits.createCustomer(request.body.name),
+          customer: await credits.createCustomer(
+            request.body.name,
+            requireAuthUser(request).id,
+          ),
         });
       } catch (error) {
         if (error instanceof CreditCustomerNameError) {
@@ -90,6 +96,7 @@ export function registerCreditRoutes(
 
   app.get<{ Params: CustomerParams }>(
     "/credit-customers/:customerId",
+    { config: { permission: "credits.read" } },
     async (request, reply) => {
       try {
         return {
@@ -115,10 +122,14 @@ export function registerCreditRoutes(
 
   app.post<{ Params: CustomerParams }>(
     "/credit-customers/:customerId/orders",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       try {
         return reply.code(201).send({
-          order: await credits.createOrder(request.params.customerId),
+          order: await credits.createOrder(
+            request.params.customerId,
+            requireAuthUser(request).id,
+          ),
         });
       } catch (error) {
         if (error instanceof CreditCustomerNotFoundError) {
@@ -140,10 +151,14 @@ export function registerCreditRoutes(
 
   app.post<{ Params: OrderParams }>(
     "/credit-orders/:orderId/finalize",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       try {
         return {
-          order: await credits.finalizeOrder(request.params.orderId),
+          order: await credits.finalizeOrder(
+            request.params.orderId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         return sendOrderError(app, reply, error, "Credit order finalization failed");
@@ -153,10 +168,14 @@ export function registerCreditRoutes(
 
   app.post<{ Params: OrderParams }>(
     "/credit-orders/:orderId/cancel",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       try {
         return {
-          order: await credits.cancelOrder(request.params.orderId),
+          order: await credits.cancelOrder(
+            request.params.orderId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         return sendOrderError(app, reply, error, "Credit order cancellation failed");
@@ -166,10 +185,14 @@ export function registerCreditRoutes(
 
   app.post<{ Params: OrderParams }>(
     "/credit-orders/:orderId/settle",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       try {
         return {
-          settlement: await credits.settleOrder(request.params.orderId),
+          settlement: await credits.settleOrder(
+            request.params.orderId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         if (error instanceof CreditOrderNotFoundError) {
@@ -198,6 +221,7 @@ export function registerCreditRoutes(
 
   app.post<{ Body: ConvertComandaBody; Params: ComandaParams }>(
     "/comandas/:comandaId/credit",
+    { config: { permission: "credits.write" } },
     async (request, reply) => {
       if (
         !request.body ||
@@ -215,6 +239,7 @@ export function registerCreditRoutes(
           order: await credits.convertComanda(
             request.params.comandaId,
             request.body.customerId,
+            requireAuthUser(request).id,
           ),
         };
       } catch (error) {

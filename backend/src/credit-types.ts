@@ -40,14 +40,18 @@ export interface CreditCustomerDetails extends CreditCustomerSummary {
 }
 
 export interface CreditRepository {
-  cancelOrder(orderId: string): Promise<CreditOrder>;
-  convertComanda(comandaId: string, customerId: string): Promise<CreditOrder>;
-  createCustomer(name: string): Promise<CreditCustomerSummary>;
-  createOrder(customerId: string): Promise<CreditOrder>;
-  finalizeOrder(orderId: string): Promise<CreditOrder>;
+  cancelOrder(orderId: string, actorUserId: string): Promise<CreditOrder>;
+  convertComanda(
+    comandaId: string,
+    customerId: string,
+    actorUserId: string,
+  ): Promise<CreditOrder>;
+  createCustomer(name: string, actorUserId: string): Promise<CreditCustomerSummary>;
+  createOrder(customerId: string, actorUserId: string): Promise<CreditOrder>;
+  finalizeOrder(orderId: string, actorUserId: string): Promise<CreditOrder>;
   findCustomer(customerId: string): Promise<CreditCustomerDetails>;
   listCustomers(includeInactive?: boolean): Promise<CreditCustomerSummary[]>;
-  settleOrder(orderId: string): Promise<CreditSettlement>;
+  settleOrder(orderId: string, actorUserId: string): Promise<CreditSettlement>;
 }
 
 export class CreditCustomerNotFoundError extends Error {}

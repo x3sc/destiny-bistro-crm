@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildApp } from "../../src/app.js";
 import {
+  AuthCredentialsError,
+  type AuthRepository,
+  type AuthUser,
+} from "../../src/auth-repository.js";
+import {
   ComandaNotCancellableError,
   ComandaNotClosableError,
   ComandaNotFoundError,
@@ -33,6 +38,26 @@ import type { StatementReport } from "../../src/statement-report.js";
 import type { StatementRepository } from "../../src/statement-repository.js";
 
 const openedAt = "2026-06-02T19:00:00.000Z";
+const authenticatedUser: AuthUser = {
+  id: "user-id",
+  name: "Operador",
+  permissions: [
+    "comandas.read",
+    "comandas.write",
+    "credits.read",
+    "credits.write",
+    "products.read",
+    "statements.read",
+    "tables.read",
+  ],
+  roles: [
+    {
+      code: "OWNER",
+      id: "role-id",
+      name: "Dono",
+    },
+  ],
+};
 const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
@@ -40,6 +65,7 @@ const comanda: Comanda = {
   credit: null,
   events: [
     {
+      actor: null,
       createdAt: openedAt,
       itemId: null,
       newQuantity: null,
@@ -154,6 +180,7 @@ const comandaWithItem: Comanda = {
   events: [
     ...comanda.events,
     {
+      actor: null,
       createdAt: openedAt,
       itemId: "item-id",
       newQuantity: 1,
@@ -184,6 +211,22 @@ function createDatabase(ping: Database["ping"] = () => Promise.resolve()): Datab
   return {
     close: () => Promise.resolve(),
     ping,
+  };
+}
+
+function createAuth(
+  overrides: Partial<AuthRepository> = {},
+): AuthRepository {
+  return {
+    authenticate: () => Promise.resolve(authenticatedUser),
+    login: () =>
+      Promise.resolve({
+        expiresAt: "2026-06-03T07:00:00.000Z",
+        token: "test-authentication-token",
+        user: authenticatedUser,
+      }),
+    logout: () => Promise.resolve(),
+    ...overrides,
   };
 }
 
@@ -235,6 +278,7 @@ function createStatements(
 }
 
 async function createApp({
+  auth = createAuth(),
   comandas = createComandas(),
   credits = createCredits(),
   database = createDatabase(),
@@ -242,6 +286,7 @@ async function createApp({
   restaurantTables = createRestaurantTables(),
   statements = createStatements(),
 }: {
+  auth?: AuthRepository;
   comandas?: ComandaRepository;
   credits?: CreditRepository;
   database?: Database;
@@ -249,7 +294,8 @@ async function createApp({
   restaurantTables?: RestaurantTableRepository;
   statements?: StatementRepository;
 } = {}) {
-  return buildApp({
+  const app = await buildApp({
+    auth,
     comandas,
     credits,
     database,
@@ -257,6 +303,27 @@ async function createApp({
     restaurantTables,
     statements,
   });
+
+  const inject = app.inject.bind(app);
+  app.inject = ((options: unknown) => {
+    if (!options || typeof options !== "object") {
+      return inject(options as string);
+    }
+
+    const request = options as {
+      headers?: Record<string, string>;
+    };
+
+    return inject({
+      ...request,
+      headers: {
+        authorization: "Bearer test-authentication-token",
+        ...request.headers,
+      },
+    });
+  }) as typeof app.inject;
+
+  return app;
 }
 
 void test("GET /health reports the API status without querying the database", async () => {
@@ -316,6 +383,88 @@ void test("GET /ready hides database errors from the client", async () => {
     database: "unavailable",
   });
   assert.doesNotMatch(response.body, /internal database detail/);
+
+  await app.close();
+});
+
+void test("protected routes reject missing sessions", async () => {
+  const app = await createApp();
+  const response = await app.inject({
+    headers: {
+      authorization: "",
+    },
+    method: "GET",
+    url: "/tables",
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.deepEqual(response.json(), {
+    message: "Authentication required",
+    status: "error",
+  });
+
+  await app.close();
+});
+
+void test("protected routes reject users without the required permission", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: [],
+        }),
+    }),
+  });
+  const response = await app.inject({
+    method: "GET",
+    url: "/tables",
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), {
+    message: "Permission denied",
+    status: "error",
+  });
+
+  await app.close();
+});
+
+void test("POST /auth/login returns a generic error for invalid credentials", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      login: () => Promise.reject(new AuthCredentialsError()),
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      name: "Operador",
+      password: "wrong-password",
+    },
+    url: "/auth/login",
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.deepEqual(response.json(), {
+    message: "Invalid name or password",
+    status: "error",
+  });
+
+  await app.close();
+});
+
+void test("GET /auth/me exposes only the authenticated user contract", async () => {
+  const app = await createApp();
+  const response = await app.inject({
+    method: "GET",
+    url: "/auth/me",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    user: authenticatedUser,
+  });
 
   await app.close();
 });

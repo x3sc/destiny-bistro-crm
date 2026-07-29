@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from './api-base-url';
+import { authenticatedFetch } from './auth-session';
 
 export type RestaurantTableStatus = 'FREE' | 'OPEN' | 'AWAITING_CHECK';
 
@@ -61,7 +62,7 @@ export async function loadTables(apiBaseUrl: string): Promise<RestaurantTable[]>
     throw new Error('Missing API URL');
   }
 
-  const response = await fetch(`${normalizedApiBaseUrl}/tables`);
+  const response = await authenticatedFetch(`${normalizedApiBaseUrl}/tables`);
 
   if (!response.ok) {
     throw new Error('Tables request failed');
