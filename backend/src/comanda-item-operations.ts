@@ -8,6 +8,7 @@ import {
   findOpenComanda,
   getComandaOrThrow,
   recordItemEvent,
+  syncOpenCreditOrderTotal,
   type Transaction,
 } from "./comanda-persistence.js";
 
@@ -94,7 +95,7 @@ export async function addComandaItem(
     unitPriceCents: existingItem.unitPriceCents,
   });
 
-  return getComandaOrThrow(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, comandaId);
 }
 
 export async function changeComandaItemQuantity(
@@ -157,7 +158,7 @@ export async function changeComandaItemQuantity(
     unitPriceCents: item.unitPriceCents,
   });
 
-  return getComandaOrThrow(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, comandaId);
 }
 
 export async function confirmComandaItem(
@@ -217,7 +218,7 @@ export async function confirmComandaItem(
     unitPriceCents: item.unitPriceCents,
   });
 
-  return getComandaOrThrow(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, comandaId);
 }
 
 export async function removeComandaItem(
@@ -276,7 +277,7 @@ export async function removeComandaItem(
       unitPriceCents: item.unitPriceCents,
     });
 
-    return getComandaOrThrow(transaction, comandaId);
+    return getComandaAfterItemMutation(transaction, comandaId);
   }
 
   await recordItemEvent(transaction, {
@@ -294,7 +295,7 @@ export async function removeComandaItem(
     where: { id: itemId },
   });
 
-  return getComandaOrThrow(transaction, comandaId);
+  return getComandaAfterItemMutation(transaction, comandaId);
 }
 
 async function createFirstComandaItem(
@@ -330,7 +331,15 @@ async function createFirstComandaItem(
     unitPriceCents: product.unitPriceCents,
   });
 
-  return getComandaOrThrow(transaction, product.comandaId);
+  return getComandaAfterItemMutation(transaction, product.comandaId);
+}
+
+async function getComandaAfterItemMutation(
+  transaction: Transaction,
+  comandaId: string,
+) {
+  await syncOpenCreditOrderTotal(transaction, comandaId);
+  return getComandaOrThrow(transaction, comandaId);
 }
 
 async function updateComandaItemQuantity(

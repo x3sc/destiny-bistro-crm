@@ -46,6 +46,18 @@ enum ProductCategory {
   OTHER
 }
 
+enum CreditOrderSource {
+  MANUAL
+  TABLE
+}
+
+enum CreditOrderStatus {
+  DRAFT
+  OPEN
+  SETTLED
+  CANCELLED
+}
+
 model RestaurantTable {
   id              Int                   @id @default(autoincrement())
   number          Int                   @unique
@@ -61,9 +73,10 @@ model Comanda {
   id                 String                     @id @default(cuid())
   number             Int                        @unique @default(autoincrement())
   name               String?                    @db.VarChar(80)
-  tableId            Int
-  table              RestaurantTable            @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
+  tableId            Int?
+  table              RestaurantTable?           @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
+  creditOrder        CreditOrder?
   status             ComandaStatus              @default(OPEN)
   openedAt           DateTime                   @default(now())
   cancelledAt        DateTime?
@@ -75,6 +88,50 @@ model Comanda {
   updatedAt          DateTime                   @updatedAt
 
   @@index([tableId])
+}
+
+model CreditCustomer {
+  id             String             @id @default(cuid())
+  name           String             @db.VarChar(80)
+  normalizedName String             @unique @db.VarChar(80)
+  orders         CreditOrder[]
+  settlements    CreditSettlement[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model CreditOrder {
+  id           String             @id @default(cuid())
+  customerId   String
+  customer     CreditCustomer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  comandaId    String             @unique
+  comanda      Comanda            @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  source       CreditOrderSource
+  status       CreditOrderStatus  @default(DRAFT)
+  totalCents   Int                @default(0)
+  orderedAt    DateTime
+  finalizedAt  DateTime?
+  cancelledAt  DateTime?
+  settledAt    DateTime?
+  settlementId String?
+  settlement   CreditSettlement?  @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([customerId, status])
+  @@index([settlementId])
+}
+
+model CreditSettlement {
+  id          String         @id @default(cuid())
+  customerId  String
+  customer    CreditCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  amountCents Int
+  paidAt      DateTime       @default(now())
+  orders      CreditOrder[]
+  createdAt   DateTime       @default(now())
+
+  @@index([customerId, paidAt])
 }
 
 model Product {

@@ -9,6 +9,19 @@ export const comandaSelect = {
   cancellationReason: true,
   cancelledAt: true,
   closedAt: true,
+  creditOrder: {
+    select: {
+      customer: {
+        select: {
+          name: true,
+        },
+      },
+      customerId: true,
+      id: true,
+      source: true,
+      status: true,
+    },
+  },
   events: {
     orderBy: {
       createdAt: "asc",
@@ -32,6 +45,7 @@ export const comandaSelect = {
     },
     select: {
       confirmedQuantity: true,
+      createdAt: true,
       id: true,
       productId: true,
       productName: true,
@@ -58,15 +72,26 @@ type PersistedComanda = Prisma.ComandaGetPayload<{
 export type Transaction = Prisma.TransactionClient;
 
 export function mapComanda(comanda: PersistedComanda): Comanda {
+  const { creditOrder, ...persistedComanda } = comanda;
   const items = comanda.items.map((item) => ({
     ...item,
+    createdAt: item.createdAt.toISOString(),
     subtotalCents: item.unitPriceCents * item.quantity,
   }));
 
   return {
-    ...comanda,
+    ...persistedComanda,
     cancelledAt: comanda.cancelledAt?.toISOString() ?? null,
     closedAt: comanda.closedAt?.toISOString() ?? null,
+    credit: creditOrder
+      ? {
+          customerId: creditOrder.customerId,
+          customerName: creditOrder.customer.name,
+          orderId: creditOrder.id,
+          source: creditOrder.source,
+          status: creditOrder.status,
+        }
+      : null,
     events: comanda.events.map((event) => ({
       ...event,
       createdAt: event.createdAt.toISOString(),
@@ -85,6 +110,11 @@ export async function findOpenComanda(transaction: Transaction, id: string) {
           id: true,
         },
       },
+      creditOrder: {
+        select: {
+          status: true,
+        },
+      },
       status: true,
     },
     where: { id },
@@ -94,7 +124,11 @@ export async function findOpenComanda(transaction: Transaction, id: string) {
     throw new ComandaNotFoundError();
   }
 
-  if (comanda.status !== "OPEN" || !comanda.activeForTable) {
+  const isMutableCreditOrder =
+    comanda.creditOrder?.status === "DRAFT" ||
+    comanda.creditOrder?.status === "OPEN";
+
+  if (comanda.status !== "OPEN" || (!comanda.activeForTable && !isMutableCreditOrder)) {
     throw new ComandaNotMutableError();
   }
 }
@@ -106,6 +140,52 @@ export async function getComandaOrThrow(transaction: Transaction, id: string) {
       where: { id },
     }),
   );
+}
+
+export async function syncOpenCreditOrderTotal(
+  transaction: Transaction,
+  comandaId: string,
+) {
+  const order = await transaction.creditOrder.findUnique({
+    select: {
+      id: true,
+      status: true,
+    },
+    where: {
+      comandaId,
+    },
+  });
+
+  if (order?.status !== "OPEN") {
+    return;
+  }
+
+  const items = await transaction.comandaItem.findMany({
+    select: {
+      quantity: true,
+      unitPriceCents: true,
+    },
+    where: {
+      comandaId,
+    },
+  });
+  const totalCents = items.reduce(
+    (total, item) => total + item.quantity * item.unitPriceCents,
+    0,
+  );
+  const updated = await transaction.creditOrder.updateMany({
+    data: {
+      totalCents,
+    },
+    where: {
+      id: order.id,
+      status: "OPEN",
+    },
+  });
+
+  if (updated.count !== 1) {
+    throw new ComandaNotMutableError();
+  }
 }
 
 export async function recordItemEvent(

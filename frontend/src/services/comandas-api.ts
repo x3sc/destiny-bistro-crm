@@ -10,9 +10,20 @@ export type ComandaEventType =
   | 'ITEM_QUANTITY_CHANGED'
   | 'ITEM_REMOVED';
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
+export type CreditOrderSource = 'MANUAL' | 'TABLE';
+export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
+
+export interface ComandaCreditSummary {
+  customerId: string;
+  customerName: string;
+  orderId: string;
+  source: CreditOrderSource;
+  status: CreditOrderStatus;
+}
 
 export interface ComandaItem {
   confirmedQuantity: number;
+  createdAt: string;
   id: string;
   productId: string;
   productName: string;
@@ -25,6 +36,7 @@ export interface Comanda {
   cancellationReason: ComandaCancellationReason | null;
   cancelledAt: string | null;
   closedAt: string | null;
+  credit: ComandaCreditSummary | null;
   events: {
     createdAt: string;
     itemId: string | null;
@@ -45,7 +57,7 @@ export interface Comanda {
   table: {
     id: number;
     number: number;
-  };
+  } | null;
   totalCents: number;
 }
 
@@ -85,6 +97,7 @@ function isComandaItem(value: unknown): value is ComandaItem {
   return (
     Number.isInteger(item.confirmedQuantity) &&
     (item.confirmedQuantity ?? -1) >= 0 &&
+    typeof item.createdAt === 'string' &&
     typeof item.id === 'string' &&
     typeof item.productId === 'string' &&
     typeof item.productName === 'string' &&
@@ -92,6 +105,25 @@ function isComandaItem(value: unknown): value is ComandaItem {
     (item.confirmedQuantity ?? 0) <= (item.quantity ?? -1) &&
     Number.isInteger(item.subtotalCents) &&
     Number.isInteger(item.unitPriceCents)
+  );
+}
+
+function isComandaCredit(value: unknown): value is ComandaCreditSummary {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const credit = value as Partial<ComandaCreditSummary>;
+
+  return (
+    typeof credit.customerId === 'string' &&
+    typeof credit.customerName === 'string' &&
+    typeof credit.orderId === 'string' &&
+    (credit.source === 'MANUAL' || credit.source === 'TABLE') &&
+    (credit.status === 'DRAFT' ||
+      credit.status === 'OPEN' ||
+      credit.status === 'SETTLED' ||
+      credit.status === 'CANCELLED')
   );
 }
 
@@ -111,12 +143,13 @@ function isComanda(value: unknown): value is Comanda {
     (comanda.closedAt === null || typeof comanda.closedAt === 'string') &&
     (comanda.cancellationReason === null ||
       comanda.cancellationReason === 'OPENED_BY_MISTAKE') &&
+    (comanda.credit === null || isComandaCredit(comanda.credit)) &&
     (comanda.status === 'OPEN' ||
       comanda.status === 'CANCELLED' ||
       comanda.status === 'CLOSED') &&
-    !!comanda.table &&
-    Number.isInteger(comanda.table.id) &&
-    Number.isInteger(comanda.table.number) &&
+    (comanda.table === null ||
+      (Number.isInteger(comanda.table?.id) &&
+        Number.isInteger(comanda.table?.number))) &&
     Array.isArray(comanda.events) &&
     comanda.events.every(isComandaEvent) &&
     Array.isArray(comanda.items) &&

@@ -56,6 +56,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         if (
           activeComanda.status !== "OPEN" ||
           !activeComanda.activeForTable ||
+          activeComanda.tableId === null ||
           activeComanda._count.items > 0
         ) {
           throw new ComandaNotCancellableError();
@@ -117,6 +118,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         if (
           activeComanda.status !== "OPEN" ||
           !activeComanda.activeForTable ||
+          activeComanda.tableId === null ||
           hasPendingItems
         ) {
           throw new ComandaNotClosableError();

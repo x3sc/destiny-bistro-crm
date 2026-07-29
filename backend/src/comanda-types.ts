@@ -23,6 +23,7 @@ export interface ComandaEvent {
 
 export interface ComandaItem {
   confirmedQuantity: number;
+  createdAt: string;
   id: string;
   productId: string;
   productName: string;
@@ -35,6 +36,13 @@ export interface Comanda {
   cancellationReason: ComandaCancellationReason | null;
   cancelledAt: string | null;
   closedAt: string | null;
+  credit: {
+    customerId: string;
+    customerName: string;
+    orderId: string;
+    source: "MANUAL" | "TABLE";
+    status: "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
+  } | null;
   events: ComandaEvent[];
   id: string;
   items: ComandaItem[];
@@ -45,7 +53,7 @@ export interface Comanda {
   table: {
     id: number;
     number: number;
-  };
+  } | null;
   totalCents: number;
 }
 

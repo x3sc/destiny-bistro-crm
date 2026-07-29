@@ -16,6 +16,9 @@ before(async () => {
       status: "FREE",
     },
   });
+  await prisma.creditOrder.deleteMany();
+  await prisma.creditSettlement.deleteMany();
+  await prisma.creditCustomer.deleteMany();
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
@@ -28,6 +31,9 @@ after(async () => {
       status: "FREE",
     },
   });
+  await prisma.creditOrder.deleteMany();
+  await prisma.creditSettlement.deleteMany();
+  await prisma.creditCustomer.deleteMany();
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
@@ -35,9 +41,10 @@ after(async () => {
 });
 
 void test("GET /ready connects to the configured MySQL database", async () => {
-  const { comandas, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
   const app = await buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -63,9 +70,10 @@ void test("comanda lifecycle is persisted and audited", async () => {
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 1 },
   });
-  const { comandas, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
   const app = await buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -182,9 +190,10 @@ void test("concurrent comanda opening allows only one active comanda per table",
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 2 },
   });
-  const { comandas, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
   const app = await buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -263,9 +272,10 @@ void test("product seed is idempotent and listed as active catalog", async () =>
     0,
   );
 
-  const { comandas, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
   const app = await buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -309,9 +319,10 @@ void test("comanda items are consolidated, totaled and audited", async () => {
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
   const app = await buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -340,6 +351,7 @@ void test("comanda items are consolidated, totaled and audited", async () => {
       comanda: {
         items: {
           confirmedQuantity: number;
+          createdAt: string;
           id: string;
           productId: string;
           productName: string;
@@ -352,6 +364,7 @@ void test("comanda items are consolidated, totaled and audited", async () => {
     }>().comanda.items[0];
     assert.deepEqual(firstItem, {
       confirmedQuantity: 0,
+      createdAt: firstItem.createdAt,
       id: firstItem.id,
       productId: hamburger.id,
       productName: "Hambúrguer",
@@ -359,6 +372,7 @@ void test("comanda items are consolidated, totaled and audited", async () => {
       subtotalCents: 1_099,
       unitPriceCents: 1_099,
     });
+    assert.ok(firstItem.createdAt);
 
     const closeWithPendingItemResponse = await app.inject({
       method: "POST",
@@ -561,6 +575,417 @@ void test("comanda items are consolidated, totaled and audited", async () => {
       url: `/comandas/${openedComanda.id}/close`,
     });
     assert.equal(secondCloseResponse.statusCode, 409);
+  } finally {
+    await app.close();
+  }
+});
+
+void test("manual credit orders are resumed, finalized, grouped and settled", async () => {
+  const hamburger = await prisma.product.findUniqueOrThrow({
+    where: { code: "CLASSIC_HAMBURGER" },
+  });
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const app = await buildApp({
+    comandas,
+    credits,
+    database,
+    products,
+    restaurantTables,
+  });
+
+  try {
+    const customerResponse = await app.inject({
+      method: "POST",
+      payload: {
+        name: "  Maria   José  ",
+      },
+      url: "/credit-customers",
+    });
+    const customer = customerResponse.json<{
+      customer: { id: string; name: string };
+    }>().customer;
+
+    assert.equal(customerResponse.statusCode, 201);
+    assert.equal(customer.name, "Maria José");
+
+    const duplicateCustomerResponse = await app.inject({
+      method: "POST",
+      payload: {
+        name: "maria josé",
+      },
+      url: "/credit-customers",
+    });
+    assert.equal(
+      duplicateCustomerResponse.json<{ customer: { id: string } }>().customer.id,
+      customer.id,
+    );
+
+    const draftResponse = await app.inject({
+      method: "POST",
+      url: `/credit-customers/${customer.id}/orders`,
+    });
+    const draftOrder = draftResponse.json<{
+      order: { comandaId: string; id: string; status: string };
+    }>().order;
+
+    assert.equal(draftResponse.statusCode, 201);
+    assert.equal(draftOrder.status, "DRAFT");
+
+    const draftComandaResponse = await app.inject({
+      method: "GET",
+      url: `/comandas/${draftOrder.comandaId}`,
+    });
+    const draftComanda = draftComandaResponse.json<{
+      comanda: {
+        credit: { customerId: string; orderId: string; status: string };
+        table: null;
+      };
+    }>().comanda;
+    assert.equal(draftComanda.table, null);
+    assert.deepEqual(draftComanda.credit, {
+      customerId: customer.id,
+      customerName: "Maria José",
+      orderId: draftOrder.id,
+      source: "MANUAL",
+      status: "DRAFT",
+    });
+
+    const emptyFinalizeResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${draftOrder.id}/finalize`,
+    });
+    assert.equal(emptyFinalizeResponse.statusCode, 409);
+
+    const addResponse = await app.inject({
+      method: "POST",
+      payload: {
+        productId: hamburger.id,
+      },
+      url: `/comandas/${draftOrder.comandaId}/items`,
+    });
+    const addedItem = addResponse.json<{
+      comanda: { items: { createdAt: string; id: string }[] };
+    }>().comanda.items[0];
+    const itemId = addedItem.id;
+    assert.equal(addResponse.statusCode, 200);
+    assert.ok(addedItem.createdAt);
+
+    const pendingFinalizeResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${draftOrder.id}/finalize`,
+    });
+    assert.equal(pendingFinalizeResponse.statusCode, 409);
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${draftOrder.comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmResponse.statusCode, 200);
+
+    const finalizeResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${draftOrder.id}/finalize`,
+    });
+    const finalizedOrder = finalizeResponse.json<{
+      order: { finalizedAt: string | null; status: string; totalCents: number };
+    }>().order;
+    assert.equal(finalizeResponse.statusCode, 200);
+    assert.equal(finalizedOrder.status, "OPEN");
+    assert.equal(finalizedOrder.totalCents, 1_099);
+    assert.ok(finalizedOrder.finalizedAt);
+
+    const secondDraftResponse = await app.inject({
+      method: "POST",
+      url: `/credit-customers/${customer.id}/orders`,
+    });
+    const secondDraft = secondDraftResponse.json<{
+      order: { comandaId: string; id: string };
+    }>().order;
+    const cancelResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${secondDraft.id}/cancel`,
+    });
+    assert.equal(cancelResponse.statusCode, 200);
+    assert.equal(
+      cancelResponse.json<{ order: { status: string } }>().order.status,
+      "CANCELLED",
+    );
+
+    const cancelledComanda = await prisma.comanda.findUniqueOrThrow({
+      where: { id: secondDraft.comandaId },
+    });
+    assert.equal(cancelledComanda.status, "CANCELLED");
+
+    const thirdDraftResponse = await app.inject({
+      method: "POST",
+      url: `/credit-customers/${customer.id}/orders`,
+    });
+    const thirdDraft = thirdDraftResponse.json<{
+      order: { comandaId: string; id: string };
+    }>().order;
+    const thirdAddResponse = await app.inject({
+      method: "POST",
+      payload: {
+        productId: hamburger.id,
+      },
+      url: `/comandas/${thirdDraft.comandaId}/items`,
+    });
+    const thirdItemId = thirdAddResponse.json<{
+      comanda: { items: { id: string }[] };
+    }>().comanda.items[0].id;
+    await app.inject({
+      method: "POST",
+      url: `/comandas/${thirdDraft.comandaId}/items/${thirdItemId}/confirm`,
+    });
+    const thirdFinalizeResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${thirdDraft.id}/finalize`,
+    });
+    assert.equal(thirdFinalizeResponse.statusCode, 200);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/credit-customers",
+    });
+    assert.deepEqual(listResponse.json(), {
+      customers: [
+        {
+          balanceCents: 2_198,
+          draftOrderCount: 0,
+          id: customer.id,
+          name: "Maria José",
+          openOrderCount: 2,
+        },
+      ],
+    });
+
+    const settlementResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${draftOrder.id}/settle`,
+    });
+    const settlement = settlementResponse.json<{
+      settlement: {
+        amountCents: number;
+        id: string;
+        orderId: string;
+        paidAt: string;
+      };
+    }>().settlement;
+    assert.equal(settlementResponse.statusCode, 200);
+    assert.equal(settlement.amountCents, 1_099);
+    assert.equal(settlement.orderId, draftOrder.id);
+    assert.ok(settlement.paidAt);
+
+    const secondSettlementResponse = await app.inject({
+      method: "POST",
+      url: `/credit-orders/${draftOrder.id}/settle`,
+    });
+    assert.equal(secondSettlementResponse.statusCode, 409);
+
+    const remainingListResponse = await app.inject({
+      method: "GET",
+      url: "/credit-customers",
+    });
+    assert.deepEqual(remainingListResponse.json(), {
+      customers: [
+        {
+          balanceCents: 1_099,
+          draftOrderCount: 0,
+          id: customer.id,
+          name: "Maria José",
+          openOrderCount: 1,
+        },
+      ],
+    });
+
+    const detailsResponse = await app.inject({
+      method: "GET",
+      url: `/credit-customers/${customer.id}`,
+    });
+    const details = detailsResponse.json<{
+      customer: {
+        orders: { status: string; totalCents: number }[];
+        settlements: { amountCents: number; orderId: string; paidAt: string }[];
+      };
+    }>().customer;
+    assert.deepEqual(
+      details.orders
+        .map(({ status, totalCents }) => ({ status, totalCents }))
+        .sort((left, right) => left.status.localeCompare(right.status)),
+      [
+        { status: "CANCELLED", totalCents: 0 },
+        { status: "OPEN", totalCents: 1_099 },
+        { status: "SETTLED", totalCents: 1_099 },
+      ],
+    );
+    assert.equal(details.settlements[0].amountCents, 1_099);
+    assert.equal(details.settlements[0].orderId, draftOrder.id);
+    assert.ok(details.settlements[0].paidAt);
+  } finally {
+    await app.close();
+  }
+});
+
+void test("table credit conversion is atomic and releases only confirmed orders", async () => {
+  const table = await prisma.restaurantTable.findUniqueOrThrow({
+    where: { number: 4 },
+  });
+  const hamburger = await prisma.product.findUniqueOrThrow({
+    where: { code: "CLASSIC_HAMBURGER" },
+  });
+  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const app = await buildApp({
+    comandas,
+    credits,
+    database,
+    products,
+    restaurantTables,
+  });
+
+  try {
+    const customerResponse = await app.inject({
+      method: "POST",
+      payload: {
+        name: "Cliente da mesa",
+      },
+      url: "/credit-customers",
+    });
+    const customerId = customerResponse.json<{
+      customer: { id: string };
+    }>().customer.id;
+    const openResponse = await app.inject({
+      method: "POST",
+      payload: {
+        name: "Cliente da mesa",
+      },
+      url: `/tables/${table.id}/comandas`,
+    });
+    const comandaId = openResponse.json<{
+      comanda: { id: string };
+    }>().comanda.id;
+    const addResponse = await app.inject({
+      method: "POST",
+      payload: {
+        productId: hamburger.id,
+      },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const itemId = addResponse.json<{
+      comanda: { items: { id: string }[] };
+    }>().comanda.items[0].id;
+
+    const pendingConversion = await app.inject({
+      method: "POST",
+      payload: {
+        customerId,
+      },
+      url: `/comandas/${comandaId}/credit`,
+    });
+    assert.equal(pendingConversion.statusCode, 409);
+    assert.equal(
+      (await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } }))
+        .status,
+      "OPEN",
+    );
+
+    await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    const conversionResponse = await app.inject({
+      method: "POST",
+      payload: {
+        customerId,
+      },
+      url: `/comandas/${comandaId}/credit`,
+    });
+    const order = conversionResponse.json<{
+      order: {
+        id: string;
+        orderedAt: string;
+        source: string;
+        status: string;
+        tableNumber: number | null;
+        totalCents: number;
+      };
+    }>().order;
+
+    assert.equal(conversionResponse.statusCode, 200);
+    assert.equal(order.source, "TABLE");
+    assert.equal(order.status, "OPEN");
+    assert.equal(order.tableNumber, 4);
+    assert.equal(order.totalCents, 1_099);
+    assert.ok(order.orderedAt);
+
+    const releasedTable = await prisma.restaurantTable.findUniqueOrThrow({
+      where: { id: table.id },
+    });
+    assert.equal(releasedTable.activeComandaId, null);
+    assert.equal(releasedTable.status, "FREE");
+    assert.equal(
+      (await prisma.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status,
+      "OPEN",
+    );
+
+    const editOpenOrderResponse = await app.inject({
+      method: "POST",
+      payload: {
+        productId: hamburger.id,
+      },
+      url: `/comandas/${comandaId}/items`,
+    });
+    assert.equal(editOpenOrderResponse.statusCode, 200);
+
+    const pendingDetailsResponse = await app.inject({
+      method: "GET",
+      url: `/credit-customers/${customerId}`,
+    });
+    const pendingOrder = pendingDetailsResponse
+      .json<{
+        customer: {
+          orders: {
+            hasPendingItems: boolean;
+            id: string;
+            totalCents: number;
+          }[];
+        };
+      }>()
+      .customer.orders.find(({ id }) => id === order.id);
+    assert.equal(pendingOrder?.hasPendingItems, true);
+    assert.equal(pendingOrder?.totalCents, 2_198);
+
+    const confirmOpenEditResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmOpenEditResponse.statusCode, 200);
+
+    const editedDetailsResponse = await app.inject({
+      method: "GET",
+      url: `/credit-customers/${customerId}`,
+    });
+    const editedOrder = editedDetailsResponse
+      .json<{
+        customer: {
+          orders: {
+            hasPendingItems: boolean;
+            id: string;
+            totalCents: number;
+          }[];
+        };
+      }>()
+      .customer.orders.find(({ id }) => id === order.id);
+    assert.equal(editedOrder?.hasPendingItems, false);
+    assert.equal(editedOrder?.totalCents, 2_198);
+
+    const secondConversion = await app.inject({
+      method: "POST",
+      payload: {
+        customerId,
+      },
+      url: `/comandas/${comandaId}/credit`,
+    });
+    assert.equal(secondConversion.statusCode, 409);
   } finally {
     await app.close();
   }

@@ -15,6 +15,7 @@ const comanda = {
   cancellationReason: null,
   cancelledAt: null,
   closedAt: null,
+  credit: null,
   events: [
     {
       createdAt: '2026-06-02T19:00:00.000Z',
@@ -32,6 +33,7 @@ const comanda = {
   items: [
     {
       confirmedQuantity: 0,
+      createdAt: '2026-06-02T19:05:00.000Z',
       id: 'item/id',
       productId: 'product/id',
       productName: 'Café',

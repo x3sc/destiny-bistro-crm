@@ -6,6 +6,10 @@ import {
   type ComandaRepository,
 } from "./comanda-repository.js";
 import {
+  createCreditRepository,
+  type CreditRepository,
+} from "./credit-repository.js";
+import {
   createProductRepository,
   type ProductRepository,
 } from "./product-repository.js";
@@ -21,6 +25,7 @@ export interface Database {
 
 export interface Persistence {
   comandas: ComandaRepository;
+  credits: CreditRepository;
   database: Database;
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
@@ -54,6 +59,7 @@ export function createPersistence(): Persistence {
 
   return {
     comandas: createComandaRepository(prisma),
+    credits: createCreditRepository(prisma),
     database: {
       async close() {
         await prisma.$disconnect();

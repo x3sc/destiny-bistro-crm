@@ -18,11 +18,13 @@ const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
   closedAt: null,
+  credit: null,
   events: [],
   id: 'comanda-id',
   items: [
     {
       confirmedQuantity: 0,
+      createdAt: '2026-06-02T19:05:00.000Z',
       id: 'item-id',
       productId: 'coffee-id',
       productName: 'Café',
@@ -99,6 +101,7 @@ it('stays in catalog after adding a product', async () => {
         ...comanda.items,
         {
           confirmedQuantity: 0,
+          createdAt: '2026-06-02T19:05:00.000Z',
           id: 'water-item-id',
           productId: 'water-id',
           productName: 'Água',

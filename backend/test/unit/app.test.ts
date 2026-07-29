@@ -13,6 +13,16 @@ import {
   type Comanda,
   type ComandaRepository,
 } from "../../src/comanda-repository.js";
+import {
+  CreditOrderConflictError,
+  CreditSettlementConflictError,
+  normalizeCreditCustomerName,
+  type CreditCustomerDetails,
+  type CreditCustomerSummary,
+  type CreditOrder,
+  type CreditRepository,
+  type CreditSettlement,
+} from "../../src/credit-repository.js";
 import type { Database } from "../../src/database.js";
 import type { Product, ProductRepository } from "../../src/product-repository.js";
 import type {
@@ -25,6 +35,7 @@ const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
   closedAt: null,
+  credit: null,
   events: [
     {
       createdAt: openedAt,
@@ -51,6 +62,45 @@ const comanda: Comanda = {
   totalCents: 0,
 };
 
+const creditCustomer: CreditCustomerSummary = {
+  balanceCents: 600,
+  draftOrderCount: 0,
+  id: "customer-id",
+  name: "Maria",
+  openOrderCount: 1,
+};
+
+const creditOrder: CreditOrder = {
+  cancelledAt: null,
+  comandaId: "comanda-id",
+  comandaName: "Maria",
+  comandaNumber: 42,
+  customerId: "customer-id",
+  customerName: "Maria",
+  finalizedAt: openedAt,
+  hasPendingItems: false,
+  id: "order-id",
+  orderedAt: openedAt,
+  settledAt: null,
+  source: "MANUAL",
+  status: "OPEN",
+  tableNumber: null,
+  totalCents: 600,
+};
+
+const creditSettlement: CreditSettlement = {
+  amountCents: 600,
+  id: "settlement-id",
+  orderId: "order-id",
+  paidAt: openedAt,
+};
+
+const creditCustomerDetails: CreditCustomerDetails = {
+  ...creditCustomer,
+  orders: [creditOrder],
+  settlements: [],
+};
+
 const comandaWithItem: Comanda = {
   ...comanda,
   events: [
@@ -70,6 +120,7 @@ const comandaWithItem: Comanda = {
   items: [
     {
       confirmedQuantity: 0,
+      createdAt: openedAt,
       id: "item-id",
       productId: "product-id",
       productName: "Café",
@@ -108,6 +159,20 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
   };
 }
 
+function createCredits(overrides: Partial<CreditRepository> = {}): CreditRepository {
+  return {
+    cancelOrder: () => Promise.resolve({ ...creditOrder, status: "CANCELLED" }),
+    convertComanda: () => Promise.resolve({ ...creditOrder, source: "TABLE" }),
+    createCustomer: () => Promise.resolve(creditCustomer),
+    createOrder: () => Promise.resolve({ ...creditOrder, status: "DRAFT" }),
+    finalizeOrder: () => Promise.resolve(creditOrder),
+    findCustomer: () => Promise.resolve(creditCustomerDetails),
+    listCustomers: () => Promise.resolve([creditCustomer]),
+    settleOrder: () => Promise.resolve(creditSettlement),
+    ...overrides,
+  };
+}
+
 function createProducts(
   listActive: ProductRepository["listActive"] = () => Promise.resolve([]),
 ): ProductRepository {
@@ -116,17 +181,20 @@ function createProducts(
 
 async function createApp({
   comandas = createComandas(),
+  credits = createCredits(),
   database = createDatabase(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
 }: {
   comandas?: ComandaRepository;
+  credits?: CreditRepository;
   database?: Database;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
 } = {}) {
   return buildApp({
     comandas,
+    credits,
     database,
     products,
     restaurantTables,
@@ -643,6 +711,140 @@ void test("DELETE /comandas/:comandaId/items/:itemId rejects inactive comandas",
   assert.deepEqual(response.json(), {
     status: "error",
     message: "Comanda item cannot be changed",
+  });
+
+  await app.close();
+});
+
+void test("credit customer names normalize spaces and case without removing accents", () => {
+  assert.deepEqual(normalizeCreditCustomerName("  MARIA   José  "), {
+    name: "MARIA José",
+    normalizedName: "maria josé",
+  });
+});
+
+void test("GET /credit-customers returns grouped balances", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/credit-customers",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    customers: [creditCustomer],
+  });
+
+  await app.close();
+});
+
+void test("POST /credit-customers creates or reuses a person", async () => {
+  let receivedName = "";
+  const app = await createApp({
+    credits: createCredits({
+      createCustomer: (name) => {
+        receivedName = name;
+        return Promise.resolve(creditCustomer);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      name: " Maria ",
+    },
+    url: "/credit-customers",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(receivedName, " Maria ");
+  assert.deepEqual(response.json(), {
+    customer: creditCustomer,
+  });
+
+  await app.close();
+});
+
+void test("POST /credit-customers/:customerId/orders creates a manual draft", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/credit-customers/customer-id/orders",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(response.json(), {
+    order: {
+      ...creditOrder,
+      status: "DRAFT",
+    },
+  });
+
+  await app.close();
+});
+
+void test("POST /credit-orders/:orderId/finalize rejects pending drafts", async () => {
+  const app = await createApp({
+    credits: createCredits({
+      finalizeOrder: () => Promise.reject(new CreditOrderConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/credit-orders/order-id/finalize",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    status: "error",
+    message: "Credit order cannot be changed",
+  });
+
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/credit converts a table order", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      customerId: "customer-id",
+    },
+    url: "/comandas/comanda-id/credit",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    order: {
+      ...creditOrder,
+      source: "TABLE",
+    },
+  });
+
+  await app.close();
+});
+
+void test("POST /credit-orders/:orderId/settle rejects a second settlement", async () => {
+  const app = await createApp({
+    credits: createCredits({
+      settleOrder: () => Promise.reject(new CreditSettlementConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/credit-orders/order-id/settle",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    status: "error",
+    message: "Credit balance cannot be settled",
   });
 
   await app.close();

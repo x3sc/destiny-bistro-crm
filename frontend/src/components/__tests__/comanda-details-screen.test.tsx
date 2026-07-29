@@ -18,6 +18,7 @@ const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
   closedAt: null,
+  credit: null,
   events: [
     {
       createdAt: '2026-06-02T19:00:00.000Z',
@@ -49,6 +50,7 @@ const comandaWithItem: Comanda = {
   items: [
     {
       confirmedQuantity: 0,
+      createdAt: '2026-06-02T19:05:00.000Z',
       id: 'item-id',
       productId: 'product-id',
       productName: 'Cafe',
@@ -568,6 +570,86 @@ it('does not remove an item when browser confirm is cancelled', async () => {
     });
     globalThis.confirm = originalConfirm;
   }
+});
+
+it('finalizes a manual credit draft after every item is confirmed', async () => {
+  const finalizeCreditRequest = jest.fn(() =>
+    Promise.resolve({
+      cancelledAt: null,
+      comandaId: 'comanda-id',
+      comandaName: 'Maria',
+      comandaNumber: 42,
+      customerId: 'customer-id',
+      customerName: 'Maria',
+      finalizedAt: '2026-06-02T20:00:00.000Z',
+      hasPendingItems: false,
+      id: 'order-id',
+      orderedAt: '2026-06-02T19:00:00.000Z',
+      settledAt: null,
+      source: 'MANUAL' as const,
+      status: 'OPEN' as const,
+      tableNumber: null,
+      totalCents: 600,
+    }),
+  );
+  const onCreditFinished = jest.fn();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://localhost:3333"
+      comandaId="comanda-id"
+      finalizeCreditRequest={finalizeCreditRequest}
+      loadRequest={() =>
+        Promise.resolve({
+          ...comandaWithConfirmedItem,
+          credit: {
+            customerId: 'customer-id',
+            customerName: 'Maria',
+            orderId: 'order-id',
+            source: 'MANUAL',
+            status: 'DRAFT',
+          },
+          name: 'Maria',
+          table: null,
+        })
+      }
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      onCreditFinished={onCreditFinished}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Finalizar fiado' }));
+
+  await waitFor(() => {
+    expect(finalizeCreditRequest).toHaveBeenCalledWith(
+      'http://localhost:3333',
+      'order-id',
+    );
+    expect(onCreditFinished).toHaveBeenCalledWith('customer-id');
+  });
+});
+
+it('opens person selection when closing a table as credit', async () => {
+  const onCloseAsCredit = jest.fn();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://localhost:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      onCloseAsCredit={onCloseAsCredit}
+    />,
+  );
+
+  fireEvent.press(
+    await screen.findByRole('button', { name: 'Fechar como fiado' }),
+  );
+  expect(onCloseAsCredit).toHaveBeenCalledWith(comandaWithConfirmedItem);
 });
 
 it('shows an error when loading fails', async () => {
