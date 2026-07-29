@@ -22,6 +22,11 @@ before(async () => {
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
+  await prisma.product.deleteMany({
+    where: {
+      code: "STATEMENT_TEST_PRODUCT",
+    },
+  });
 });
 
 after(async () => {
@@ -37,17 +42,24 @@ after(async () => {
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
+  await prisma.product.deleteMany({
+    where: {
+      code: "STATEMENT_TEST_PRODUCT",
+    },
+  });
   await prisma.$disconnect();
 });
 
 void test("GET /ready connects to the configured MySQL database", async () => {
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -70,13 +82,15 @@ void test("comanda lifecycle is persisted and audited", async () => {
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 1 },
   });
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -190,13 +204,15 @@ void test("concurrent comanda opening allows only one active comanda per table",
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 2 },
   });
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -272,13 +288,15 @@ void test("product seed is idempotent and listed as active catalog", async () =>
     0,
   );
 
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -319,13 +337,15 @@ void test("comanda items are consolidated, totaled and audited", async () => {
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -584,13 +604,15 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -833,13 +855,15 @@ void test("table credit conversion is atomic and releases only confirmed orders"
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables } = createPersistence();
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
   const app = await buildApp({
     comandas,
     credits,
     database,
     products,
     restaurantTables,
+    statements,
   });
 
   try {
@@ -988,5 +1012,222 @@ void test("table credit conversion is atomic and releases only confirmed orders"
     assert.equal(secondConversion.statusCode, 409);
   } finally {
     await app.close();
+  }
+});
+
+void test("statements aggregate dated sales, credit additions and settlements", async () => {
+  const product = await prisma.product.upsert({
+    create: {
+      category: "OTHER",
+      code: "STATEMENT_TEST_PRODUCT",
+      name: "Produto de extrato",
+      priceCents: 500,
+    },
+    update: {
+      active: true,
+      name: "Produto de extrato",
+      priceCents: 500,
+    },
+    where: {
+      code: "STATEMENT_TEST_PRODUCT",
+    },
+  });
+  const tableComanda = await prisma.comanda.create({
+    data: {
+      closedAt: new Date("2031-04-10T12:00:00.000Z"),
+      items: {
+        create: {
+          confirmedQuantity: 2,
+          productId: product.id,
+          productName: product.name,
+          quantity: 2,
+          unitPriceCents: 1_000,
+        },
+      },
+      name: "Mesa extrato",
+      status: "CLOSED",
+    },
+  });
+  const customer = await prisma.creditCustomer.create({
+    data: {
+      name: "Cliente extrato",
+      normalizedName: `cliente extrato ${Date.now()}`,
+    },
+  });
+  const creditComanda = await prisma.comanda.create({
+    data: {
+      closedAt: new Date("2031-04-12T15:00:00.000Z"),
+      events: {
+        create: [
+          {
+            createdAt: new Date("2031-04-10T12:30:00.000Z"),
+            newQuantity: 1,
+            previousQuantity: 0,
+            productId: product.id,
+            productName: product.name,
+            type: "ITEM_CONFIRMED",
+            unitPriceCents: 500,
+          },
+          {
+            createdAt: new Date("2031-04-11T14:00:00.000Z"),
+            newQuantity: 3,
+            previousQuantity: 1,
+            productId: product.id,
+            productName: product.name,
+            type: "ITEM_CONFIRMED",
+            unitPriceCents: 500,
+          },
+        ],
+      },
+      items: {
+        create: {
+          confirmedQuantity: 3,
+          productId: product.id,
+          productName: product.name,
+          quantity: 3,
+          unitPriceCents: 500,
+        },
+      },
+      name: customer.name,
+      status: "CLOSED",
+    },
+  });
+  const settlement = await prisma.creditSettlement.create({
+    data: {
+      amountCents: 1_500,
+      customerId: customer.id,
+      paidAt: new Date("2031-04-12T15:00:00.000Z"),
+    },
+  });
+  await prisma.creditOrder.create({
+    data: {
+      comandaId: creditComanda.id,
+      customerId: customer.id,
+      finalizedAt: new Date("2031-04-10T13:00:00.000Z"),
+      orderedAt: new Date("2031-04-10T11:00:00.000Z"),
+      settlementId: settlement.id,
+      settledAt: settlement.paidAt,
+      source: "MANUAL",
+      status: "SETTLED",
+      totalCents: 1_500,
+    },
+  });
+  const cancelledComanda = await prisma.comanda.create({
+    data: {
+      cancellationReason: "OPENED_BY_MISTAKE",
+      cancelledAt: new Date("2031-04-11T16:00:00.000Z"),
+      name: "Cancelada extrato",
+      status: "CANCELLED",
+    },
+  });
+  const { comandas, credits, database, products, restaurantTables, statements } =
+    createPersistence();
+  const app = await buildApp({
+    comandas,
+    credits,
+    database,
+    products,
+    restaurantTables,
+    statements,
+  });
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/statements?from=2031-04-10&to=2031-04-12",
+    });
+
+    assert.equal(response.statusCode, 200);
+    const report = response.json<{
+      statement: {
+        days: Array<{ date: string; soldCents: number }>;
+        entries: Array<{ comandaId: string; event: string }>;
+        summary: {
+          cancelledCommandCount: number;
+          closedCommandCount: number;
+          processedCommandCount: number;
+          receivedCents: number;
+          receivedItemCount: number;
+          soldCents: number;
+          soldItemCount: number;
+        };
+      };
+    }>().statement;
+
+    assert.deepEqual(report.summary, {
+      cancelledCommandCount: 1,
+      closedCommandCount: 2,
+      processedCommandCount: 3,
+      receivedCents: 3_500,
+      receivedItemCount: 5,
+      soldCents: 3_500,
+      soldItemCount: 5,
+    });
+    assert.deepEqual(
+      report.days.map((day) => [day.date, day.soldCents]),
+      [
+        ["2031-04-10", 2_500],
+        ["2031-04-11", 1_000],
+        ["2031-04-12", 0],
+      ],
+    );
+    assert.deepEqual(
+      report.entries.map((entry) => entry.event),
+      [
+        "TABLE_CLOSED",
+        "CREDIT_FINALIZED",
+        "CREDIT_ADDITION",
+        "COMANDA_CANCELLED",
+        "CREDIT_SETTLED",
+      ],
+    );
+
+    const pdfResponse = await app.inject({
+      method: "GET",
+      url: "/statements/export.pdf?from=2031-04-10&to=2031-04-12",
+    });
+    assert.equal(pdfResponse.statusCode, 200);
+    assert.equal(pdfResponse.rawPayload.subarray(0, 4).toString(), "%PDF");
+  } finally {
+    await app.close();
+    await prisma.creditOrder.deleteMany({
+      where: {
+        comandaId: creditComanda.id,
+      },
+    });
+    await prisma.creditSettlement.delete({
+      where: {
+        id: settlement.id,
+      },
+    });
+    await prisma.comandaItem.deleteMany({
+      where: {
+        comandaId: {
+          in: [tableComanda.id, creditComanda.id],
+        },
+      },
+    });
+    await prisma.comandaEvent.deleteMany({
+      where: {
+        comandaId: creditComanda.id,
+      },
+    });
+    await prisma.comanda.deleteMany({
+      where: {
+        id: {
+          in: [tableComanda.id, creditComanda.id, cancelledComanda.id],
+        },
+      },
+    });
+    await prisma.creditCustomer.delete({
+      where: {
+        id: customer.id,
+      },
+    });
+    await prisma.product.delete({
+      where: {
+        id: product.id,
+      },
+    });
   }
 });

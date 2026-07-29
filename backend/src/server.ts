@@ -4,7 +4,8 @@ import { createPersistence } from "./database.js";
 
 const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3333);
-const { comandas, credits, database, products, restaurantTables } = createPersistence();
+const { comandas, credits, database, products, restaurantTables, statements } =
+  createPersistence();
 const app = await buildApp({
   comandas,
   credits,
@@ -12,6 +13,7 @@ const app = await buildApp({
   logger: true,
   products,
   restaurantTables,
+  statements,
 });
 
 try {

@@ -13,6 +13,9 @@ export default function HomeScreen() {
         onCredits={() => {
           router.push('/credits' as Href);
         }}
+        onStatements={() => {
+          router.push('/statements' as Href);
+        }}
         onTables={() => {
           router.push('/tables' as Href);
         }}
