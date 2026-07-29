@@ -92,6 +92,10 @@ A API fica disponivel em `http://localhost:3333`:
 - `POST /auth/logout`: revoga a sessão atual.
 - `GET /tables`: lista as mesas persistidas e seus estados.
 - `GET /products`: lista os produtos ativos do catalogo seedado.
+- `GET /inventory`: lista ingredientes, saldo atual e estoque minimo.
+- `POST /ingredients`: cadastra um ingrediente e cria seu saldo inicial zerado.
+- `POST /inventory/:stockId/movements`: registra entrada, saida ou ajuste de
+  estoque com motivo e usuario responsavel.
 - `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre e aceita
   o campo opcional `name`.
 - `GET /comandas/:comandaId`: consulta os detalhes da comanda, itens e total.
@@ -124,7 +128,9 @@ não conseguem autenticar. Eventos de comanda e o log geral de auditoria guardam
 o `establishmentId`, o `userId`, a ação, o recurso e a data/hora. O
 estabelecimento usado nas consultas vem exclusivamente da sessão autenticada;
 mesas, produtos, comandas, fiados e extratos não aceitam um tenant informado
-pelo cliente.
+pelo cliente. Ingredientes, saldos e movimentos de estoque seguem a mesma regra.
+As relacoes operacionais mais sensiveis tambem possuem chaves compostas no MySQL,
+impedindo vinculos entre estabelecimentos mesmo em gravacoes diretas no banco.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
@@ -189,12 +195,16 @@ as mesas e preserva produtos, mesas, usuários, cargos e permissões:
 ```powershell
 Set-Location backend
 $env:RESET_OPERATIONAL_DATA = "CONFIRMAR"
+$env:RESET_OPERATIONAL_ESTABLISHMENT = "Nome exato do estabelecimento"
 npm.cmd run data:reset:operational
 Remove-Item Env:\RESET_OPERATIONAL_DATA
+Remove-Item Env:\RESET_OPERATIONAL_ESTABLISHMENT
 ```
 
 Ele é protegido por confirmação explícita e não deve ser executado na VPS sem
-backup verificado.
+backup verificado. A limpeza afeta somente o estabelecimento informado e preserva
+seus ingredientes, saldos, movimentos, produtos, mesas, usuarios, cargos e
+permissoes.
 
 ## Implantação em VPS
 

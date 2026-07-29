@@ -29,6 +29,13 @@ import {
   type CreditSettlement,
 } from "../../src/credit-repository.js";
 import type { Database } from "../../src/database.js";
+import {
+  InventoryBalanceError,
+  InventoryStockNotFoundError,
+  type InventoryItem,
+  type InventoryMovement,
+  type InventoryRepository,
+} from "../../src/inventory-repository.js";
 import type { Product, ProductRepository } from "../../src/product-repository.js";
 import type {
   RestaurantTable,
@@ -50,6 +57,8 @@ const authenticatedUser: AuthUser = {
     "comandas.write",
     "credits.read",
     "credits.write",
+    "inventory.read",
+    "inventory.write",
     "products.read",
     "statements.read",
     "tables.read",
@@ -125,6 +134,31 @@ const creditSettlement: CreditSettlement = {
   id: "settlement-id",
   orderId: "order-id",
   paidAt: openedAt,
+};
+
+const inventoryItem: InventoryItem = {
+  id: "stock-id",
+  ingredient: {
+    active: true,
+    code: "CAFE",
+    id: "ingredient-id",
+    name: "Café",
+    unit: "GRAM",
+  },
+  lowStock: true,
+  minimumQuantity: 500,
+  quantity: 250,
+  updatedAt: openedAt,
+};
+
+const inventoryMovement: InventoryMovement = {
+  balanceAfter: 1250,
+  createdAt: openedAt,
+  id: "movement-id",
+  quantityDelta: 1000,
+  reason: "Compra semanal",
+  stockId: "stock-id",
+  type: "ENTRY",
 };
 
 const creditCustomerDetails: CreditCustomerDetails = {
@@ -274,6 +308,17 @@ function createProducts(
   return { listActive };
 }
 
+function createInventory(
+  overrides: Partial<InventoryRepository> = {},
+): InventoryRepository {
+  return {
+    createIngredient: () => Promise.resolve(inventoryItem),
+    createMovement: () => Promise.resolve(inventoryMovement),
+    list: () => Promise.resolve([inventoryItem]),
+    ...overrides,
+  };
+}
+
 function createStatements(
   findReport: StatementRepository["findReport"] = () =>
     Promise.resolve(statementReport),
@@ -286,6 +331,7 @@ async function createApp({
   comandas = createComandas(),
   credits = createCredits(),
   database = createDatabase(),
+  inventory = createInventory(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
   statements = createStatements(),
@@ -294,6 +340,7 @@ async function createApp({
   comandas?: ComandaRepository;
   credits?: CreditRepository;
   database?: Database;
+  inventory?: InventoryRepository;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
   statements?: StatementRepository;
@@ -303,6 +350,7 @@ async function createApp({
     comandas,
     credits,
     database,
+    inventory,
     products,
     restaurantTables,
     statements,
@@ -588,6 +636,142 @@ void test("GET /products hides database errors from the client", async () => {
   assert.doesNotMatch(response.body, /internal product detail/);
 
   await app.close();
+});
+
+void test("GET /inventory returns only the authenticated establishment stock", async () => {
+  let receivedEstablishmentId = "";
+  const app = await createApp({
+    inventory: createInventory({
+      list: (establishmentId) => {
+        receivedEstablishmentId = establishmentId;
+        return Promise.resolve([inventoryItem]);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/inventory",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedEstablishmentId, "establishment-id");
+  assert.deepEqual(response.json(), { inventory: [inventoryItem] });
+
+  await app.close();
+});
+
+void test("POST /ingredients creates stock inside the authenticated establishment", async () => {
+  let receivedEstablishmentId = "";
+  let receivedActorUserId = "";
+  const app = await createApp({
+    inventory: createInventory({
+      createIngredient: (establishmentId, input, actorUserId) => {
+        receivedEstablishmentId = establishmentId;
+        receivedActorUserId = actorUserId;
+        assert.deepEqual(input, {
+          code: "CAFE",
+          minimumQuantity: 500,
+          name: "Café",
+          unit: "GRAM",
+        });
+        return Promise.resolve(inventoryItem);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      code: "CAFE",
+      minimumQuantity: 500,
+      name: "Café",
+      unit: "GRAM",
+    },
+    url: "/ingredients",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(receivedEstablishmentId, "establishment-id");
+  assert.equal(receivedActorUserId, "user-id");
+  assert.deepEqual(response.json(), { inventoryItem });
+
+  await app.close();
+});
+
+void test("POST /inventory/:stockId/movements records an audited tenant movement", async () => {
+  const app = await createApp({
+    inventory: createInventory({
+      createMovement: (establishmentId, stockId, input, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(stockId, "stock-id");
+        assert.equal(actorUserId, "user-id");
+        assert.deepEqual(input, {
+          quantityDelta: 1000,
+          reason: "Compra semanal",
+          type: "ENTRY",
+        });
+        return Promise.resolve(inventoryMovement);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      quantityDelta: 1000,
+      reason: "Compra semanal",
+      type: "ENTRY",
+    },
+    url: "/inventory/stock-id/movements",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(response.json(), { movement: inventoryMovement });
+
+  await app.close();
+});
+
+void test("inventory movement reports tenant misses and negative balances", async () => {
+  const missingApp = await createApp({
+    inventory: createInventory({
+      createMovement: () => Promise.reject(new InventoryStockNotFoundError()),
+    }),
+  });
+  const missingResponse = await missingApp.inject({
+    method: "POST",
+    payload: {
+      quantityDelta: 1,
+      reason: "Entrada",
+      type: "ENTRY",
+    },
+    url: "/inventory/other-tenant-stock/movements",
+  });
+
+  assert.equal(missingResponse.statusCode, 404);
+  await missingApp.close();
+
+  const balanceApp = await createApp({
+    inventory: createInventory({
+      createMovement: () => Promise.reject(new InventoryBalanceError()),
+    }),
+  });
+  const balanceResponse = await balanceApp.inject({
+    method: "POST",
+    payload: {
+      quantityDelta: -300,
+      reason: "Consumo",
+      type: "EXIT",
+    },
+    url: "/inventory/stock-id/movements",
+  });
+
+  assert.equal(balanceResponse.statusCode, 409);
+  assert.deepEqual(balanceResponse.json(), {
+    message: "Inventory balance cannot be negative",
+    status: "error",
+  });
+  await balanceApp.close();
 });
 
 void test("POST /tables/:tableId/comandas opens a comanda", async () => {

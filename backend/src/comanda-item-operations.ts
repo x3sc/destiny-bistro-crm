@@ -332,6 +332,7 @@ async function createFirstComandaItem(
   const item = await transaction.comandaItem.create({
     data: {
       comandaId: product.comandaId,
+      establishmentId: product.establishmentId,
       productId: product.productId,
       productName: product.productName,
       quantity: 1,

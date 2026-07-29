@@ -227,6 +227,7 @@ export async function recordItemEvent(
     data: {
       actorUserId: data.actorUserId,
       comandaId: data.comandaId,
+      establishmentId: data.establishmentId,
       itemId: data.itemId,
       newQuantity: data.newQuantity,
       previousQuantity: data.previousQuantity,

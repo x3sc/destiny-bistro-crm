@@ -5,14 +5,23 @@ import { createPersistence } from "./database.js";
 const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3333);
 const corsOrigins = parseCorsOrigins();
-const { auth, comandas, credits, database, products, restaurantTables, statements } =
-  createPersistence();
+const {
+  auth,
+  comandas,
+  credits,
+  database,
+  inventory,
+  products,
+  restaurantTables,
+  statements,
+} = createPersistence();
 const app = await buildApp({
   auth,
   comandas,
   credits,
   corsOrigins,
   database,
+  inventory,
   logger: true,
   products,
   restaurantTables,

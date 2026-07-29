@@ -1,21 +1,38 @@
 import type { PrismaClient } from "./generated/prisma/client.js";
 
-export async function resetOperationalData(prisma: PrismaClient) {
+export async function resetOperationalData(
+  prisma: PrismaClient,
+  establishmentId: string,
+) {
   return prisma.$transaction(async (transaction) => {
     await transaction.restaurantTable.updateMany({
       data: {
         activeComandaId: null,
         status: "FREE",
       },
+      where: { establishmentId },
     });
-    const creditOrders = await transaction.creditOrder.deleteMany();
-    const settlements = await transaction.creditSettlement.deleteMany();
-    const creditCustomers = await transaction.creditCustomer.deleteMany();
-    const comandaItems = await transaction.comandaItem.deleteMany();
-    const comandaEvents = await transaction.comandaEvent.deleteMany();
-    const comandas = await transaction.comanda.deleteMany();
+    const creditOrders = await transaction.creditOrder.deleteMany({
+      where: { establishmentId },
+    });
+    const settlements = await transaction.creditSettlement.deleteMany({
+      where: { establishmentId },
+    });
+    const creditCustomers = await transaction.creditCustomer.deleteMany({
+      where: { establishmentId },
+    });
+    const comandaItems = await transaction.comandaItem.deleteMany({
+      where: { establishmentId },
+    });
+    const comandaEvents = await transaction.comandaEvent.deleteMany({
+      where: { establishmentId },
+    });
+    const comandas = await transaction.comanda.deleteMany({
+      where: { establishmentId },
+    });
     const auditLogs = await transaction.auditLog.deleteMany({
       where: {
+        establishmentId,
         resourceType: {
           in: [
             "COMANDA",
