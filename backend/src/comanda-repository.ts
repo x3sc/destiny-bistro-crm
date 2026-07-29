@@ -82,6 +82,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           data: {
             actorUserId,
             comandaId: id,
+            establishmentId,
             reason: "OPENED_BY_MISTAKE",
             type: "CANCELLED",
           },
@@ -183,6 +184,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           data: {
             actorUserId,
             comandaId: id,
+            establishmentId,
             type: "CLOSED",
           },
         });
