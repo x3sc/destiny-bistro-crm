@@ -4,6 +4,7 @@ import {
   ComandaNotMutableError,
   type Comanda,
 } from "./comanda-types.js";
+import { createAuditData } from "./audit.js";
 
 export const comandaSelect = {
   cancellationReason: true,
@@ -27,6 +28,12 @@ export const comandaSelect = {
       createdAt: "asc",
     },
     select: {
+      actorUser: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
       createdAt: true,
       itemId: true,
       newQuantity: true,
@@ -92,8 +99,9 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
           status: creditOrder.status,
         }
       : null,
-    events: comanda.events.map((event) => ({
+    events: comanda.events.map(({ actorUser, ...event }) => ({
       ...event,
+      actor: actorUser,
       createdAt: event.createdAt.toISOString(),
     })),
     items,
@@ -199,9 +207,26 @@ export async function recordItemEvent(
     productName: string;
     type: "ITEM_ADDED" | "ITEM_CONFIRMED" | "ITEM_QUANTITY_CHANGED" | "ITEM_REMOVED";
     unitPriceCents: number;
+    actorUserId: string;
   },
 ) {
   await transaction.comandaEvent.create({
     data,
+  });
+  await transaction.auditLog.create({
+    data: createAuditData({
+      action: `COMANDA_${data.type}`,
+      metadata: {
+        comandaId: data.comandaId,
+        newQuantity: data.newQuantity,
+        previousQuantity: data.previousQuantity,
+        productId: data.productId,
+        productName: data.productName,
+        unitPriceCents: data.unitPriceCents,
+      },
+      resourceId: data.itemId,
+      resourceType: "COMANDA_ITEM",
+      userId: data.actorUserId,
+    }),
   });
 }

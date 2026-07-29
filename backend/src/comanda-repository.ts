@@ -1,4 +1,5 @@
 import { type PrismaClient } from "./generated/prisma/client.js";
+import { createAuditData } from "./audit.js";
 import {
   addComandaItem,
   changeComandaItemQuantity,
@@ -24,12 +25,12 @@ export * from "./comanda-types.js";
 
 export function createComandaRepository(prisma: PrismaClient): ComandaRepository {
   return {
-    async addItem(comandaId, productId) {
+    async addItem(comandaId, productId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        addComandaItem(transaction, comandaId, productId),
+        addComandaItem(transaction, comandaId, productId, actorUserId),
       );
     },
-    async cancel(id) {
+    async cancel(id, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const activeComanda = await transaction.comanda.findUnique({
           select: {
@@ -72,21 +73,36 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         await transaction.comandaEvent.create({
           data: {
+            actorUserId,
             comandaId: id,
             reason: "OPENED_BY_MISTAKE",
             type: "CANCELLED",
           },
         });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "COMANDA_CANCELLED",
+            resourceId: id,
+            resourceType: "COMANDA",
+            userId: actorUserId,
+          }),
+        });
 
         return getComandaOrThrow(transaction, id);
       });
     },
-    async changeItemQuantity(comandaId, itemId, delta) {
+    async changeItemQuantity(comandaId, itemId, delta, actorUserId) {
       return prisma.$transaction((transaction) =>
-        changeComandaItemQuantity(transaction, comandaId, itemId, delta),
+        changeComandaItemQuantity(
+          transaction,
+          comandaId,
+          itemId,
+          delta,
+          actorUserId,
+        ),
       );
     },
-    async close(id) {
+    async close(id, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const activeComanda = await transaction.comanda.findUnique({
           select: {
@@ -148,17 +164,26 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         await transaction.comandaEvent.create({
           data: {
+            actorUserId,
             comandaId: id,
             type: "CLOSED",
           },
+        });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "COMANDA_CLOSED",
+            resourceId: id,
+            resourceType: "COMANDA",
+            userId: actorUserId,
+          }),
         });
 
         return getComandaOrThrow(transaction, id);
       });
     },
-    async confirmItem(comandaId, itemId) {
+    async confirmItem(comandaId, itemId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        confirmComandaItem(transaction, comandaId, itemId),
+        confirmComandaItem(transaction, comandaId, itemId, actorUserId),
       );
     },
     async findById(id) {
@@ -173,7 +198,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
       return mapComanda(comanda);
     },
-    async openForTable(tableId, name) {
+    async openForTable(tableId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const claimedTable = await transaction.restaurantTable.updateMany({
           data: {
@@ -207,6 +232,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           data: {
             events: {
               create: {
+                actorUserId,
                 type: "OPENED",
               },
             },
@@ -224,13 +250,25 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             id: tableId,
           },
         });
+        await transaction.auditLog.create({
+          data: createAuditData({
+            action: "COMANDA_OPENED",
+            metadata: {
+              name,
+              tableId,
+            },
+            resourceId: comanda.id,
+            resourceType: "COMANDA",
+            userId: actorUserId,
+          }),
+        });
 
         return mapComanda(comanda);
       });
     },
-    async removeItem(comandaId, itemId) {
+    async removeItem(comandaId, itemId, actorUserId) {
       return prisma.$transaction((transaction) =>
-        removeComandaItem(transaction, comandaId, itemId),
+        removeComandaItem(transaction, comandaId, itemId, actorUserId),
       );
     },
   };

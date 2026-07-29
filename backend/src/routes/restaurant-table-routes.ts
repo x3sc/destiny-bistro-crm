@@ -5,6 +5,7 @@ import {
   type ComandaRepository,
 } from "../comanda-repository.js";
 import type { RestaurantTableRepository } from "../restaurant-table-repository.js";
+import { requireAuthUser } from "../authentication.js";
 
 interface TableParams {
   tableId: string;
@@ -19,7 +20,10 @@ export function registerRestaurantTableRoutes(
   restaurantTables: RestaurantTableRepository,
   comandas: ComandaRepository,
 ) {
-  app.get("/tables", async (_request, reply) => {
+  app.get(
+    "/tables",
+    { config: { permission: "tables.read" } },
+    async (_request, reply) => {
     try {
       return {
         tables: await restaurantTables.list(),
@@ -32,10 +36,12 @@ export function registerRestaurantTableRoutes(
         message: "Tables unavailable",
       });
     }
-  });
+    },
+  );
 
   app.post<{ Body: OpenComandaBody; Params: TableParams }>(
     "/tables/:tableId/comandas",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       const tableId = Number(request.params.tableId);
 
@@ -66,7 +72,11 @@ export function registerRestaurantTableRoutes(
 
       try {
         return reply.code(201).send({
-          comanda: await comandas.openForTable(tableId, name),
+          comanda: await comandas.openForTable(
+            tableId,
+            name,
+            requireAuthUser(request).id,
+          ),
         });
       } catch (error) {
         if (error instanceof TableNotFoundError) {

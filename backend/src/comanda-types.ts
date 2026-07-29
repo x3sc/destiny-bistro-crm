@@ -10,6 +10,10 @@ export type ComandaEventType =
 export type ComandaCancellationReason = "OPENED_BY_MISTAKE";
 
 export interface ComandaEvent {
+  actor: {
+    id: string;
+    name: string;
+  } | null;
   createdAt: string;
   itemId: string | null;
   newQuantity: number | null;
@@ -58,14 +62,19 @@ export interface Comanda {
 }
 
 export interface ComandaRepository {
-  addItem(comandaId: string, productId: string): Promise<Comanda>;
-  cancel(id: string): Promise<Comanda>;
-  changeItemQuantity(comandaId: string, itemId: string, delta: 1 | -1): Promise<Comanda>;
-  close(id: string): Promise<Comanda>;
-  confirmItem(comandaId: string, itemId: string): Promise<Comanda>;
+  addItem(comandaId: string, productId: string, actorUserId: string): Promise<Comanda>;
+  cancel(id: string, actorUserId: string): Promise<Comanda>;
+  changeItemQuantity(
+    comandaId: string,
+    itemId: string,
+    delta: 1 | -1,
+    actorUserId: string,
+  ): Promise<Comanda>;
+  close(id: string, actorUserId: string): Promise<Comanda>;
+  confirmItem(comandaId: string, itemId: string, actorUserId: string): Promise<Comanda>;
   findById(id: string): Promise<Comanda>;
-  openForTable(tableId: number, name: string | null): Promise<Comanda>;
-  removeItem(comandaId: string, itemId: string): Promise<Comanda>;
+  openForTable(tableId: number, name: string | null, actorUserId: string): Promise<Comanda>;
+  removeItem(comandaId: string, itemId: string, actorUserId: string): Promise<Comanda>;
 }
 
 export class TableNotFoundError extends Error {}

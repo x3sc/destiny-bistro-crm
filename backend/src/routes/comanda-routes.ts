@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { requireAuthUser } from "../authentication.js";
 import {
   ComandaItemNotFoundError,
   ComandaItemQuantityError,
@@ -36,7 +37,10 @@ function isItemConflict(error: unknown) {
 }
 
 export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRepository) {
-  app.get<{ Params: ComandaParams }>("/comandas/:comandaId", async (request, reply) => {
+  app.get<{ Params: ComandaParams }>(
+    "/comandas/:comandaId",
+    { config: { permission: "comandas.read" } },
+    async (request, reply) => {
     try {
       return {
         comanda: await comandas.findById(request.params.comandaId),
@@ -56,14 +60,19 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
         message: "Comanda unavailable",
       });
     }
-  });
+    },
+  );
 
   app.post<{ Params: ComandaParams }>(
     "/comandas/:comandaId/cancel",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
         return {
-          comanda: await comandas.cancel(request.params.comandaId),
+          comanda: await comandas.cancel(
+            request.params.comandaId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         if (error instanceof ComandaNotFoundError) {
@@ -92,10 +101,14 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
   app.post<{ Params: ComandaParams }>(
     "/comandas/:comandaId/close",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
         return {
-          comanda: await comandas.close(request.params.comandaId),
+          comanda: await comandas.close(
+            request.params.comandaId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         if (error instanceof ComandaNotFoundError) {
@@ -124,6 +137,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
   app.post<{ Body: AddComandaItemBody; Params: ComandaParams }>(
     "/comandas/:comandaId/items",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       if (!request.body || typeof request.body.productId !== "string" || !request.body.productId) {
         return reply.code(409).send({
@@ -134,7 +148,11 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
       try {
         return {
-          comanda: await comandas.addItem(request.params.comandaId, request.body.productId),
+          comanda: await comandas.addItem(
+            request.params.comandaId,
+            request.body.productId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         if (error instanceof ComandaNotFoundError) {
@@ -163,6 +181,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
   app.patch<{ Body: ChangeComandaItemBody; Params: ComandaItemParams }>(
     "/comandas/:comandaId/items/:itemId",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       if (!request.body || (request.body.delta !== 1 && request.body.delta !== -1)) {
         return reply.code(409).send({
@@ -177,6 +196,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
             request.params.comandaId,
             request.params.itemId,
             request.body.delta,
+            requireAuthUser(request).id,
           ),
         };
       } catch (error) {
@@ -206,12 +226,14 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
   app.post<{ Params: ComandaItemParams }>(
     "/comandas/:comandaId/items/:itemId/confirm",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
         return {
           comanda: await comandas.confirmItem(
             request.params.comandaId,
             request.params.itemId,
+            requireAuthUser(request).id,
           ),
         };
       } catch (error) {
@@ -244,10 +266,15 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
 
   app.delete<{ Params: ComandaItemParams }>(
     "/comandas/:comandaId/items/:itemId",
+    { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
         return {
-          comanda: await comandas.removeItem(request.params.comandaId, request.params.itemId),
+          comanda: await comandas.removeItem(
+            request.params.comandaId,
+            request.params.itemId,
+            requireAuthUser(request).id,
+          ),
         };
       } catch (error) {
         if (error instanceof ComandaNotFoundError || error instanceof ComandaItemNotFoundError) {

@@ -17,6 +17,7 @@ export function registerStatementRoutes(
 ) {
   app.get<{ Querystring: StatementQuery }>(
     "/statements",
+    { config: { permission: "statements.read" } },
     async (request, reply) => {
       const period = parsePeriodOrReply(request.query, reply);
       if (!period) {
@@ -39,6 +40,7 @@ export function registerStatementRoutes(
 
   app.get<{ Querystring: StatementQuery }>(
     "/statements/export.pdf",
+    { config: { permission: "statements.read" } },
     async (request, reply) => {
       const period = parsePeriodOrReply(request.query, reply);
       if (!period) {

@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { buildApp } from "../../src/app.js";
 import { createPersistence, createPrismaClient } from "../../src/database.js";
+import { provisionUser } from "../../src/user-provisioning.js";
+import { resetOperationalData } from "../../src/operational-data-reset.js";
+import { AuthCredentialsError } from "../../src/auth-repository.js";
 import {
   LEGACY_SEED_PRODUCT_CODES,
   PORTUGAS_MENU,
 } from "../../src/product-catalog.js";
 
 const prisma = createPrismaClient();
+const integrationUserName = "Integration Operator";
+const integrationUserPassword = "integration-password";
 
 before(async () => {
   await prisma.restaurantTable.updateMany({
@@ -22,10 +27,19 @@ before(async () => {
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.authSession.deleteMany();
+  await prisma.userRole.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.product.deleteMany({
     where: {
       code: "STATEMENT_TEST_PRODUCT",
     },
+  });
+  await provisionUser(prisma, {
+    name: integrationUserName,
+    password: integrationUserPassword,
+    roleCodes: ["OWNER"],
   });
 });
 
@@ -42,6 +56,10 @@ after(async () => {
   await prisma.comandaItem.deleteMany();
   await prisma.comandaEvent.deleteMany();
   await prisma.comanda.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.authSession.deleteMany();
+  await prisma.userRole.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.product.deleteMany({
     where: {
       code: "STATEMENT_TEST_PRODUCT",
@@ -50,17 +68,38 @@ after(async () => {
   await prisma.$disconnect();
 });
 
+async function createAuthenticatedApp() {
+  const persistence = createPersistence();
+  const session = await persistence.auth.login(
+    integrationUserName,
+    integrationUserPassword,
+  );
+  const app = await buildApp(persistence);
+  const inject = app.inject.bind(app);
+
+  app.inject = ((options: unknown) => {
+    if (!options || typeof options !== "object") {
+      return inject(options as string);
+    }
+
+    const request = options as {
+      headers?: Record<string, string>;
+    };
+
+    return inject({
+      ...request,
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        ...request.headers,
+      },
+    });
+  }) as typeof app.inject;
+
+  return app;
+}
+
 void test("GET /ready connects to the configured MySQL database", async () => {
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const response = await app.inject({
@@ -78,20 +117,105 @@ void test("GET /ready connects to the configured MySQL database", async () => {
   }
 });
 
+void test("provisioned users authenticate with revocable opaque sessions", async () => {
+  const persistence = createPersistence();
+  const app = await buildApp(persistence);
+
+  try {
+    const loginResponse = await app.inject({
+      method: "POST",
+      payload: {
+        name: integrationUserName,
+        password: integrationUserPassword,
+      },
+      url: "/auth/login",
+    });
+    assert.equal(loginResponse.statusCode, 200);
+    const session = loginResponse.json<{
+      session: {
+        token: string;
+        user: {
+          id: string;
+          permissions: string[];
+          roles: { code: string }[];
+        };
+      };
+    }>().session;
+    assert.ok(session.token.length >= 20);
+    assert.equal(session.user.roles.some(({ code }) => code === "OWNER"), true);
+    assert.equal(
+      session.user.permissions.includes("roles.manage"),
+      true,
+    );
+    const meResponse = await app.inject({
+      headers: {
+        authorization: `Bearer ${session.token}`,
+      },
+      method: "GET",
+      url: "/auth/me",
+    });
+    assert.equal(meResponse.statusCode, 200);
+    assert.equal(
+      meResponse.json<{ user: { id: string } }>().user.id,
+      session.user.id,
+    );
+
+    const logoutResponse = await app.inject({
+      headers: {
+        authorization: `Bearer ${session.token}`,
+      },
+      method: "POST",
+      url: "/auth/logout",
+    });
+    assert.equal(logoutResponse.statusCode, 204);
+    assert.equal(await persistence.auth.authenticate(session.token), null);
+    await assert.rejects(
+      persistence.auth.login(integrationUserName, "incorrect-password"),
+      AuthCredentialsError,
+    );
+
+    const expiringSession = await persistence.auth.login(
+      integrationUserName,
+      integrationUserPassword,
+    );
+    const persistedSession = await prisma.authSession.findFirstOrThrow({
+      orderBy: { createdAt: "desc" },
+      where: { userId: expiringSession.user.id },
+    });
+    await prisma.authSession.update({
+      data: { expiresAt: new Date(0) },
+      where: { id: persistedSession.id },
+    });
+    assert.equal(
+      await persistence.auth.authenticate(expiringSession.token),
+      null,
+    );
+
+    await prisma.user.update({
+      data: { active: false },
+      where: { id: expiringSession.user.id },
+    });
+    await assert.rejects(
+      persistence.auth.login(integrationUserName, integrationUserPassword),
+      AuthCredentialsError,
+    );
+    await prisma.user.update({
+      data: { active: true },
+      where: { id: expiringSession.user.id },
+    });
+  } finally {
+    await app.close();
+  }
+});
+
 void test("comanda lifecycle is persisted and audited", async () => {
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 1 },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
+  const operator = await prisma.user.findUniqueOrThrow({
+    where: { normalizedName: integrationUserName.toLocaleLowerCase("pt-BR") },
   });
+  const app = await createAuthenticatedApp();
 
   try {
     const openResponse = await app.inject({
@@ -133,6 +257,7 @@ void test("comanda lifecycle is persisted and audited", async () => {
       },
     });
     assert.equal(openedEvent.reason, null);
+    assert.equal(openedEvent.actorUserId, operator.id);
 
     const duplicateResponse = await app.inject({
       method: "POST",
@@ -189,6 +314,24 @@ void test("comanda lifecycle is persisted and audited", async () => {
       },
     });
     assert.equal(cancelledEvent.reason, "OPENED_BY_MISTAKE");
+    assert.equal(cancelledEvent.actorUserId, operator.id);
+
+    const auditActions = await prisma.auditLog.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { action: true, userId: true },
+      where: {
+        resourceId: openedComanda.id,
+        resourceType: "COMANDA",
+      },
+    });
+    assert.deepEqual(
+      auditActions.map(({ action }) => action),
+      ["COMANDA_OPENED", "COMANDA_CANCELLED"],
+    );
+    assert.equal(
+      auditActions.every(({ userId }) => userId === operator.id),
+      true,
+    );
 
     const secondCancelResponse = await app.inject({
       method: "POST",
@@ -204,16 +347,7 @@ void test("concurrent comanda opening allows only one active comanda per table",
   const table = await prisma.restaurantTable.findUniqueOrThrow({
     where: { number: 2 },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const responses = await Promise.all([
@@ -288,16 +422,7 @@ void test("product seed is idempotent and listed as active catalog", async () =>
     0,
   );
 
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const response = await app.inject({
@@ -337,16 +462,7 @@ void test("comanda items are consolidated, totaled and audited", async () => {
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const openResponse = await app.inject({
@@ -604,16 +720,7 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const customerResponse = await app.inject({
@@ -855,16 +962,7 @@ void test("table credit conversion is atomic and releases only confirmed orders"
   const hamburger = await prisma.product.findUniqueOrThrow({
     where: { code: "CLASSIC_HAMBURGER" },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const customerResponse = await app.inject({
@@ -1120,16 +1218,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       status: "CANCELLED",
     },
   });
-  const { comandas, credits, database, products, restaurantTables, statements } =
-    createPersistence();
-  const app = await buildApp({
-    comandas,
-    credits,
-    database,
-    products,
-    restaurantTables,
-    statements,
-  });
+  const app = await createAuthenticatedApp();
 
   try {
     const response = await app.inject({
@@ -1230,4 +1319,44 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       },
     });
   }
+});
+
+void test("operational reset preserves catalog, tables and provisioned users", async () => {
+  const app = await createAuthenticatedApp();
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      payload: { name: "Cliente temporário" },
+      url: "/credit-customers",
+    });
+    assert.equal(response.statusCode, 201);
+  } finally {
+    await app.close();
+  }
+
+  const productsBefore = await prisma.product.count();
+  const tablesBefore = await prisma.restaurantTable.count();
+  const usersBefore = await prisma.user.count();
+
+  await resetOperationalData(prisma);
+
+  assert.equal(await prisma.comanda.count(), 0);
+  assert.equal(await prisma.comandaEvent.count(), 0);
+  assert.equal(await prisma.comandaItem.count(), 0);
+  assert.equal(await prisma.creditCustomer.count(), 0);
+  assert.equal(await prisma.creditOrder.count(), 0);
+  assert.equal(await prisma.creditSettlement.count(), 0);
+  assert.equal(await prisma.product.count(), productsBefore);
+  assert.equal(await prisma.restaurantTable.count(), tablesBefore);
+  assert.equal(await prisma.user.count(), usersBefore);
+  assert.equal(
+    await prisma.restaurantTable.count({
+      where: {
+        activeComandaId: null,
+        status: "FREE",
+      },
+    }),
+    tablesBefore,
+  );
 });

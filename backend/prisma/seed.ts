@@ -1,4 +1,5 @@
 import { createPrismaClient } from "../src/database.js";
+import { ensureSystemAccessControl } from "../src/access-control.js";
 import {
   LEGACY_SEED_PRODUCT_CODES,
   PORTUGAS_MENU,
@@ -62,6 +63,7 @@ async function seedProducts() {
 }
 
 try {
+  await ensureSystemAccessControl(prisma);
   await seedRestaurantTables();
   await seedProducts();
 } finally {

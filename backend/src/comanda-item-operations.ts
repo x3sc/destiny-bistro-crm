@@ -18,6 +18,7 @@ export async function addComandaItem(
   transaction: Transaction,
   comandaId: string,
   productId: string,
+  actorUserId: string,
 ): Promise<Comanda> {
   await findOpenComanda(transaction, comandaId);
 
@@ -54,6 +55,7 @@ export async function addComandaItem(
 
   if (!existingItem) {
     return createFirstComandaItem(transaction, {
+      actorUserId,
       comandaId,
       productId: product.id,
       productName: product.name,
@@ -85,6 +87,7 @@ export async function addComandaItem(
   }
 
   await recordItemEvent(transaction, {
+    actorUserId,
     comandaId,
     itemId: existingItem.id,
     newQuantity: existingItem.quantity + 1,
@@ -103,6 +106,7 @@ export async function changeComandaItemQuantity(
   comandaId: string,
   itemId: string,
   delta: 1 | -1,
+  actorUserId: string,
 ): Promise<Comanda> {
   await findOpenComanda(transaction, comandaId);
 
@@ -148,6 +152,7 @@ export async function changeComandaItemQuantity(
     itemId,
   });
   await recordItemEvent(transaction, {
+    actorUserId,
     comandaId,
     itemId,
     newQuantity: nextQuantity,
@@ -165,6 +170,7 @@ export async function confirmComandaItem(
   transaction: Transaction,
   comandaId: string,
   itemId: string,
+  actorUserId: string,
 ): Promise<Comanda> {
   await findOpenComanda(transaction, comandaId);
 
@@ -208,6 +214,7 @@ export async function confirmComandaItem(
   }
 
   await recordItemEvent(transaction, {
+    actorUserId,
     comandaId,
     itemId,
     newQuantity: item.quantity,
@@ -225,6 +232,7 @@ export async function removeComandaItem(
   transaction: Transaction,
   comandaId: string,
   itemId: string,
+  actorUserId: string,
 ): Promise<Comanda> {
   await findOpenComanda(transaction, comandaId);
 
@@ -267,6 +275,7 @@ export async function removeComandaItem(
     }
 
     await recordItemEvent(transaction, {
+      actorUserId,
       comandaId,
       itemId,
       newQuantity: item.confirmedQuantity,
@@ -281,6 +290,7 @@ export async function removeComandaItem(
   }
 
   await recordItemEvent(transaction, {
+    actorUserId,
     comandaId,
     itemId,
     newQuantity: 0,
@@ -301,6 +311,7 @@ export async function removeComandaItem(
 async function createFirstComandaItem(
   transaction: Transaction,
   product: {
+    actorUserId: string;
     comandaId: string;
     productId: string;
     productName: string;
@@ -321,6 +332,7 @@ async function createFirstComandaItem(
   });
 
   await recordItemEvent(transaction, {
+    actorUserId: product.actorUserId,
     comandaId: product.comandaId,
     itemId: item.id,
     newQuantity: 1,
