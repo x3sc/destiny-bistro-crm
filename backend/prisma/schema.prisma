@@ -88,6 +88,8 @@ model Comanda {
   updatedAt          DateTime                   @updatedAt
 
   @@index([tableId])
+  @@index([status, closedAt])
+  @@index([status, cancelledAt])
 }
 
 model CreditCustomer {
@@ -120,6 +122,7 @@ model CreditOrder {
 
   @@index([customerId, status])
   @@index([settlementId])
+  @@index([status, finalizedAt])
 }
 
 model CreditSettlement {
@@ -132,6 +135,7 @@ model CreditSettlement {
   createdAt   DateTime       @default(now())
 
   @@index([customerId, paidAt])
+  @@index([paidAt])
 }
 
 model Product {
@@ -179,4 +183,5 @@ model ComandaEvent {
   createdAt        DateTime                   @default(now())
 
   @@index([comandaId])
+  @@index([type, createdAt])
 }

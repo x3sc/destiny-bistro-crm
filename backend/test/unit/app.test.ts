@@ -29,6 +29,8 @@ import type {
   RestaurantTable,
   RestaurantTableRepository,
 } from "../../src/restaurant-table-repository.js";
+import type { StatementReport } from "../../src/statement-report.js";
+import type { StatementRepository } from "../../src/statement-repository.js";
 
 const openedAt = "2026-06-02T19:00:00.000Z";
 const comanda: Comanda = {
@@ -99,6 +101,52 @@ const creditCustomerDetails: CreditCustomerDetails = {
   ...creditCustomer,
   orders: [creditOrder],
   settlements: [],
+};
+
+const statementReport: StatementReport = {
+  days: [
+    {
+      cancelledCommandCount: 0,
+      closedCommandCount: 1,
+      date: "2026-07-28",
+      processedCommandCount: 1,
+      receivedCents: 600,
+      receivedItemCount: 1,
+      soldCents: 600,
+      soldItemCount: 1,
+    },
+  ],
+  entries: [
+    {
+      comandaId: "comanda-id",
+      comandaName: "Maria",
+      comandaNumber: 42,
+      event: "TABLE_CLOSED",
+      id: "entry-id",
+      occurredAt: openedAt,
+      origin: "TABLE",
+      receivedCents: 600,
+      receivedItemCount: 1,
+      soldCents: 600,
+      soldItemCount: 1,
+      status: "CLOSED",
+      tableNumber: 1,
+    },
+  ],
+  period: {
+    from: "2026-07-28",
+    timeZone: "America/Sao_Paulo",
+    to: "2026-07-28",
+  },
+  summary: {
+    cancelledCommandCount: 0,
+    closedCommandCount: 1,
+    processedCommandCount: 1,
+    receivedCents: 600,
+    receivedItemCount: 1,
+    soldCents: 600,
+    soldItemCount: 1,
+  },
 };
 
 const comandaWithItem: Comanda = {
@@ -179,18 +227,27 @@ function createProducts(
   return { listActive };
 }
 
+function createStatements(
+  findReport: StatementRepository["findReport"] = () =>
+    Promise.resolve(statementReport),
+): StatementRepository {
+  return { findReport };
+}
+
 async function createApp({
   comandas = createComandas(),
   credits = createCredits(),
   database = createDatabase(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
+  statements = createStatements(),
 }: {
   comandas?: ComandaRepository;
   credits?: CreditRepository;
   database?: Database;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
+  statements?: StatementRepository;
 } = {}) {
   return buildApp({
     comandas,
@@ -198,6 +255,7 @@ async function createApp({
     database,
     products,
     restaurantTables,
+    statements,
   });
 }
 
@@ -846,6 +904,75 @@ void test("POST /credit-orders/:orderId/settle rejects a second settlement", asy
     status: "error",
     message: "Credit balance cannot be settled",
   });
+
+  await app.close();
+});
+
+void test("GET /statements returns the inclusive requested period", async () => {
+  let receivedStartAt = "";
+  let receivedEndAt = "";
+  const app = await createApp({
+    statements: createStatements((period) => {
+      receivedStartAt = period.startAt.toISOString();
+      receivedEndAt = period.endAt.toISOString();
+      return Promise.resolve(statementReport);
+    }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/statements?from=2026-07-28&to=2026-07-28",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedStartAt, "2026-07-28T03:00:00.000Z");
+  assert.equal(receivedEndAt, "2026-07-29T03:00:00.000Z");
+  assert.deepEqual(response.json(), {
+    statement: statementReport,
+  });
+
+  await app.close();
+});
+
+void test("GET /statements rejects invalid periods before querying persistence", async () => {
+  let queryCalls = 0;
+  const app = await createApp({
+    statements: createStatements(() => {
+      queryCalls += 1;
+      return Promise.resolve(statementReport);
+    }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/statements?from=2026-07-30&to=2026-07-28",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(queryCalls, 0);
+  assert.deepEqual(response.json(), {
+    message: "Invalid statement period",
+    status: "error",
+  });
+
+  await app.close();
+});
+
+void test("GET /statements/export.pdf returns a named PDF document", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.headers["content-type"] ?? "", /^application\/pdf/);
+  assert.equal(
+    response.headers["content-disposition"],
+    'attachment; filename="extrato-2026-07-28-a-2026-07-28.pdf"',
+  );
+  assert.equal(response.rawPayload.subarray(0, 4).toString(), "%PDF");
 
   await app.close();
 });

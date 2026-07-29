@@ -17,6 +17,10 @@ import {
   createRestaurantTableRepository,
   type RestaurantTableRepository,
 } from "./restaurant-table-repository.js";
+import {
+  createStatementRepository,
+  type StatementRepository,
+} from "./statement-repository.js";
 
 export interface Database {
   close(): Promise<void>;
@@ -29,6 +33,7 @@ export interface Persistence {
   database: Database;
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
+  statements: StatementRepository;
 }
 
 function requiredEnvironmentVariable(name: string): string {
@@ -70,5 +75,6 @@ export function createPersistence(): Persistence {
     },
     products: createProductRepository(prisma),
     restaurantTables: createRestaurantTableRepository(prisma),
+    statements: createStatementRepository(prisma),
   };
 }
