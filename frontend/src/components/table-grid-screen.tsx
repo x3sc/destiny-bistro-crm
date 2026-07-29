@@ -25,6 +25,7 @@ type TableGridState =
 interface TableGridScreenProps {
   apiBaseUrl?: string;
   loadTablesRequest?: typeof loadTables;
+  onBack?: () => void;
   onSelectTable?: (table: RestaurantTable) => void;
 }
 const tableStatusLabels: Record<RestaurantTableStatus, string> = {
@@ -36,6 +37,7 @@ const tableStatusLabels: Record<RestaurantTableStatus, string> = {
 export function TableGridScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
   loadTablesRequest = loadTables,
+  onBack,
   onSelectTable,
 }: TableGridScreenProps) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
@@ -146,6 +148,7 @@ export function TableGridScreen({
               )}
             />
             <RetryButton label="Atualizar mesas" onPress={refreshTables} />
+            {onBack && <RetryButton label="Voltar ao menu" onPress={onBack} />}
           </>
         )}
       </View>

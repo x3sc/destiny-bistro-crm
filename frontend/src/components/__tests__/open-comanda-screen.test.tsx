@@ -7,6 +7,7 @@ const comanda: Comanda = {
   cancellationReason: null,
   cancelledAt: null,
   closedAt: null,
+  credit: null,
   events: [],
   id: 'comanda-id',
   items: [],

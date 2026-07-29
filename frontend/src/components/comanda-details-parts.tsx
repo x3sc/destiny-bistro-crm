@@ -70,6 +70,9 @@ export function ComandaItems({
                   {newQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                   {formatCentsAsBrl(newQuantity * item.unitPriceCents)}
                 </Text>
+                <Text style={styles.description}>
+                  Adicionado em: {formatItemDateTime(item.createdAt)}
+                </Text>
               </View>
             );
           })}
@@ -88,6 +91,9 @@ export function ComandaItems({
                 {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                 {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
               </Text>
+              <Text style={styles.description}>
+                Adicionado em: {formatItemDateTime(item.createdAt)}
+              </Text>
             </View>
           ))}
         </>
@@ -97,29 +103,92 @@ export function ComandaItems({
   );
 }
 
+function formatItemDateTime(value: string) {
+  return new Date(value).toLocaleString('pt-BR');
+}
+
 export function ComandaActions({
   canCancel,
   canClose,
+  canCreateCredit,
+  credit,
   disabled,
   isClosing,
   onAddProducts,
   onBack,
   onCancel,
+  onCancelCredit,
   onClose,
+  onCloseAsCredit,
+  onFinalizeCredit,
   status,
 }: {
   canCancel: boolean;
   canClose: boolean;
+  canCreateCredit: boolean;
+  credit: Comanda['credit'];
   disabled: boolean;
   isClosing: boolean;
   onAddProducts: () => void;
   onBack: () => void;
   onCancel: () => void;
+  onCancelCredit: () => void;
   onClose: () => void;
+  onCloseAsCredit: () => void;
+  onFinalizeCredit: () => void;
   status: Comanda['status'];
 }) {
   if (status !== 'OPEN') {
     return <ActionButton label="Voltar" onPress={onBack} tone="secondary" />;
+  }
+
+  if (credit?.source === 'MANUAL' && credit.status === 'DRAFT') {
+    return (
+      <View style={styles.actions}>
+        <ActionButton label="Adicionar produtos" onPress={onAddProducts} />
+        {!canCreateCredit && (
+          <Message
+            text="Adicione produtos e confirme todos os itens antes de finalizar o fiado."
+            tone="notice"
+          />
+        )}
+        <ActionButton
+          disabled={disabled || !canCreateCredit}
+          label={isClosing ? 'Finalizando...' : 'Finalizar fiado'}
+          onPress={onFinalizeCredit}
+        />
+        <ActionButton
+          disabled={disabled}
+          label="Cancelar rascunho"
+          onPress={() => {
+            confirmDestructiveAction({
+              message: 'Deseja cancelar este rascunho de fiado?',
+              onConfirm: onCancelCredit,
+              title: 'Cancelar rascunho',
+            });
+          }}
+          tone="danger"
+        />
+        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
+      </View>
+    );
+  }
+
+  if (credit?.status === 'OPEN') {
+    return (
+      <View style={styles.actions}>
+        <ActionButton label="Adicionar produtos" onPress={onAddProducts} />
+        <Message
+          text={
+            canCreateCredit
+              ? 'Este fiado está em aberto e pode receber novos itens.'
+              : 'Confirme os itens novos antes de quitar este fiado.'
+          }
+          tone="notice"
+        />
+        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
+      </View>
+    );
   }
 
   return (
@@ -142,6 +211,18 @@ export function ComandaActions({
             title: 'Fechar mesa',
           });
         }}
+      />
+      {!canCreateCredit && (
+        <Message
+          text="Para fechar como fiado, adicione produtos e confirme todos os itens."
+          tone="notice"
+        />
+      )}
+      <ActionButton
+        disabled={disabled || !canCreateCredit}
+        label="Fechar como fiado"
+        onPress={onCloseAsCredit}
+        tone="secondary"
       />
       {!canCancel && (
         <Message
