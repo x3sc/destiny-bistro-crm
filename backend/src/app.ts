@@ -5,12 +5,14 @@ import { registerAuthentication } from "./authentication.js";
 import type { ComandaRepository } from "./comanda-repository.js";
 import type { CreditRepository } from "./credit-repository.js";
 import type { Database } from "./database.js";
+import type { InventoryRepository } from "./inventory-repository.js";
 import type { ProductRepository } from "./product-repository.js";
 import type { RestaurantTableRepository } from "./restaurant-table-repository.js";
 import type { StatementRepository } from "./statement-repository.js";
 import { registerComandaRoutes } from "./routes/comanda-routes.js";
 import { registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerCreditRoutes } from "./routes/credit-routes.js";
+import { registerInventoryRoutes } from "./routes/inventory-routes.js";
 import { registerProductRoutes } from "./routes/product-routes.js";
 import { registerRestaurantTableRoutes } from "./routes/restaurant-table-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
@@ -22,6 +24,7 @@ interface BuildAppOptions {
   credits: CreditRepository;
   corsOrigins?: string[] | true;
   database: Database;
+  inventory: InventoryRepository;
   logger?: FastifyServerOptions["logger"];
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
@@ -34,6 +37,7 @@ export async function buildApp({
   credits,
   corsOrigins = true,
   database,
+  inventory,
   logger = false,
   products,
   restaurantTables,
@@ -54,6 +58,7 @@ export async function buildApp({
   registerRestaurantTableRoutes(app, restaurantTables, comandas);
   registerComandaRoutes(app, comandas);
   registerCreditRoutes(app, credits);
+  registerInventoryRoutes(app, inventory);
   registerStatementRoutes(app, statements);
 
   app.addHook("onClose", async () => {

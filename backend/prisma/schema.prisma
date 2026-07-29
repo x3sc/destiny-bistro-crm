@@ -58,18 +58,37 @@ enum CreditOrderStatus {
   CANCELLED
 }
 
+enum IngredientUnit {
+  UNIT
+  GRAM
+  MILLILITER
+}
+
+enum InventoryMovementType {
+  ENTRY
+  EXIT
+  ADJUSTMENT
+}
+
 model Establishment {
-  id               String            @id @default(cuid())
-  name             String            @db.VarChar(80)
-  normalizedName   String            @unique @db.VarChar(80)
-  users            User[]
-  restaurantTables RestaurantTable[]
-  comandas         Comanda[]
-  creditCustomers  CreditCustomer[]
-  products         Product[]
-  auditLogs        AuditLog[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                 String              @id @default(cuid())
+  name               String              @db.VarChar(80)
+  normalizedName     String              @unique @db.VarChar(80)
+  users              User[]
+  restaurantTables   RestaurantTable[]
+  comandas           Comanda[]
+  creditCustomers    CreditCustomer[]
+  creditOrders       CreditOrder[]
+  creditSettlements  CreditSettlement[]
+  products           Product[]
+  comandaItems       ComandaItem[]
+  comandaEvents      ComandaEvent[]
+  ingredients        Ingredient[]
+  inventoryStocks    InventoryStock[]
+  inventoryMovements InventoryMovement[]
+  auditLogs          AuditLog[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 }
 
 model RestaurantTable {
@@ -79,12 +98,14 @@ model RestaurantTable {
   number          Int
   status          RestaurantTableStatus @default(FREE)
   activeComandaId String?               @unique
-  activeComanda   Comanda?              @relation("ActiveComanda", fields: [activeComandaId], references: [id], onDelete: SetNull)
+  activeComanda   Comanda?              @relation("ActiveComanda", fields: [activeComandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   comandas        Comanda[]             @relation("TableComandas")
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
   @@unique([establishmentId, number])
+  @@unique([id, establishmentId])
+  @@unique([activeComandaId, establishmentId])
   @@index([establishmentId, status])
 }
 
@@ -95,7 +116,7 @@ model Comanda {
   number             Int                        @unique @default(autoincrement())
   name               String?                    @db.VarChar(80)
   tableId            Int?
-  table              RestaurantTable?           @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
+  table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
   creditOrder        CreditOrder?
   status             ComandaStatus              @default(OPEN)
@@ -108,6 +129,7 @@ model Comanda {
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
+  @@unique([id, establishmentId])
   @@index([establishmentId, status])
   @@index([tableId])
   @@index([status, closedAt])
@@ -115,95 +137,110 @@ model Comanda {
 }
 
 model CreditCustomer {
-  id             String             @id @default(cuid())
+  id              String             @id @default(cuid())
   establishmentId String
-  establishment  Establishment      @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  name           String             @db.VarChar(80)
-  normalizedName String             @db.VarChar(80)
-  orders         CreditOrder[]
-  settlements    CreditSettlement[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  establishment   Establishment      @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  name            String             @db.VarChar(80)
+  normalizedName  String             @db.VarChar(80)
+  orders          CreditOrder[]
+  settlements     CreditSettlement[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@unique([establishmentId, normalizedName])
+  @@unique([id, establishmentId])
   @@index([establishmentId, name])
 }
 
 model CreditOrder {
-  id           String             @id @default(cuid())
-  customerId   String
-  customer     CreditCustomer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  comandaId    String             @unique
-  comanda      Comanda            @relation(fields: [comandaId], references: [id], onDelete: Restrict)
-  source       CreditOrderSource
-  status       CreditOrderStatus  @default(DRAFT)
-  totalCents   Int                @default(0)
-  orderedAt    DateTime
-  finalizedAt  DateTime?
-  cancelledAt  DateTime?
-  settledAt    DateTime?
-  settlementId String?
-  settlement   CreditSettlement?  @relation(fields: [settlementId], references: [id], onDelete: Restrict)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id              String            @id @default(cuid())
+  establishmentId String
+  establishment   Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  customerId      String
+  customer        CreditCustomer    @relation(fields: [customerId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  comandaId       String            @unique
+  comanda         Comanda           @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  source          CreditOrderSource
+  status          CreditOrderStatus @default(DRAFT)
+  totalCents      Int               @default(0)
+  orderedAt       DateTime
+  finalizedAt     DateTime?
+  cancelledAt     DateTime?
+  settledAt       DateTime?
+  settlementId    String?
+  settlement      CreditSettlement? @relation(fields: [settlementId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
+  @@unique([comandaId, establishmentId])
+  @@index([establishmentId, status])
   @@index([customerId, status])
   @@index([settlementId])
   @@index([status, finalizedAt])
 }
 
 model CreditSettlement {
-  id          String         @id @default(cuid())
-  customerId  String
-  customer    CreditCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  amountCents Int
-  paidAt      DateTime       @default(now())
-  orders      CreditOrder[]
-  createdAt   DateTime       @default(now())
+  id              String         @id @default(cuid())
+  establishmentId String
+  establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  customerId      String
+  customer        CreditCustomer @relation(fields: [customerId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  amountCents     Int
+  paidAt          DateTime       @default(now())
+  orders          CreditOrder[]
+  createdAt       DateTime       @default(now())
 
+  @@unique([id, establishmentId])
+  @@index([establishmentId, paidAt])
   @@index([customerId, paidAt])
   @@index([paidAt])
 }
 
 model Product {
-  id           String          @id @default(cuid())
+  id              String          @id @default(cuid())
   establishmentId String
-  establishment  Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  code         String
-  category     ProductCategory @default(OTHER)
-  name         String
-  priceCents   Int
-  active       Boolean         @default(true)
-  comandaItems ComandaItem[]
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  establishment   Establishment   @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  code            String
+  category        ProductCategory @default(OTHER)
+  name            String
+  priceCents      Int
+  active          Boolean         @default(true)
+  comandaItems    ComandaItem[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@unique([establishmentId, code])
+  @@unique([id, establishmentId])
   @@index([establishmentId, active, name])
 }
 
 model ComandaItem {
-  id                String   @id @default(cuid())
+  id                String        @id @default(cuid())
+  establishmentId   String
+  establishment     Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   comandaId         String
-  comanda           Comanda  @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  comanda           Comanda       @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   productId         String
-  product           Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  product           Product       @relation(fields: [productId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   productName       String
   unitPriceCents    Int
   quantity          Int
-  confirmedQuantity Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  confirmedQuantity Int           @default(0)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@unique([comandaId, productId])
+  @@index([establishmentId, createdAt])
   @@index([comandaId])
   @@index([productId])
 }
 
 model ComandaEvent {
   id               String                     @id @default(cuid())
+  establishmentId  String
+  establishment    Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   comandaId        String
-  comanda          Comanda                    @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  comanda          Comanda                    @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   type             ComandaEventType
   reason           ComandaCancellationReason?
   itemId           String?
@@ -212,32 +249,35 @@ model ComandaEvent {
   unitPriceCents   Int?
   previousQuantity Int?
   newQuantity      Int?
-  actorUserId     String?
-  actorUser       User?                      @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  actorUserId      String?
+  actorUser        User?                      @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   createdAt        DateTime                   @default(now())
 
+  @@index([establishmentId, createdAt])
   @@index([comandaId])
   @@index([type, createdAt])
   @@index([actorUserId, createdAt])
 }
 
 model User {
-  id             String         @id @default(cuid())
-  establishmentId String
-  establishment  Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  name           String         @db.VarChar(80)
-  normalizedName String         @unique @db.VarChar(80)
-  passwordHash   String         @db.VarChar(255)
-  active         Boolean        @default(true)
-  lastLoginAt    DateTime?
-  sessions       AuthSession[]
-  roles          UserRole[]     @relation("UserRoles")
-  rolesAssigned  UserRole[]     @relation("RoleAssignedBy")
-  auditLogs      AuditLog[]
-  comandaEvents  ComandaEvent[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                 String              @id @default(cuid())
+  establishmentId    String
+  establishment      Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  name               String              @db.VarChar(80)
+  normalizedName     String              @unique @db.VarChar(80)
+  passwordHash       String              @db.VarChar(255)
+  active             Boolean             @default(true)
+  lastLoginAt        DateTime?
+  sessions           AuthSession[]
+  roles              UserRole[]          @relation("UserRoles")
+  rolesAssigned      UserRole[]          @relation("RoleAssignedBy")
+  auditLogs          AuditLog[]
+  comandaEvents      ComandaEvent[]
+  inventoryMovements InventoryMovement[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
+  @@unique([id, establishmentId])
   @@index([establishmentId, active, name])
   @@index([active, name])
 }
@@ -305,19 +345,73 @@ model AuthSession {
 }
 
 model AuditLog {
-  id           String   @id @default(cuid())
+  id              String        @id @default(cuid())
   establishmentId String
-  establishment  Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  action       String   @db.VarChar(80)
-  resourceType String   @db.VarChar(50)
-  resourceId   String   @db.VarChar(191)
-  metadata     Json?
-  createdAt    DateTime @default(now())
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  userId          String
+  user            User          @relation(fields: [userId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  action          String        @db.VarChar(80)
+  resourceType    String        @db.VarChar(50)
+  resourceId      String        @db.VarChar(191)
+  metadata        Json?
+  createdAt       DateTime      @default(now())
 
   @@index([establishmentId, createdAt])
   @@index([userId, createdAt])
   @@index([resourceType, resourceId, createdAt])
   @@index([action, createdAt])
+}
+
+model Ingredient {
+  id              String          @id @default(cuid())
+  establishmentId String
+  establishment   Establishment   @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  code            String          @db.VarChar(50)
+  name            String          @db.VarChar(100)
+  unit            IngredientUnit
+  active          Boolean         @default(true)
+  stock           InventoryStock?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([establishmentId, code])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, active, name])
+}
+
+model InventoryStock {
+  id              String              @id @default(cuid())
+  establishmentId String
+  establishment   Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  ingredientId    String
+  ingredient      Ingredient          @relation(fields: [ingredientId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  quantity        Int                 @default(0)
+  minimumQuantity Int                 @default(0)
+  movements       InventoryMovement[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([establishmentId, ingredientId])
+  @@unique([ingredientId, establishmentId])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, updatedAt])
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  establishmentId String
+  establishment   Establishment         @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  stockId         String
+  stock           InventoryStock        @relation(fields: [stockId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  type            InventoryMovementType
+  quantityDelta   Int
+  balanceAfter    Int
+  reason          String                @db.VarChar(255)
+  actorUserId     String
+  actorUser       User                  @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime              @default(now())
+
+  @@index([establishmentId, createdAt])
+  @@index([stockId, createdAt])
+  @@index([actorUserId, createdAt])
 }

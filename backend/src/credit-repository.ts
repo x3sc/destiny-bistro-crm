@@ -128,6 +128,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             actorUserId,
             comandaId: order.comandaId,
+            establishmentId,
             reason: "OPENED_BY_MISTAKE",
             type: "CANCELLED",
           },
@@ -218,6 +219,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             comandaId,
             customerId,
+            establishmentId,
             finalizedAt,
             orderedAt: comanda.openedAt,
             source: "TABLE",
@@ -311,6 +313,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             comandaId: comanda.id,
             customerId,
+            establishmentId,
             orderedAt: comanda.openedAt,
             source: "MANUAL",
           },
@@ -515,6 +518,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             amountCents: order.totalCents,
             customerId: order.customerId,
+            establishmentId,
           },
           select: {
             amountCents: true,
@@ -554,6 +558,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           data: {
             actorUserId,
             comandaId: order.comandaId,
+            establishmentId,
             type: "CLOSED",
           },
         });

@@ -5,7 +5,6 @@ import { createPersistence, createPrismaClient } from "../../src/database.js";
 import { provisionUser } from "../../src/user-provisioning.js";
 import { resetOperationalData } from "../../src/operational-data-reset.js";
 import { AuthCredentialsError } from "../../src/auth-repository.js";
-import { seedEstablishmentData } from "../../src/establishment-data.js";
 import { provisionEstablishment } from "../../src/establishment-provisioning.js";
 import {
   LEGACY_SEED_PRODUCT_CODES,
@@ -20,95 +19,71 @@ const secondaryEstablishmentName = "Secondary Integration Bistro";
 let integrationEstablishmentId = "";
 
 before(async () => {
-  await prisma.restaurantTable.updateMany({
-    data: {
-      activeComandaId: null,
-      status: "FREE",
-    },
-  });
-  await prisma.creditOrder.deleteMany();
-  await prisma.creditSettlement.deleteMany();
-  await prisma.creditCustomer.deleteMany();
-  await prisma.comandaItem.deleteMany();
-  await prisma.comandaEvent.deleteMany();
-  await prisma.comanda.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.authSession.deleteMany();
-  await prisma.userRole.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.product.deleteMany({
-    where: {
-      code: "STATEMENT_TEST_PRODUCT",
-    },
-  });
-  await prisma.restaurantTable.deleteMany({
-    where: {
-      establishment: {
-        normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
-      },
-    },
-  });
-  await prisma.product.deleteMany({
-    where: {
-      establishment: {
-        normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
-      },
-    },
-  });
-  await prisma.establishment.deleteMany({
-    where: {
-      normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
-    },
-  });
-  const establishment = await prisma.establishment.upsert({
-    create: {
-      name: integrationEstablishmentName,
-      normalizedName: integrationEstablishmentName.toLocaleLowerCase("pt-BR"),
-    },
-    update: {},
-    where: {
-      normalizedName: integrationEstablishmentName.toLocaleLowerCase("pt-BR"),
-    },
+  await cleanupEstablishment(integrationEstablishmentName);
+  await cleanupEstablishment(secondaryEstablishmentName);
+  const establishment = await provisionEstablishment(prisma, {
+    name: integrationEstablishmentName,
+    ownerName: integrationUserName,
+    ownerPassword: integrationUserPassword,
   });
   integrationEstablishmentId = establishment.id;
-  await prisma.$transaction(
-    (transaction) => seedEstablishmentData(transaction, establishment.id),
-    {
-      timeout: 30_000,
-    },
-  );
-  await provisionUser(prisma, {
-    establishmentName: integrationEstablishmentName,
-    name: integrationUserName,
-    password: integrationUserPassword,
-    roleCodes: ["OWNER"],
-  });
 });
 
 after(async () => {
-  await prisma.restaurantTable.updateMany({
-    data: {
-      activeComandaId: null,
-      status: "FREE",
-    },
-  });
-  await prisma.creditOrder.deleteMany();
-  await prisma.creditSettlement.deleteMany();
-  await prisma.creditCustomer.deleteMany();
-  await prisma.comandaItem.deleteMany();
-  await prisma.comandaEvent.deleteMany();
-  await prisma.comanda.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.authSession.deleteMany();
-  await prisma.userRole.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.product.deleteMany({
-    where: {
-      code: "STATEMENT_TEST_PRODUCT",
-    },
-  });
+  await cleanupEstablishment(secondaryEstablishmentName);
+  await cleanupEstablishment(integrationEstablishmentName);
   await prisma.$disconnect();
 });
+
+async function cleanupEstablishment(name: string) {
+  const establishment = await prisma.establishment.findUnique({
+    select: { id: true },
+    where: { normalizedName: name.toLocaleLowerCase("pt-BR") },
+  });
+
+  if (!establishment) {
+    return;
+  }
+
+  const establishmentId = establishment.id;
+
+  await prisma.$transaction(async (transaction) => {
+    await transaction.restaurantTable.updateMany({
+      data: { activeComandaId: null, status: "FREE" },
+      where: { establishmentId },
+    });
+    await transaction.creditOrder.deleteMany({ where: { establishmentId } });
+    await transaction.creditSettlement.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.creditCustomer.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.comandaItem.deleteMany({ where: { establishmentId } });
+    await transaction.comandaEvent.deleteMany({ where: { establishmentId } });
+    await transaction.comanda.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryMovement.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.inventoryStock.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.ingredient.deleteMany({ where: { establishmentId } });
+    await transaction.auditLog.deleteMany({ where: { establishmentId } });
+    await transaction.authSession.deleteMany({
+      where: { user: { establishmentId } },
+    });
+    await transaction.userRole.deleteMany({
+      where: { user: { establishmentId } },
+    });
+    await transaction.user.deleteMany({ where: { establishmentId } });
+    await transaction.product.deleteMany({ where: { establishmentId } });
+    await transaction.restaurantTable.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.establishment.delete({ where: { id: establishmentId } });
+  });
+}
 
 async function createAuthenticatedApp(
   name = integrationUserName,
@@ -1257,6 +1232,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     data: {
       amountCents: 1_500,
       customerId: customer.id,
+      establishmentId: integrationEstablishmentId,
       paidAt: new Date("2031-04-12T15:00:00.000Z"),
     },
   });
@@ -1264,6 +1240,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     data: {
       comandaId: creditComanda.id,
       customerId: customer.id,
+      establishmentId: integrationEstablishmentId,
       finalizedAt: new Date("2031-04-10T13:00:00.000Z"),
       orderedAt: new Date("2031-04-10T11:00:00.000Z"),
       settlementId: settlement.id,
@@ -1457,6 +1434,146 @@ void test("establishments isolate data and support multiple owners and employees
     });
     assert.equal(crossTenantResponse.statusCode, 404);
 
+    const primaryIngredientResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        code: "CAFE_TEST",
+        minimumQuantity: 500,
+        name: "Café de teste",
+        unit: "GRAM",
+      },
+      url: "/ingredients",
+    });
+    const secondaryIngredientResponse = await secondaryApp.inject({
+      method: "POST",
+      payload: {
+        code: "CAFE_TEST",
+        minimumQuantity: 100,
+        name: "Café de teste",
+        unit: "GRAM",
+      },
+      url: "/ingredients",
+    });
+    assert.equal(primaryIngredientResponse.statusCode, 201);
+    assert.equal(secondaryIngredientResponse.statusCode, 201);
+    const primaryStockId = primaryIngredientResponse.json<{
+      inventoryItem: { id: string };
+    }>().inventoryItem.id;
+    const secondaryStockId = secondaryIngredientResponse.json<{
+      inventoryItem: { id: string };
+    }>().inventoryItem.id;
+    assert.notEqual(primaryStockId, secondaryStockId);
+
+    const [primaryInventoryResponse, secondaryInventoryResponse] =
+      await Promise.all([
+        primaryApp.inject({ method: "GET", url: "/inventory" }),
+        secondaryApp.inject({ method: "GET", url: "/inventory" }),
+      ]);
+    assert.deepEqual(
+      primaryInventoryResponse
+        .json<{ inventory: { id: string }[] }>()
+        .inventory.map(({ id }) => id),
+      [primaryStockId],
+    );
+    assert.deepEqual(
+      secondaryInventoryResponse
+        .json<{ inventory: { id: string }[] }>()
+        .inventory.map(({ id }) => id),
+      [secondaryStockId],
+    );
+
+    const entryResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: 1_000,
+        reason: "Compra de teste",
+        type: "ENTRY",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(entryResponse.statusCode, 201);
+    assert.equal(
+      entryResponse.json<{ movement: { balanceAfter: number } }>().movement
+        .balanceAfter,
+      1_000,
+    );
+
+    const exitResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: -250,
+        reason: "Consumo de teste",
+        type: "EXIT",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(exitResponse.statusCode, 201);
+    assert.equal(
+      exitResponse.json<{ movement: { balanceAfter: number } }>().movement
+        .balanceAfter,
+      750,
+    );
+
+    const negativeBalanceResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: -751,
+        reason: "Consumo invalido",
+        type: "EXIT",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(negativeBalanceResponse.statusCode, 409);
+    assert.equal(
+      await prisma.inventoryMovement.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          stockId: primaryStockId,
+        },
+      }),
+      2,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "INVENTORY_MOVEMENT_RECORDED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: primaryStockId,
+        },
+      }),
+      2,
+    );
+
+    const crossTenantMovementResponse = await secondaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: 10,
+        reason: "Tentativa cruzada",
+        type: "ENTRY",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(crossTenantMovementResponse.statusCode, 404);
+
+    await assert.rejects(
+      prisma.inventoryMovement.create({
+        data: {
+          actorUserId: secondary.users[0].id,
+          balanceAfter: 10,
+          establishmentId: secondary.id,
+          quantityDelta: 10,
+          reason: "Tentativa direta cruzada",
+          stockId: primaryStockId,
+          type: "ENTRY",
+        },
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2003",
+    );
+
     const duplicateProductCodes = await prisma.product.findMany({
       select: { establishmentId: true, id: true },
       where: {
@@ -1471,34 +1588,24 @@ void test("establishments isolate data and support multiple owners and employees
   } finally {
     await primaryApp.close();
     await secondaryApp.close();
-    await prisma.creditCustomer.deleteMany({
-      where: { establishmentId: secondary.id },
-    });
-    await prisma.auditLog.deleteMany({
-      where: { establishmentId: secondary.id },
-    });
-    await prisma.authSession.deleteMany({
-      where: { user: { establishmentId: secondary.id } },
-    });
-    await prisma.userRole.deleteMany({
-      where: { user: { establishmentId: secondary.id } },
-    });
-    await prisma.user.deleteMany({
-      where: { establishmentId: secondary.id },
-    });
-    await prisma.product.deleteMany({
-      where: { establishmentId: secondary.id },
-    });
-    await prisma.restaurantTable.deleteMany({
-      where: { establishmentId: secondary.id },
-    });
-    await prisma.establishment.delete({
-      where: { id: secondary.id },
-    });
+    await cleanupEstablishment(secondaryEstablishmentName);
   }
 });
 
 void test("operational reset preserves catalog, tables and provisioned users", async () => {
+  const secondary = await prisma.establishment.create({
+    data: {
+      name: secondaryEstablishmentName,
+      normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
+    },
+  });
+  const secondaryCustomer = await prisma.creditCustomer.create({
+    data: {
+      establishmentId: secondary.id,
+      name: "Cliente preservado",
+      normalizedName: "cliente preservado",
+    },
+  });
   const app = await createAuthenticatedApp();
 
   try {
@@ -1512,28 +1619,58 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     await app.close();
   }
 
-  const productsBefore = await prisma.product.count();
-  const tablesBefore = await prisma.restaurantTable.count();
-  const usersBefore = await prisma.user.count();
+  const tenantFilter = { establishmentId: integrationEstablishmentId };
+  const productsBefore = await prisma.product.count({ where: tenantFilter });
+  const tablesBefore = await prisma.restaurantTable.count({
+    where: tenantFilter,
+  });
+  const usersBefore = await prisma.user.count({ where: tenantFilter });
+  const stocksBefore = await prisma.inventoryStock.count({
+    where: tenantFilter,
+  });
 
-  await resetOperationalData(prisma);
+  try {
+    await resetOperationalData(prisma, integrationEstablishmentId);
 
-  assert.equal(await prisma.comanda.count(), 0);
-  assert.equal(await prisma.comandaEvent.count(), 0);
-  assert.equal(await prisma.comandaItem.count(), 0);
-  assert.equal(await prisma.creditCustomer.count(), 0);
-  assert.equal(await prisma.creditOrder.count(), 0);
-  assert.equal(await prisma.creditSettlement.count(), 0);
-  assert.equal(await prisma.product.count(), productsBefore);
-  assert.equal(await prisma.restaurantTable.count(), tablesBefore);
-  assert.equal(await prisma.user.count(), usersBefore);
-  assert.equal(
-    await prisma.restaurantTable.count({
-      where: {
-        activeComandaId: null,
-        status: "FREE",
-      },
-    }),
-    tablesBefore,
-  );
+    assert.equal(await prisma.comanda.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.comandaEvent.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.comandaItem.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.creditCustomer.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.creditOrder.count({ where: tenantFilter }), 0);
+    assert.equal(
+      await prisma.creditSettlement.count({ where: tenantFilter }),
+      0,
+    );
+    assert.equal(
+      await prisma.product.count({ where: tenantFilter }),
+      productsBefore,
+    );
+    assert.equal(
+      await prisma.restaurantTable.count({ where: tenantFilter }),
+      tablesBefore,
+    );
+    assert.equal(await prisma.user.count({ where: tenantFilter }), usersBefore);
+    assert.equal(
+      await prisma.inventoryStock.count({ where: tenantFilter }),
+      stocksBefore,
+    );
+    assert.equal(
+      await prisma.restaurantTable.count({
+        where: {
+          activeComandaId: null,
+          establishmentId: integrationEstablishmentId,
+          status: "FREE",
+        },
+      }),
+      tablesBefore,
+    );
+    assert.equal(
+      await prisma.creditCustomer.findUnique({
+        where: { id: secondaryCustomer.id },
+      }).then(Boolean),
+      true,
+    );
+  } finally {
+    await cleanupEstablishment(secondaryEstablishmentName);
+  }
 });
