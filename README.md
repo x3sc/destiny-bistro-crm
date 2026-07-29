@@ -82,6 +82,10 @@ A API fica disponivel em `http://localhost:3333`:
 - `POST /credit-orders/:orderId/cancel`: cancela um rascunho com auditoria.
 - `POST /credit-orders/:orderId/settle`: quita apenas o fiado selecionado.
 - `POST /comandas/:comandaId/credit`: fecha uma mesa como fiado e libera a mesa.
+- `GET /statements?from=AAAA-MM-DD&to=AAAA-MM-DD`: consulta o resumo geral,
+  detalhamento diario e movimentacoes do periodo no fuso `America/Sao_Paulo`.
+- `GET /statements/export.pdf?from=AAAA-MM-DD&to=AAAA-MM-DD`: exporta o mesmo
+  extrato como PDF.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
@@ -108,12 +112,17 @@ npm.cmd start
 Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
 computador.
 
-O menu principal separa **Mesas**, **Fiados** e **Extratos**. Extratos permanece
-identificado como "Em breve". Em Fiados, o aplicativo permite cadastrar ou
-selecionar uma pessoa, retomar rascunhos, fechar comandas de mesa como divida e
-quitar cada fiado individualmente. Fiados em aberto continuam editaveis; a
-comanda exibe a data e hora em que cada produto foi adicionado. O detalhe da
-pessoa permite filtrar pedidos em aberto e quitados e abrir a comanda completa.
+O menu principal separa **Mesas**, **Fiados** e **Extratos**. Em Fiados, o
+aplicativo permite cadastrar ou selecionar uma pessoa, retomar rascunhos, fechar
+comandas de mesa como divida e quitar cada fiado individualmente. Fiados em aberto
+continuam editaveis; a comanda exibe a data e hora em que cada produto foi
+adicionado. O detalhe da pessoa permite filtrar pedidos em aberto e quitados e
+abrir a comanda completa.
+
+Em Extratos, um unico calendario seleciona um dia ou intervalo. A tela separa
+valores e itens vendidos dos recebidos, mostra comandas processadas, fechadas e
+canceladas e detalha cada dia. O botao de exportacao baixa o PDF no navegador ou
+abre o compartilhamento nativo no Android e iOS.
 
 ### Compatibilidade do Expo
 
@@ -121,6 +130,11 @@ pessoa permite filtrar pedidos em aberto e quitados e abrir a comanda completa.
 declarados explicitamente nas versões compatíveis com o Expo SDK 56. Isso evita
 que a resolucao automatica de dependencias do npm selecione uma versao de
 `react-native-worklets` incompatível com o `jest-expo`.
+
+`react-native-calendars` fornece a selecao visual do periodo.
+`expo-file-system` e `expo-sharing` permitem baixar e compartilhar o PDF no
+dispositivo. No backend, `pdfkit` gera o documento diretamente em memoria, sem
+arquivos temporarios. Os lockfiles registram as versoes resolvidas.
 
 ## Validacao
 
@@ -145,6 +159,6 @@ npm.cmd test
 
 ## Status
 
-Quinta fatia vertical em desenvolvimento: menu principal, comandas de mesa,
-catalogo e quantidades confirmadas, alem de fiados manuais ou convertidos de mesa,
-saldo agrupado por pessoa, quitacao individual e preservacao do historico financeiro.
+Sexta fatia vertical em desenvolvimento: extratos por periodo com valores e itens
+vendidos ou recebidos, detalhamento diario, comandas processadas e exportacao PDF,
+mantendo mesas, fiados e alteracoes de consumo auditaveis.
