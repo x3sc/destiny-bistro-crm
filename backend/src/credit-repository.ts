@@ -69,9 +69,9 @@ export function normalizeCreditCustomerName(value: string) {
 
 export function createCreditRepository(prisma: PrismaClient): CreditRepository {
   return {
-    async cancelOrder(orderId, actorUserId) {
+    async cancelOrder(establishmentId, orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const order = await transaction.creditOrder.findUnique({
+        const order = await transaction.creditOrder.findFirst({
           select: {
             comanda: {
               select: {
@@ -81,7 +81,10 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             comandaId: true,
             status: true,
           },
-          where: { id: orderId },
+          where: {
+            comanda: { establishmentId },
+            id: orderId,
+          },
         });
 
         if (!order) {
@@ -99,6 +102,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             status: "CANCELLED",
           },
           where: {
+            comanda: { establishmentId },
             id: orderId,
             status: "DRAFT",
           },
@@ -110,6 +114,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             status: "CANCELLED",
           },
           where: {
+            establishmentId,
             id: order.comandaId,
             status: "OPEN",
           },
@@ -130,6 +135,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "CREDIT_ORDER_CANCELLED",
+            establishmentId,
             metadata: { comandaId: order.comandaId },
             resourceId: orderId,
             resourceType: "CREDIT_ORDER",
@@ -137,14 +143,19 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           }),
         });
 
-        return getOrderOrThrow(transaction, orderId);
+        return getOrderOrThrow(transaction, establishmentId, orderId);
       });
     },
-    async convertComanda(comandaId, customerId, actorUserId) {
+    async convertComanda(
+      establishmentId,
+      comandaId,
+      customerId,
+      actorUserId,
+    ) {
       return prisma.$transaction(async (transaction) => {
-        await ensureCustomerExists(transaction, customerId);
+        await ensureCustomerExists(transaction, establishmentId, customerId);
 
-        const comanda = await transaction.comanda.findUnique({
+        const comanda = await transaction.comanda.findFirst({
           select: {
             activeForTable: {
               select: {
@@ -167,7 +178,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             status: true,
             tableId: true,
           },
-          where: { id: comandaId },
+          where: { establishmentId, id: comandaId },
         });
 
         if (!comanda) {
@@ -191,6 +202,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           },
           where: {
             activeComandaId: comandaId,
+            establishmentId,
             id: comanda.tableId,
             status: "OPEN",
           },
@@ -217,6 +229,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "COMANDA_CONVERTED_TO_CREDIT",
+            establishmentId,
             metadata: { comandaId, customerId },
             resourceId: order.id,
             resourceType: "CREDIT_ORDER",
@@ -227,11 +240,12 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         return mapOrder(order);
       });
     },
-    async createCustomer(rawName, actorUserId) {
+    async createCustomer(establishmentId, rawName, actorUserId) {
       const { name, normalizedName } = normalizeCreditCustomerName(rawName);
       const customer = await prisma.$transaction(async (transaction) => {
         const persisted = await transaction.creditCustomer.upsert({
           create: {
+            establishmentId,
             name,
             normalizedName,
           },
@@ -241,12 +255,16 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           },
           update: {},
           where: {
-            normalizedName,
+            establishmentId_normalizedName: {
+              establishmentId,
+              normalizedName,
+            },
           },
         });
         await transaction.auditLog.create({
           data: createAuditData({
             action: "CREDIT_CUSTOMER_SELECTED",
+            establishmentId,
             metadata: { name: persisted.name },
             resourceId: persisted.id,
             resourceType: "CREDIT_CUSTOMER",
@@ -259,14 +277,14 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
       return emptyCustomerSummary(customer);
     },
-    async createOrder(customerId, actorUserId) {
+    async createOrder(establishmentId, customerId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const customer = await transaction.creditCustomer.findUnique({
+        const customer = await transaction.creditCustomer.findFirst({
           select: {
             id: true,
             name: true,
           },
-          where: { id: customerId },
+          where: { establishmentId, id: customerId },
         });
 
         if (!customer) {
@@ -275,6 +293,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
         const comanda = await transaction.comanda.create({
           data: {
+            establishmentId,
             events: {
               create: {
                 actorUserId,
@@ -300,6 +319,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "CREDIT_ORDER_CREATED",
+            establishmentId,
             metadata: { comandaId: comanda.id, customerId },
             resourceId: order.id,
             resourceType: "CREDIT_ORDER",
@@ -310,9 +330,9 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         return mapOrder(order);
       });
     },
-    async finalizeOrder(orderId, actorUserId) {
+    async finalizeOrder(establishmentId, orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const order = await transaction.creditOrder.findUnique({
+        const order = await transaction.creditOrder.findFirst({
           select: {
             comanda: {
               select: {
@@ -330,7 +350,10 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             source: true,
             status: true,
           },
-          where: { id: orderId },
+          where: {
+            comanda: { establishmentId },
+            id: orderId,
+          },
         });
 
         if (!order) {
@@ -354,6 +377,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             totalCents: totalItems(order.comanda.items),
           },
           where: {
+            comanda: { establishmentId },
             id: orderId,
             status: "DRAFT",
           },
@@ -364,6 +388,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "CREDIT_ORDER_FINALIZED",
+            establishmentId,
             metadata: { comandaId: order.comandaId },
             resourceId: orderId,
             resourceType: "CREDIT_ORDER",
@@ -371,11 +396,11 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           }),
         });
 
-        return getOrderOrThrow(transaction, orderId);
+        return getOrderOrThrow(transaction, establishmentId, orderId);
       });
     },
-    async findCustomer(customerId) {
-      const customer = await prisma.creditCustomer.findUnique({
+    async findCustomer(establishmentId, customerId) {
+      const customer = await prisma.creditCustomer.findFirst({
         select: {
           id: true,
           name: true,
@@ -402,7 +427,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             },
           },
         },
-        where: { id: customerId },
+        where: { establishmentId, id: customerId },
       });
 
       if (!customer) {
@@ -411,7 +436,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
       return mapCustomerDetails(customer);
     },
-    async listCustomers(includeInactive = false) {
+    async listCustomers(establishmentId, includeInactive = false) {
       const customers = await prisma.creditCustomer.findMany({
         orderBy: {
           name: "asc",
@@ -432,8 +457,9 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           },
         },
         where: includeInactive
-          ? undefined
+          ? { establishmentId }
           : {
+              establishmentId,
               orders: {
                 some: {
                   status: {
@@ -446,9 +472,9 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
       return customers.map(mapCustomerSummary);
     },
-    async settleOrder(orderId, actorUserId) {
+    async settleOrder(establishmentId, orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
-        const order = await transaction.creditOrder.findUnique({
+        const order = await transaction.creditOrder.findFirst({
           select: {
             comanda: {
               select: {
@@ -467,6 +493,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             totalCents: true,
           },
           where: {
+            comanda: { establishmentId },
             id: orderId,
           },
         });
@@ -502,6 +529,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             status: "SETTLED",
           },
           where: {
+            comanda: { establishmentId },
             id: orderId,
             status: "OPEN",
           },
@@ -512,6 +540,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             status: "CLOSED",
           },
           where: {
+            establishmentId,
             id: order.comandaId,
             status: "OPEN",
           },
@@ -531,6 +560,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
         await transaction.auditLog.create({
           data: createAuditData({
             action: "CREDIT_ORDER_SETTLED",
+            establishmentId,
             metadata: {
               amountCents: settlement.amountCents,
               comandaId: order.comandaId,
@@ -664,13 +694,15 @@ function mapCustomerDetails(customer: {
 
 async function ensureCustomerExists(
   transaction: Prisma.TransactionClient,
+  establishmentId: string,
   customerId: string,
 ) {
-  const customer = await transaction.creditCustomer.findUnique({
+  const customer = await transaction.creditCustomer.findFirst({
     select: {
       id: true,
     },
     where: {
+      establishmentId,
       id: customerId,
     },
   });
@@ -682,11 +714,15 @@ async function ensureCustomerExists(
 
 async function getOrderOrThrow(
   transaction: Prisma.TransactionClient,
+  establishmentId: string,
   orderId: string,
 ) {
-  const order = await transaction.creditOrder.findUnique({
+  const order = await transaction.creditOrder.findFirst({
     select: creditOrderSelect,
-    where: { id: orderId },
+    where: {
+      comanda: { establishmentId },
+      id: orderId,
+    },
   });
 
   if (!order) {

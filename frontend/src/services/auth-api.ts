@@ -8,6 +8,10 @@ export interface AuthRole {
 }
 
 export interface AuthUser {
+  establishment: {
+    id: string;
+    name: string;
+  };
   id: string;
   name: string;
   permissions: string[];
@@ -122,6 +126,10 @@ function isAuthUser(value: unknown): value is AuthUser {
   const user = value as Partial<AuthUser>;
 
   return (
+    !!user.establishment &&
+    typeof user.establishment === 'object' &&
+    typeof user.establishment.id === 'string' &&
+    typeof user.establishment.name === 'string' &&
     typeof user.id === 'string' &&
     typeof user.name === 'string' &&
     Array.isArray(user.permissions) &&

@@ -14,14 +14,14 @@ export interface RestaurantTable {
 }
 
 export interface RestaurantTableRepository {
-  list(): Promise<RestaurantTable[]>;
+  list(establishmentId: string): Promise<RestaurantTable[]>;
 }
 
 export function createRestaurantTableRepository(
   prisma: PrismaClient,
 ): RestaurantTableRepository {
   return {
-    async list() {
+    async list(establishmentId) {
       return prisma.restaurantTable.findMany({
         orderBy: {
           number: "asc",
@@ -37,6 +37,9 @@ export function createRestaurantTableRepository(
           id: true,
           number: true,
           status: true,
+        },
+        where: {
+          establishmentId,
         },
       });
     },

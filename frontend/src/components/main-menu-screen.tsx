@@ -5,6 +5,7 @@ export function MainMenuScreen({
   canAccessCredits = true,
   canAccessStatements = true,
   canAccessTables = true,
+  establishmentName,
   onCredits,
   onLogout,
   onStatements,
@@ -14,6 +15,7 @@ export function MainMenuScreen({
   canAccessCredits?: boolean;
   canAccessStatements?: boolean;
   canAccessTables?: boolean;
+  establishmentName?: string;
   onCredits: () => void;
   onLogout?: () => void;
   onStatements: () => void;
@@ -25,6 +27,9 @@ export function MainMenuScreen({
       <View style={styles.content}>
         <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
         <Text style={styles.title}>Menu principal</Text>
+        {establishmentName && (
+          <Text style={styles.establishmentName}>{establishmentName}</Text>
+        )}
         {userName && (
           <View style={styles.session}>
             <Text style={styles.sessionText}>Conectado como {userName}</Text>
@@ -155,6 +160,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
+  },
+  establishmentName: {
+    color: '#80583f',
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 6,
   },
   logout: {
     color: '#80583f',

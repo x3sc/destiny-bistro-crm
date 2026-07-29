@@ -44,6 +44,7 @@ export function registerCreditRoutes(
       try {
         return {
           customers: await credits.listCustomers(
+            requireAuthUser(request).establishment.id,
             request.query.includeInactive === "true",
           ),
         };
@@ -72,6 +73,7 @@ export function registerCreditRoutes(
       try {
         return reply.code(201).send({
           customer: await credits.createCustomer(
+            requireAuthUser(request).establishment.id,
             request.body.name,
             requireAuthUser(request).id,
           ),
@@ -100,7 +102,10 @@ export function registerCreditRoutes(
     async (request, reply) => {
       try {
         return {
-          customer: await credits.findCustomer(request.params.customerId),
+          customer: await credits.findCustomer(
+            requireAuthUser(request).establishment.id,
+            request.params.customerId,
+          ),
         };
       } catch (error) {
         if (error instanceof CreditCustomerNotFoundError) {
@@ -127,6 +132,7 @@ export function registerCreditRoutes(
       try {
         return reply.code(201).send({
           order: await credits.createOrder(
+            requireAuthUser(request).establishment.id,
             request.params.customerId,
             requireAuthUser(request).id,
           ),
@@ -156,6 +162,7 @@ export function registerCreditRoutes(
       try {
         return {
           order: await credits.finalizeOrder(
+            requireAuthUser(request).establishment.id,
             request.params.orderId,
             requireAuthUser(request).id,
           ),
@@ -173,6 +180,7 @@ export function registerCreditRoutes(
       try {
         return {
           order: await credits.cancelOrder(
+            requireAuthUser(request).establishment.id,
             request.params.orderId,
             requireAuthUser(request).id,
           ),
@@ -190,6 +198,7 @@ export function registerCreditRoutes(
       try {
         return {
           settlement: await credits.settleOrder(
+            requireAuthUser(request).establishment.id,
             request.params.orderId,
             requireAuthUser(request).id,
           ),
@@ -237,6 +246,7 @@ export function registerCreditRoutes(
       try {
         return {
           order: await credits.convertComanda(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             request.body.customerId,
             requireAuthUser(request).id,

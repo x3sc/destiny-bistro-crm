@@ -5,6 +5,8 @@ import { createPersistence, createPrismaClient } from "../../src/database.js";
 import { provisionUser } from "../../src/user-provisioning.js";
 import { resetOperationalData } from "../../src/operational-data-reset.js";
 import { AuthCredentialsError } from "../../src/auth-repository.js";
+import { seedEstablishmentData } from "../../src/establishment-data.js";
+import { provisionEstablishment } from "../../src/establishment-provisioning.js";
 import {
   LEGACY_SEED_PRODUCT_CODES,
   PORTUGAS_MENU,
@@ -13,6 +15,9 @@ import {
 const prisma = createPrismaClient();
 const integrationUserName = "Integration Operator";
 const integrationUserPassword = "integration-password";
+const integrationEstablishmentName = "Integration Bistro";
+const secondaryEstablishmentName = "Secondary Integration Bistro";
+let integrationEstablishmentId = "";
 
 before(async () => {
   await prisma.restaurantTable.updateMany({
@@ -36,7 +41,44 @@ before(async () => {
       code: "STATEMENT_TEST_PRODUCT",
     },
   });
+  await prisma.restaurantTable.deleteMany({
+    where: {
+      establishment: {
+        normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
+      },
+    },
+  });
+  await prisma.product.deleteMany({
+    where: {
+      establishment: {
+        normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
+      },
+    },
+  });
+  await prisma.establishment.deleteMany({
+    where: {
+      normalizedName: secondaryEstablishmentName.toLocaleLowerCase("pt-BR"),
+    },
+  });
+  const establishment = await prisma.establishment.upsert({
+    create: {
+      name: integrationEstablishmentName,
+      normalizedName: integrationEstablishmentName.toLocaleLowerCase("pt-BR"),
+    },
+    update: {},
+    where: {
+      normalizedName: integrationEstablishmentName.toLocaleLowerCase("pt-BR"),
+    },
+  });
+  integrationEstablishmentId = establishment.id;
+  await prisma.$transaction(
+    (transaction) => seedEstablishmentData(transaction, establishment.id),
+    {
+      timeout: 30_000,
+    },
+  );
   await provisionUser(prisma, {
+    establishmentName: integrationEstablishmentName,
     name: integrationUserName,
     password: integrationUserPassword,
     roleCodes: ["OWNER"],
@@ -68,11 +110,14 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-async function createAuthenticatedApp() {
+async function createAuthenticatedApp(
+  name = integrationUserName,
+  password = integrationUserPassword,
+) {
   const persistence = createPersistence();
   const session = await persistence.auth.login(
-    integrationUserName,
-    integrationUserPassword,
+    name,
+    password,
   );
   const app = await buildApp(persistence);
   const inject = app.inject.bind(app);
@@ -209,8 +254,8 @@ void test("provisioned users authenticate with revocable opaque sessions", async
 });
 
 void test("comanda lifecycle is persisted and audited", async () => {
-  const table = await prisma.restaurantTable.findUniqueOrThrow({
-    where: { number: 1 },
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 1 },
   });
   const operator = await prisma.user.findUniqueOrThrow({
     where: { normalizedName: integrationUserName.toLocaleLowerCase("pt-BR") },
@@ -344,8 +389,8 @@ void test("comanda lifecycle is persisted and audited", async () => {
 });
 
 void test("concurrent comanda opening allows only one active comanda per table", async () => {
-  const table = await prisma.restaurantTable.findUniqueOrThrow({
-    where: { number: 2 },
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 2 },
   });
   const app = await createAuthenticatedApp();
 
@@ -405,6 +450,7 @@ void test("product seed is idempotent and listed as active catalog", async () =>
       code: {
         in: seededCodes,
       },
+      establishmentId: integrationEstablishmentId,
     },
   });
 
@@ -417,6 +463,7 @@ void test("product seed is idempotent and listed as active catalog", async () =>
         code: {
           in: [...LEGACY_SEED_PRODUCT_CODES],
         },
+        establishmentId: integrationEstablishmentId,
       },
     }),
     0,
@@ -456,11 +503,14 @@ void test("product seed is idempotent and listed as active catalog", async () =>
 });
 
 void test("comanda items are consolidated, totaled and audited", async () => {
-  const table = await prisma.restaurantTable.findUniqueOrThrow({
-    where: { number: 3 },
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 3 },
   });
-  const hamburger = await prisma.product.findUniqueOrThrow({
-    where: { code: "CLASSIC_HAMBURGER" },
+  const hamburger = await prisma.product.findFirstOrThrow({
+    where: {
+      code: "CLASSIC_HAMBURGER",
+      establishmentId: integrationEstablishmentId,
+    },
   });
   const app = await createAuthenticatedApp();
 
@@ -717,8 +767,11 @@ void test("comanda items are consolidated, totaled and audited", async () => {
 });
 
 void test("manual credit orders are resumed, finalized, grouped and settled", async () => {
-  const hamburger = await prisma.product.findUniqueOrThrow({
-    where: { code: "CLASSIC_HAMBURGER" },
+  const hamburger = await prisma.product.findFirstOrThrow({
+    where: {
+      code: "CLASSIC_HAMBURGER",
+      establishmentId: integrationEstablishmentId,
+    },
   });
   const app = await createAuthenticatedApp();
 
@@ -956,11 +1009,14 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
 });
 
 void test("table credit conversion is atomic and releases only confirmed orders", async () => {
-  const table = await prisma.restaurantTable.findUniqueOrThrow({
-    where: { number: 4 },
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 4 },
   });
-  const hamburger = await prisma.product.findUniqueOrThrow({
-    where: { code: "CLASSIC_HAMBURGER" },
+  const hamburger = await prisma.product.findFirstOrThrow({
+    where: {
+      code: "CLASSIC_HAMBURGER",
+      establishmentId: integrationEstablishmentId,
+    },
   });
   const app = await createAuthenticatedApp();
 
@@ -1118,6 +1174,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     create: {
       category: "OTHER",
       code: "STATEMENT_TEST_PRODUCT",
+      establishmentId: integrationEstablishmentId,
       name: "Produto de extrato",
       priceCents: 500,
     },
@@ -1127,12 +1184,16 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       priceCents: 500,
     },
     where: {
-      code: "STATEMENT_TEST_PRODUCT",
+      establishmentId_code: {
+        code: "STATEMENT_TEST_PRODUCT",
+        establishmentId: integrationEstablishmentId,
+      },
     },
   });
   const tableComanda = await prisma.comanda.create({
     data: {
       closedAt: new Date("2031-04-10T12:00:00.000Z"),
+      establishmentId: integrationEstablishmentId,
       items: {
         create: {
           confirmedQuantity: 2,
@@ -1148,6 +1209,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
   });
   const customer = await prisma.creditCustomer.create({
     data: {
+      establishmentId: integrationEstablishmentId,
       name: "Cliente extrato",
       normalizedName: `cliente extrato ${Date.now()}`,
     },
@@ -1155,6 +1217,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
   const creditComanda = await prisma.comanda.create({
     data: {
       closedAt: new Date("2031-04-12T15:00:00.000Z"),
+      establishmentId: integrationEstablishmentId,
       events: {
         create: [
           {
@@ -1214,6 +1277,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     data: {
       cancellationReason: "OPENED_BY_MISTAKE",
       cancelledAt: new Date("2031-04-11T16:00:00.000Z"),
+      establishmentId: integrationEstablishmentId,
       name: "Cancelada extrato",
       status: "CANCELLED",
     },
@@ -1317,6 +1381,119 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       where: {
         id: product.id,
       },
+    });
+  }
+});
+
+void test("establishments isolate data and support multiple owners and employees", async () => {
+  const secondaryOwnerName = "Secondary Owner";
+  const secondaryOwnerPassword = "secondary-owner-password";
+  const secondary = await provisionEstablishment(prisma, {
+    name: secondaryEstablishmentName,
+    ownerName: secondaryOwnerName,
+    ownerPassword: secondaryOwnerPassword,
+  });
+  const secondOwner = await provisionUser(prisma, {
+    establishmentName: secondaryEstablishmentName,
+    name: "Secondary Co-owner",
+    password: "secondary-co-owner-password",
+    roleCodes: ["OWNER"],
+  });
+  const employee = await provisionUser(prisma, {
+    establishmentName: secondaryEstablishmentName,
+    name: "Secondary Waiter",
+    password: "secondary-waiter-password",
+    roleCodes: ["WAITER"],
+  });
+
+  assert.equal(secondOwner.establishment.id, secondary.id);
+  assert.equal(employee.establishment.id, secondary.id);
+
+  const primaryApp = await createAuthenticatedApp();
+  const secondaryApp = await createAuthenticatedApp(
+    secondaryOwnerName,
+    secondaryOwnerPassword,
+  );
+
+  try {
+    const [primaryTablesResponse, secondaryTablesResponse] = await Promise.all([
+      primaryApp.inject({ method: "GET", url: "/tables" }),
+      secondaryApp.inject({ method: "GET", url: "/tables" }),
+    ]);
+    const primaryTables = primaryTablesResponse.json<{
+      tables: { id: number; number: number }[];
+    }>().tables;
+    const secondaryTables = secondaryTablesResponse.json<{
+      tables: { id: number; number: number }[];
+    }>().tables;
+
+    assert.equal(primaryTables.length, 12);
+    assert.equal(secondaryTables.length, 12);
+    assert.equal(primaryTables[0]?.number, 1);
+    assert.equal(secondaryTables[0]?.number, 1);
+    assert.notEqual(primaryTables[0]?.id, secondaryTables[0]?.id);
+
+    const primaryCustomerResponse = await primaryApp.inject({
+      method: "POST",
+      payload: { name: "Cliente compartilhado" },
+      url: "/credit-customers",
+    });
+    const secondaryCustomerResponse = await secondaryApp.inject({
+      method: "POST",
+      payload: { name: "Cliente compartilhado" },
+      url: "/credit-customers",
+    });
+    const primaryCustomerId = primaryCustomerResponse.json<{
+      customer: { id: string };
+    }>().customer.id;
+    const secondaryCustomerId = secondaryCustomerResponse.json<{
+      customer: { id: string };
+    }>().customer.id;
+
+    assert.notEqual(primaryCustomerId, secondaryCustomerId);
+    const crossTenantResponse = await secondaryApp.inject({
+      method: "GET",
+      url: `/credit-customers/${primaryCustomerId}`,
+    });
+    assert.equal(crossTenantResponse.statusCode, 404);
+
+    const duplicateProductCodes = await prisma.product.findMany({
+      select: { establishmentId: true, id: true },
+      where: {
+        code: "CLASSIC_HAMBURGER",
+        establishmentId: {
+          in: [integrationEstablishmentId, secondary.id],
+        },
+      },
+    });
+    assert.equal(duplicateProductCodes.length, 2);
+    assert.notEqual(duplicateProductCodes[0]?.id, duplicateProductCodes[1]?.id);
+  } finally {
+    await primaryApp.close();
+    await secondaryApp.close();
+    await prisma.creditCustomer.deleteMany({
+      where: { establishmentId: secondary.id },
+    });
+    await prisma.auditLog.deleteMany({
+      where: { establishmentId: secondary.id },
+    });
+    await prisma.authSession.deleteMany({
+      where: { user: { establishmentId: secondary.id } },
+    });
+    await prisma.userRole.deleteMany({
+      where: { user: { establishmentId: secondary.id } },
+    });
+    await prisma.user.deleteMany({
+      where: { establishmentId: secondary.id },
+    });
+    await prisma.product.deleteMany({
+      where: { establishmentId: secondary.id },
+    });
+    await prisma.restaurantTable.deleteMany({
+      where: { establishmentId: secondary.id },
+    });
+    await prisma.establishment.delete({
+      where: { id: secondary.id },
     });
   }
 });

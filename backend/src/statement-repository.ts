@@ -7,14 +7,17 @@ import {
 } from "./statement-report.js";
 
 export interface StatementRepository {
-  findReport(period: StatementPeriod): Promise<StatementReport>;
+  findReport(
+    establishmentId: string,
+    period: StatementPeriod,
+  ): Promise<StatementReport>;
 }
 
 export function createStatementRepository(
   prisma: PrismaClient,
 ): StatementRepository {
   return {
-    async findReport(period) {
+    async findReport(establishmentId, period) {
       const [closedComandas, cancelledComandas, creditOrders] =
         await prisma.$transaction([
           prisma.comanda.findMany({
@@ -57,6 +60,7 @@ export function createStatementRepository(
               },
             },
             where: {
+              establishmentId,
               closedAt: {
                 gte: period.startAt,
                 lt: period.endAt,
@@ -91,6 +95,7 @@ export function createStatementRepository(
               },
             },
             where: {
+              establishmentId,
               cancelledAt: {
                 gte: period.startAt,
                 lt: period.endAt,
@@ -139,6 +144,9 @@ export function createStatementRepository(
               source: true,
             },
             where: {
+              customer: {
+                establishmentId,
+              },
               finalizedAt: {
                 not: null,
               },

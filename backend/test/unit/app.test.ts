@@ -39,6 +39,10 @@ import type { StatementRepository } from "../../src/statement-repository.js";
 
 const openedAt = "2026-06-02T19:00:00.000Z";
 const authenticatedUser: AuthUser = {
+  establishment: {
+    id: "establishment-id",
+    name: "Destiny Bistro",
+  },
   id: "user-id",
   name: "Operador",
   permissions: [
@@ -590,7 +594,8 @@ void test("POST /tables/:tableId/comandas opens a comanda", async () => {
   let receivedName: string | null | undefined;
   const app = await createApp({
     comandas: createComandas({
-      openForTable: (_tableId, name) => {
+      openForTable: (establishmentId, _tableId, name) => {
+        assert.equal(establishmentId, "establishment-id");
         receivedName = name;
         return Promise.resolve({ ...comanda, name });
       },
@@ -950,7 +955,8 @@ void test("POST /credit-customers creates or reuses a person", async () => {
   let receivedName = "";
   const app = await createApp({
     credits: createCredits({
-      createCustomer: (name) => {
+      createCustomer: (establishmentId, name) => {
+        assert.equal(establishmentId, "establishment-id");
         receivedName = name;
         return Promise.resolve(creditCustomer);
       },
@@ -1061,7 +1067,8 @@ void test("GET /statements returns the inclusive requested period", async () => 
   let receivedStartAt = "";
   let receivedEndAt = "";
   const app = await createApp({
-    statements: createStatements((period) => {
+    statements: createStatements((establishmentId, period) => {
+      assert.equal(establishmentId, "establishment-id");
       receivedStartAt = period.startAt.toISOString();
       receivedEndAt = period.endAt.toISOString();
       return Promise.resolve(statementReport);

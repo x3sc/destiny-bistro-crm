@@ -43,7 +43,10 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     async (request, reply) => {
     try {
       return {
-        comanda: await comandas.findById(request.params.comandaId),
+        comanda: await comandas.findById(
+          requireAuthUser(request).establishment.id,
+          request.params.comandaId,
+        ),
       };
     } catch (error) {
       if (error instanceof ComandaNotFoundError) {
@@ -70,6 +73,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.cancel(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             requireAuthUser(request).id,
           ),
@@ -106,6 +110,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.close(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             requireAuthUser(request).id,
           ),
@@ -149,6 +154,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.addItem(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             request.body.productId,
             requireAuthUser(request).id,
@@ -193,6 +199,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.changeItemQuantity(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             request.params.itemId,
             request.body.delta,
@@ -231,6 +238,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.confirmItem(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             request.params.itemId,
             requireAuthUser(request).id,
@@ -271,6 +279,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       try {
         return {
           comanda: await comandas.removeItem(
+            requireAuthUser(request).establishment.id,
             request.params.comandaId,
             request.params.itemId,
             requireAuthUser(request).id,

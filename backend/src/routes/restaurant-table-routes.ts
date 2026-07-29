@@ -23,10 +23,12 @@ export function registerRestaurantTableRoutes(
   app.get(
     "/tables",
     { config: { permission: "tables.read" } },
-    async (_request, reply) => {
+    async (request, reply) => {
     try {
       return {
-        tables: await restaurantTables.list(),
+        tables: await restaurantTables.list(
+          requireAuthUser(request).establishment.id,
+        ),
       };
     } catch (error) {
       app.log.error(error, "Restaurant table query failed");
@@ -73,6 +75,7 @@ export function registerRestaurantTableRoutes(
       try {
         return reply.code(201).send({
           comanda: await comandas.openForTable(
+            requireAuthUser(request).establishment.id,
             tableId,
             name,
             requireAuthUser(request).id,

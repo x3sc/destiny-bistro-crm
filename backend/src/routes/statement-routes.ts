@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { requireAuthUser } from "../authentication.js";
 import { createStatementPdf } from "../statement-pdf.js";
 import {
   parseStatementPeriod,
@@ -26,7 +27,10 @@ export function registerStatementRoutes(
 
       try {
         return {
-          statement: await statements.findReport(period),
+          statement: await statements.findReport(
+            requireAuthUser(request).establishment.id,
+            period,
+          ),
         };
       } catch (error) {
         app.log.error(error, "Statement query failed");
@@ -48,7 +52,10 @@ export function registerStatementRoutes(
       }
 
       try {
-        const report = await statements.findReport(period);
+        const report = await statements.findReport(
+          requireAuthUser(request).establishment.id,
+          period,
+        );
         const pdf = await createStatementPdf(report);
 
         return reply
