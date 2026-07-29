@@ -1,0 +1,15 @@
+-- AlterTable
+ALTER TABLE `Comanda`
+    MODIFY `status` ENUM('OPEN', 'CANCELLED', 'CLOSED') NOT NULL DEFAULT 'OPEN',
+    ADD COLUMN `closedAt` DATETIME(3) NULL;
+
+-- AlterTable
+ALTER TABLE `ComandaEvent` MODIFY `type` ENUM(
+    'OPENED',
+    'CANCELLED',
+    'CLOSED',
+    'ITEM_ADDED',
+    'ITEM_CONFIRMED',
+    'ITEM_QUANTITY_CHANGED',
+    'ITEM_REMOVED'
+) NOT NULL;

@@ -10,5 +10,12 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "prisma.config.ts", "eslint.config.js"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "prisma/**/*.ts",
+    "prisma.config.ts",
+    "eslint.config.js"
+  ]
 }

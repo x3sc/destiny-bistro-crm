@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - develop
+      - main
   workflow_dispatch:
 
 jobs:
@@ -39,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
@@ -52,6 +53,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - run: npm run prisma:migrate:deploy
+      - run: npm run prisma:seed
+      - run: npm run prisma:seed
       - run: npm run test:integration
 
   frontend:
@@ -64,13 +68,31 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  deployment:
+    name: VPS deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production Compose
+        run: >-
+          docker compose
+          --env-file deploy/.env.example
+          -f compose.vps.yaml
+          config --quiet
+      - name: Build production images
+        run: >-
+          docker compose
+          --env-file deploy/.env.example
+          -f compose.vps.yaml
+          build api web
 
   security:
     name: Security Audit
@@ -79,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13
       - name: Audit backend production dependencies
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high

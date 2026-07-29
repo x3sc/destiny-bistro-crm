@@ -6,3 +6,280 @@ generator client {
 datasource db {
   provider = "mysql"
 }
+
+enum RestaurantTableStatus {
+  FREE
+  OPEN
+  AWAITING_CHECK
+}
+
+enum ComandaStatus {
+  OPEN
+  CANCELLED
+  CLOSED
+}
+
+enum ComandaEventType {
+  OPENED
+  CANCELLED
+  CLOSED
+  ITEM_ADDED
+  ITEM_CONFIRMED
+  ITEM_QUANTITY_CHANGED
+  ITEM_REMOVED
+}
+
+enum ComandaCancellationReason {
+  OPENED_BY_MISTAKE
+}
+
+enum ProductCategory {
+  CLASSIC_BURGERS
+  ARTISAN_BURGERS
+  EXTRAS
+  BEVERAGES
+  COCKTAILS
+  BEERS
+  SIDES
+  SNACKS
+  COMBOS
+  OTHER
+}
+
+enum CreditOrderSource {
+  MANUAL
+  TABLE
+}
+
+enum CreditOrderStatus {
+  DRAFT
+  OPEN
+  SETTLED
+  CANCELLED
+}
+
+model RestaurantTable {
+  id              Int                   @id @default(autoincrement())
+  number          Int                   @unique
+  status          RestaurantTableStatus @default(FREE)
+  activeComandaId String?               @unique
+  activeComanda   Comanda?              @relation("ActiveComanda", fields: [activeComandaId], references: [id], onDelete: SetNull)
+  comandas        Comanda[]             @relation("TableComandas")
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+model Comanda {
+  id                 String                     @id @default(cuid())
+  number             Int                        @unique @default(autoincrement())
+  name               String?                    @db.VarChar(80)
+  tableId            Int?
+  table              RestaurantTable?           @relation("TableComandas", fields: [tableId], references: [id], onDelete: Restrict)
+  activeForTable     RestaurantTable?           @relation("ActiveComanda")
+  creditOrder        CreditOrder?
+  status             ComandaStatus              @default(OPEN)
+  openedAt           DateTime                   @default(now())
+  cancelledAt        DateTime?
+  closedAt           DateTime?
+  cancellationReason ComandaCancellationReason?
+  items              ComandaItem[]
+  events             ComandaEvent[]
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([tableId])
+  @@index([status, closedAt])
+  @@index([status, cancelledAt])
+}
+
+model CreditCustomer {
+  id             String             @id @default(cuid())
+  name           String             @db.VarChar(80)
+  normalizedName String             @unique @db.VarChar(80)
+  orders         CreditOrder[]
+  settlements    CreditSettlement[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model CreditOrder {
+  id           String             @id @default(cuid())
+  customerId   String
+  customer     CreditCustomer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  comandaId    String             @unique
+  comanda      Comanda            @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  source       CreditOrderSource
+  status       CreditOrderStatus  @default(DRAFT)
+  totalCents   Int                @default(0)
+  orderedAt    DateTime
+  finalizedAt  DateTime?
+  cancelledAt  DateTime?
+  settledAt    DateTime?
+  settlementId String?
+  settlement   CreditSettlement?  @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([customerId, status])
+  @@index([settlementId])
+  @@index([status, finalizedAt])
+}
+
+model CreditSettlement {
+  id          String         @id @default(cuid())
+  customerId  String
+  customer    CreditCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  amountCents Int
+  paidAt      DateTime       @default(now())
+  orders      CreditOrder[]
+  createdAt   DateTime       @default(now())
+
+  @@index([customerId, paidAt])
+  @@index([paidAt])
+}
+
+model Product {
+  id           String          @id @default(cuid())
+  code         String          @unique
+  category     ProductCategory @default(OTHER)
+  name         String
+  priceCents   Int
+  active       Boolean         @default(true)
+  comandaItems ComandaItem[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model ComandaItem {
+  id                String   @id @default(cuid())
+  comandaId         String
+  comanda           Comanda  @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productName       String
+  unitPriceCents    Int
+  quantity          Int
+  confirmedQuantity Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([comandaId, productId])
+  @@index([comandaId])
+  @@index([productId])
+}
+
+model ComandaEvent {
+  id               String                     @id @default(cuid())
+  comandaId        String
+  comanda          Comanda                    @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  type             ComandaEventType
+  reason           ComandaCancellationReason?
+  itemId           String?
+  productId        String?
+  productName      String?
+  unitPriceCents   Int?
+  previousQuantity Int?
+  newQuantity      Int?
+  actorUserId     String?
+  actorUser       User?                      @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime                   @default(now())
+
+  @@index([comandaId])
+  @@index([type, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String         @db.VarChar(80)
+  normalizedName String         @unique @db.VarChar(80)
+  passwordHash   String         @db.VarChar(255)
+  active         Boolean        @default(true)
+  lastLoginAt    DateTime?
+  sessions       AuthSession[]
+  roles          UserRole[]     @relation("UserRoles")
+  rolesAssigned  UserRole[]     @relation("RoleAssignedBy")
+  auditLogs      AuditLog[]
+  comandaEvents  ComandaEvent[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([active, name])
+}
+
+model Role {
+  id                String           @id @default(cuid())
+  code              String           @unique @db.VarChar(50)
+  name              String           @db.VarChar(80)
+  description       String?          @db.VarChar(255)
+  system            Boolean          @default(false)
+  managerAssignable Boolean          @default(false)
+  users             UserRole[]
+  permissions       RolePermission[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(80)
+  name        String           @db.VarChar(100)
+  description String?          @db.VarChar(255)
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model UserRole {
+  userId           String
+  roleId           String
+  assignedByUserId String?
+  user             User     @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role             Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedByUser   User?    @relation("RoleAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@index([assignedByUserId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model AuthSession {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @db.Char(64)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action       String   @db.VarChar(80)
+  resourceType String   @db.VarChar(50)
+  resourceId   String   @db.VarChar(191)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@index([action, createdAt])
+}

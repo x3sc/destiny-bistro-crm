@@ -1,10 +1,44 @@
 import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "./generated/prisma/client.js";
+import {
+  createAuthRepository,
+  type AuthRepository,
+} from "./auth-repository.js";
+import {
+  createComandaRepository,
+  type ComandaRepository,
+} from "./comanda-repository.js";
+import {
+  createCreditRepository,
+  type CreditRepository,
+} from "./credit-repository.js";
+import {
+  createProductRepository,
+  type ProductRepository,
+} from "./product-repository.js";
+import {
+  createRestaurantTableRepository,
+  type RestaurantTableRepository,
+} from "./restaurant-table-repository.js";
+import {
+  createStatementRepository,
+  type StatementRepository,
+} from "./statement-repository.js";
 
 export interface Database {
   close(): Promise<void>;
   ping(): Promise<void>;
+}
+
+export interface Persistence {
+  auth: AuthRepository;
+  comandas: ComandaRepository;
+  credits: CreditRepository;
+  database: Database;
+  products: ProductRepository;
+  restaurantTables: RestaurantTableRepository;
+  statements: StatementRepository;
 }
 
 function requiredEnvironmentVariable(name: string): string {
@@ -17,7 +51,7 @@ function requiredEnvironmentVariable(name: string): string {
   return value;
 }
 
-export function createDatabase(): Database {
+export function createPrismaClient() {
   const adapter = new PrismaMariaDb({
     host: requiredEnvironmentVariable("DATABASE_HOST"),
     port: Number(process.env.DATABASE_PORT ?? 3306),
@@ -26,14 +60,27 @@ export function createDatabase(): Database {
     database: requiredEnvironmentVariable("DATABASE_NAME"),
     connectionLimit: 5,
   });
-  const prisma = new PrismaClient({ adapter });
+
+  return new PrismaClient({ adapter });
+}
+
+export function createPersistence(): Persistence {
+  const prisma = createPrismaClient();
 
   return {
-    async close() {
-      await prisma.$disconnect();
+    auth: createAuthRepository(prisma),
+    comandas: createComandaRepository(prisma),
+    credits: createCreditRepository(prisma),
+    database: {
+      async close() {
+        await prisma.$disconnect();
+      },
+      async ping() {
+        await prisma.$queryRaw`SELECT 1`;
+      },
     },
-    async ping() {
-      await prisma.$queryRaw`SELECT 1`;
-    },
+    products: createProductRepository(prisma),
+    restaurantTables: createRestaurantTableRepository(prisma),
+    statements: createStatementRepository(prisma),
   };
 }
