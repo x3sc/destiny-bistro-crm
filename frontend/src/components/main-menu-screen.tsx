@@ -3,9 +3,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function MainMenuScreen({
   onCredits,
+  onStatements,
   onTables,
 }: {
   onCredits: () => void;
+  onStatements: () => void;
   onTables: () => void;
 }) {
   return (
@@ -29,9 +31,9 @@ export function MainMenuScreen({
             onPress={onCredits}
           />
           <MenuCard
-            description="Histórico financeiro disponível em uma próxima etapa."
-            disabled
+            description="Consulte vendas, recebimentos e comandas por período."
             label="Extratos"
+            onPress={onStatements}
           />
         </View>
       </View>
