@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { RestaurantTable } from '../../services/tables-api';
-import { TableGridScreen } from '../table-grid-screen';
+import { themeColors } from '../../theme/tokens';
+import { getTableGridMetrics, TableGridScreen } from '../table-grid-screen';
 
 jest.mock('expo-router', () => {
   const react = jest.requireActual<typeof import('react')>('react');
@@ -23,6 +24,13 @@ const tables: RestaurantTable[] = [
   },
   { activeComanda: null, id: 3, number: 3, status: 'AWAITING_CHECK' },
 ];
+
+it('adapts the table grid to the available screen width', () => {
+  expect(getTableGridMetrics(320)).toEqual({ cardWidth: 288, columnCount: 1 });
+  expect(getTableGridMetrics(680)).toEqual({ cardWidth: 318, columnCount: 2 });
+  expect(getTableGridMetrics(800)).toEqual({ cardWidth: 248, columnCount: 3 });
+  expect(getTableGridMetrics(1180)).toEqual({ cardWidth: 278, columnCount: 4 });
+});
 
 it('shows a configuration error when the API URL is absent', () => {
   const loadTables = jest.fn();
@@ -59,12 +67,101 @@ it('shows the restaurant table grid with translated statuses', async () => {
   );
 
   expect(await screen.findByText('Mesa 1')).toBeTruthy();
-  expect(screen.getByText('Livre')).toBeTruthy();
-  expect(screen.getByText('Aberta')).toBeTruthy();
-  expect(screen.getByText('Aguardando caixa')).toBeTruthy();
+  expect(screen.getByText('• Livre')).toBeTruthy();
+  expect(screen.getByText('• Ocupada')).toBeTruthy();
+  expect(screen.getByText('• Aguardando pagamento')).toBeTruthy();
   expect(screen.getByText('Comanda #42')).toBeTruthy();
   expect(screen.getByText('João')).toBeTruthy();
+  expect(screen.getByLabelText('Ocupadas: 1')).toBeTruthy();
+  expect(screen.getByLabelText('Aguardando pagamento: 1')).toBeTruthy();
+  expect(screen.getByLabelText('Livres: 1')).toBeTruthy();
+  expect(screen.queryByText('Adicionar produtos')).toBeNull();
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
+});
+
+it('uses semantic backgrounds for each table status', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve(tables)}
+    />,
+  );
+
+  expect(await screen.findByRole('button', { name: 'Mesa 1 Livre' })).toHaveStyle({
+    backgroundColor: themeColors.statusFreeSurface,
+  });
+  expect(
+    screen.getByRole('button', {
+      name: 'Mesa 2 Ocupada João Comanda #42',
+    }),
+  ).toHaveStyle({ backgroundColor: themeColors.statusOpenSurface });
+  expect(
+    screen.getByRole('button', { name: 'Mesa 3 Aguardando pagamento' }),
+  ).toHaveStyle({ backgroundColor: themeColors.statusAwaitingSurface });
+});
+
+it('filters restaurant tables by operational status', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve(tables)}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Livres' }));
+
+  expect(screen.getByText('Mesa 1')).toBeTruthy();
+  expect(screen.queryByText('Mesa 2')).toBeNull();
+  expect(screen.queryByText('Mesa 3')).toBeNull();
+
+  fireEvent.press(screen.getByRole('button', { name: 'Pagamento' }));
+
+  expect(screen.queryByText('Mesa 1')).toBeNull();
+  expect(screen.queryByText('Mesa 2')).toBeNull();
+  expect(screen.getByText('Mesa 3')).toBeTruthy();
+});
+
+it('keeps the table filter buttons at a stable touch size', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve(tables)}
+    />,
+  );
+
+  await screen.findByText('Mesa 1');
+
+  expect(screen.getByTestId('table-filter-scroll')).toHaveStyle({
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 48,
+  });
+  expect(screen.getByRole('button', { name: 'Ocupadas' })).toHaveStyle({
+    flexShrink: 0,
+    height: 44,
+    minWidth: 88,
+  });
+});
+
+it('searches tables by customer name and comanda number', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve(tables)}
+    />,
+  );
+
+  const searchInput = await screen.findByRole('search', {
+    name: 'Buscar mesa, nome ou comanda',
+  });
+
+  fireEvent.changeText(searchInput, 'joao');
+  expect(screen.getByText('Mesa 2')).toBeTruthy();
+  expect(screen.queryByText('Mesa 1')).toBeNull();
+
+  fireEvent.changeText(searchInput, '42');
+  expect(screen.getByText('Mesa 2')).toBeTruthy();
+  expect(screen.queryByText('Mesa 3')).toBeNull();
 });
 
 it('selects a free restaurant table', async () => {
@@ -98,7 +195,7 @@ it('selects an occupied restaurant table', async () => {
 
   fireEvent.press(
     await screen.findByRole('button', {
-      name: 'Mesa 2 Aberta João Comanda #42',
+      name: 'Mesa 2 Ocupada João Comanda #42',
     }),
   );
 

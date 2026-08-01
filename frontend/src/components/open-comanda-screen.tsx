@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openComanda, type Comanda } from '../services/comandas-api';
 import { normalizeApiBaseUrl } from '../services/api-base-url';
+import { themeColors } from '../theme/tokens';
 
 interface OpenComandaScreenProps {
   apiBaseUrl?: string;
@@ -73,7 +74,7 @@ export function OpenComandaScreen({
                 maxLength={80}
                 onChangeText={setName}
                 placeholder="Ex.: João ou Família Silva"
-                placeholderTextColor="#8c817b"
+                placeholderTextColor={themeColors.placeholder}
                 style={styles.input}
                 value={name}
               />
@@ -131,7 +132,7 @@ function ActionButton({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f5f2eb',
+    backgroundColor: themeColors.background,
   },
   content: {
     flex: 1,
@@ -140,53 +141,53 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#795548',
+    color: themeColors.primary,
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#2f241f',
+    color: themeColors.foreground,
     fontSize: 32,
     fontWeight: '700',
   },
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: themeColors.surface,
     borderRadius: 12,
     gap: 8,
     padding: 20,
   },
   table: {
-    color: '#2f241f',
+    color: themeColors.foreground,
     fontSize: 24,
     fontWeight: '700',
   },
   description: {
-    color: '#5d514b',
+    color: themeColors.foregroundMuted,
     fontSize: 16,
     lineHeight: 24,
   },
   inputLabel: {
-    color: '#2f241f',
+    color: themeColors.foreground,
     fontSize: 14,
     fontWeight: '700',
     marginTop: 8,
   },
   input: {
-    backgroundColor: '#ffffff',
-    borderColor: '#b8aaa1',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.borderStrong,
     borderRadius: 10,
     borderWidth: 1,
-    color: '#2f241f',
+    color: themeColors.foreground,
     fontSize: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   error: {
-    backgroundColor: '#f8d7da',
+    backgroundColor: themeColors.dangerSurface,
     borderRadius: 12,
-    color: '#842029',
+    color: themeColors.dangerText,
     padding: 16,
   },
   actions: {
@@ -194,13 +195,13 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#6f4e37',
+    backgroundColor: themeColors.primary,
     borderRadius: 12,
     padding: 16,
   },
   secondaryButton: {
-    backgroundColor: '#ffffff',
-    borderColor: '#6f4e37',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.primary,
     borderWidth: 1,
   },
   disabledButton: {
@@ -210,11 +211,11 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   buttonText: {
-    color: '#ffffff',
+    color: themeColors.foregroundOnPrimary,
     fontSize: 16,
     fontWeight: '700',
   },
   secondaryButtonText: {
-    color: '#6f4e37',
+    color: themeColors.primary,
   },
 });

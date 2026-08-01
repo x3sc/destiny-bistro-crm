@@ -10,16 +10,6 @@ export const statusLabels: Record<Comanda['status'], string> = {
   OPEN: 'Aberta',
 };
 
-const eventLabels: Record<Comanda['events'][number]['type'], string> = {
-  CANCELLED: 'Comanda cancelada',
-  CLOSED: 'Comanda fechada',
-  ITEM_ADDED: 'Produto adicionado',
-  ITEM_CONFIRMED: 'Quantidade confirmada',
-  ITEM_QUANTITY_CHANGED: 'Quantidade alterada',
-  ITEM_REMOVED: 'Produto removido',
-  OPENED: 'Comanda aberta',
-};
-
 export function Message({
   text,
   tone = 'error',
@@ -47,97 +37,125 @@ export function ComandaItems({
     (item) => item.quantity > item.confirmedQuantity,
   );
   const confirmedItems = comanda.items.filter((item) => item.confirmedQuantity > 0);
+  const newSubtotalCents = newItems.reduce(
+    (total, item) =>
+      total + (item.quantity - item.confirmedQuantity) * item.unitPriceCents,
+    0,
+  );
+  const confirmedSubtotalCents = confirmedItems.reduce(
+    (total, item) => total + item.confirmedQuantity * item.unitPriceCents,
+    0,
+  );
+  const totalQuantity = comanda.items.reduce((total, item) => total + item.quantity, 0);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.sectionTitle}>Itens</Text>
+    <View style={styles.itemsContainer}>
       {comanda.items.length === 0 && (
-        <Text style={styles.description}>Nenhum item lançado nesta comanda.</Text>
+        <View style={[styles.card, styles.emptyState]}>
+          <Text style={styles.emptyStateTitle}>Nenhum item lançado ainda</Text>
+          <Text style={styles.description}>
+            Use a ação abaixo para adicionar o primeiro produto.
+          </Text>
+        </View>
       )}
 
       {comanda.items.length > 0 && (
         <>
-          <Text style={styles.itemDivisionTitle}>Itens novos</Text>
-          {newItems.length === 0 && (
-            <Text style={styles.description}>Nenhum item novo.</Text>
-          )}
-          {newItems.map((item) => {
-            const newQuantity = item.quantity - item.confirmedQuantity;
+          <View style={styles.openItemsSection}>
+            <View style={styles.sectionHeading}>
+              <Text style={styles.sectionTitle}>Itens em aberto</Text>
+              <Text style={styles.sectionDescription}>
+                Editáveis até a confirmação da entrega.
+              </Text>
+            </View>
+            {newItems.length === 0 && (
+              <Text style={styles.emptySectionText}>Nenhum item em aberto.</Text>
+            )}
+            {newItems.map((item) => {
+              const newQuantity = item.quantity - item.confirmedQuantity;
 
-            return (
-              <View key={`${item.id}-new`} style={styles.itemRow}>
-                <View style={styles.itemHeader}>
+              return (
+                <View key={`${item.id}-new`} style={styles.itemRow}>
+                  <View style={styles.itemHeader}>
+                    <Text style={styles.itemName}>{item.productName}</Text>
+                    <QuantityControls
+                      disabled={disabled}
+                      item={item}
+                      onChangeQuantity={onChangeQuantity}
+                      onConfirmItem={onConfirmItem}
+                      onRemoveItem={onRemoveItem}
+                    />
+                  </View>
+                  <Text style={styles.description}>
+                    {newQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
+                    {formatCentsAsBrl(newQuantity * item.unitPriceCents)}
+                  </Text>
+                  <Text style={styles.itemTimestamp}>
+                    Adicionado em: {formatItemDateTime(item.createdAt)}
+                  </Text>
+                </View>
+              );
+            })}
+            <View style={styles.subtotalRow}>
+              <Text style={styles.subtotalLabel}>Subtotal em aberto</Text>
+              <Text style={styles.subtotalValue}>
+                {formatCentsAsBrl(newSubtotalCents)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.confirmedItemsSection}>
+            <View style={styles.sectionHeading}>
+              <Text style={styles.sectionTitle}>Itens confirmados</Text>
+              <Text style={styles.sectionDescription}>
+                Entregues ao cliente. Não podem mais ser alterados.
+              </Text>
+            </View>
+            {confirmedItems.length === 0 && (
+              <Text style={styles.emptySectionText}>Nenhum item confirmado.</Text>
+            )}
+            {confirmedItems.map((item) => (
+              <View key={`${item.id}-confirmed`} style={styles.itemRow}>
+                <View style={[styles.itemHeader, styles.confirmedItemHeader]}>
                   <Text style={styles.itemName}>{item.productName}</Text>
-                  <QuantityControls
-                    disabled={disabled}
-                    item={item}
-                    onChangeQuantity={onChangeQuantity}
-                    onConfirmItem={onConfirmItem}
-                    onRemoveItem={onRemoveItem}
-                  />
+                  <Text style={styles.confirmedBadge}>Confirmado</Text>
                 </View>
                 <Text style={styles.description}>
-                  {newQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
-                  {formatCentsAsBrl(newQuantity * item.unitPriceCents)}
+                  {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
+                  {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
                 </Text>
-                <Text style={styles.description}>
+                <Text style={styles.itemTimestamp}>
                   Adicionado em: {formatItemDateTime(item.createdAt)}
                 </Text>
               </View>
-            );
-          })}
-
-          <Text style={styles.itemDivisionTitle}>Itens imutáveis</Text>
-          {confirmedItems.length === 0 && (
-            <Text style={styles.description}>Nenhum item imutável.</Text>
-          )}
-          {confirmedItems.map((item) => (
-            <View key={`${item.id}-confirmed`} style={styles.itemRow}>
-              <View style={styles.itemHeader}>
-                <Text style={styles.itemName}>{item.productName}</Text>
-                <Text style={styles.confirmedBadge}>Confirmado</Text>
-              </View>
-              <Text style={styles.description}>
-                {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
-                {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
-              </Text>
-              <Text style={styles.description}>
-                Adicionado em: {formatItemDateTime(item.createdAt)}
+            ))}
+            <View style={styles.subtotalRow}>
+              <Text style={styles.subtotalLabel}>Subtotal confirmado</Text>
+              <Text style={styles.subtotalValue}>
+                {formatCentsAsBrl(confirmedSubtotalCents)}
               </Text>
             </View>
-          ))}
+          </View>
         </>
       )}
-      <Text style={styles.totalText}>Total {formatCentsAsBrl(comanda.totalCents)}</Text>
+      <View style={styles.totalCard}>
+        <Text style={styles.totalLabel}>
+          Total da comanda · {totalQuantity}{' '}
+          {totalQuantity === 1 ? 'item' : 'itens'}
+        </Text>
+        <Text
+          accessibilityLabel={`Total ${formatCentsAsBrl(comanda.totalCents)}`}
+          style={styles.totalText}
+        >
+          {formatCentsAsBrl(comanda.totalCents)}
+        </Text>
+      </View>
     </View>
   );
 }
 
 function formatItemDateTime(value: string) {
   return new Date(value).toLocaleString('pt-BR');
-}
-
-export function ComandaHistory({ comanda }: { comanda: Comanda }) {
-  return (
-    <View style={styles.card}>
-      <Text style={styles.sectionTitle}>Histórico</Text>
-      {[...comanda.events].reverse().map((event, index) => (
-        <View
-          key={`${event.type}-${event.createdAt}-${index}`}
-          style={styles.itemRow}
-        >
-          <Text style={styles.itemName}>{eventLabels[event.type]}</Text>
-          {event.productName && (
-            <Text style={styles.description}>{event.productName}</Text>
-          )}
-          <Text style={styles.description}>
-            {event.actor?.name ?? 'Operador anterior à autenticação'} ·{' '}
-            {new Date(event.createdAt).toLocaleString('pt-BR')}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
 }
 
 export function ComandaActions({
@@ -148,7 +166,6 @@ export function ComandaActions({
   disabled,
   isClosing,
   onAddProducts,
-  onBack,
   onCancel,
   onCancelCredit,
   onClose,
@@ -164,7 +181,6 @@ export function ComandaActions({
   disabled: boolean;
   isClosing: boolean;
   onAddProducts: () => void;
-  onBack: () => void;
   onCancel: () => void;
   onCancelCredit: () => void;
   onClose: () => void;
@@ -180,13 +196,12 @@ export function ComandaActions({
           text="Seu cargo permite consultar esta comanda, sem realizar alterações."
           tone="notice"
         />
-        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
       </View>
     );
   }
 
   if (status !== 'OPEN') {
-    return <ActionButton label="Voltar" onPress={onBack} tone="secondary" />;
+    return null;
   }
 
   if (credit?.source === 'MANUAL' && credit.status === 'DRAFT') {
@@ -216,7 +231,6 @@ export function ComandaActions({
           }}
           tone="danger"
         />
-        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
       </View>
     );
   }
@@ -233,48 +247,42 @@ export function ComandaActions({
           }
           tone="notice"
         />
-        <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
       </View>
     );
   }
 
   return (
     <View style={styles.actions}>
-      <ActionButton label="Adicionar produtos" onPress={onAddProducts} />
-      {!canClose && (
-        <Message
-          text="Confirme todos os itens novos antes de fechar a mesa."
-          tone="notice"
-        />
-      )}
-      <ActionButton
-        disabled={disabled || !canClose}
-        label={isClosing ? 'Fechando...' : 'Fechar mesa'}
-        onPress={() => {
-          confirmDestructiveAction({
-            message:
-              'Deseja fechar esta mesa? Os itens confirmados serão preservados no histórico.',
-            onConfirm: onClose,
-            title: 'Fechar mesa',
-          });
-        }}
-      />
-      {!canCreateCredit && (
-        <Message
-          text="Para fechar como fiado, adicione produtos e confirme todos os itens."
-          tone="notice"
-        />
-      )}
-      <ActionButton
-        disabled={disabled || !canCreateCredit}
-        label="Fechar como fiado"
-        onPress={onCloseAsCredit}
-        tone="secondary"
-      />
-      {!canCancel && (
-        <Message
-          text="Remova todos os itens antes de cancelar e liberar esta comanda."
-          tone="notice"
+      <View style={styles.primaryActionsRow}>
+        <View style={styles.addProductsAction}>
+          <ActionButton
+            accessibilityLabel="Adicionar produtos"
+            label="＋  Adicionar produtos"
+            onPress={onAddProducts}
+          />
+        </View>
+        <View style={styles.closeTableAction}>
+          <ActionButton
+            disabled={disabled || !canClose}
+            label={isClosing ? 'Fechando...' : 'Fechar mesa'}
+            onPress={() => {
+              confirmDestructiveAction({
+                message:
+                  'Deseja fechar esta mesa? Os itens confirmados serão preservados no histórico.',
+                onConfirm: onClose,
+                title: 'Fechar mesa',
+              });
+            }}
+            tone="secondary"
+          />
+        </View>
+      </View>
+      {canCreateCredit && (
+        <ActionButton
+          disabled={disabled}
+          label="Fechar como fiado"
+          onPress={onCloseAsCredit}
+          tone="tertiary"
         />
       )}
       {canCancel && (
@@ -291,7 +299,6 @@ export function ComandaActions({
           tone="danger"
         />
       )}
-      <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
     </View>
   );
 }
@@ -313,40 +320,48 @@ function QuantityControls({
   const newQuantity = item.quantity - item.confirmedQuantity;
 
   return (
-    <View style={styles.quantityControls}>
-      <SmallButton
-        accessibilityLabel={`Remover ${item.productName}`}
-        disabled={disabled}
-        label="×"
-        onPress={() => {
-          confirmItemRemoval(item, onRemoveItem);
-        }}
-        tone="danger"
-      />
-      <SmallButton
-        disabled={disabled || item.quantity <= minimumQuantity}
-        label="-"
-        onPress={() => {
-          onChangeQuantity(item, -1);
-        }}
-      />
-      <Text style={styles.quantityText}>{newQuantity}</Text>
-      <SmallButton
-        disabled={disabled}
-        label="+"
-        onPress={() => {
-          onChangeQuantity(item, 1);
-        }}
-      />
-      <SmallButton
+    <View style={styles.quantityActions}>
+      <View style={styles.quantityControls}>
+        <SmallButton
+          accessibilityLabel={`Remover ${item.productName}`}
+          disabled={disabled}
+          label="×"
+          onPress={() => {
+            confirmItemRemoval(item, onRemoveItem);
+          }}
+          tone="danger"
+        />
+        <SmallButton
+          disabled={disabled || item.quantity <= minimumQuantity}
+          label="-"
+          onPress={() => {
+            onChangeQuantity(item, -1);
+          }}
+        />
+        <Text style={styles.quantityText}>{newQuantity}</Text>
+        <SmallButton
+          disabled={disabled}
+          label="+"
+          onPress={() => {
+            onChangeQuantity(item, 1);
+          }}
+        />
+      </View>
+      <Pressable
         accessibilityLabel={`Confirmar ${item.productName}`}
+        accessibilityRole="button"
         disabled={disabled}
-        label="✓"
         onPress={() => {
           onConfirmItem(item);
         }}
-        tone="confirm"
-      />
+        style={({ pressed }) => [
+          styles.confirmDeliveryButton,
+          disabled && styles.disabledButton,
+          pressed && !disabled && styles.pressedButton,
+        ]}
+      >
+        <Text style={styles.confirmDeliveryButtonText}>✓  Confirmar entrega</Text>
+      </Pressable>
     </View>
   );
 }
@@ -410,7 +425,7 @@ function SmallButton({
   disabled: boolean;
   label: string;
   onPress: () => void;
-  tone?: 'confirm' | 'danger' | 'default';
+  tone?: 'danger' | 'default';
 }) {
   return (
     <Pressable
@@ -420,30 +435,32 @@ function SmallButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.smallButton,
-        tone === 'confirm' && styles.confirmSmallButton,
         tone === 'danger' && styles.dangerSmallButton,
         disabled && styles.disabledButton,
         pressed && !disabled && styles.pressedButton,
       ]}
     >
-      <Text style={styles.buttonText}>{label}</Text>
+      <Text style={styles.smallButtonText}>{label}</Text>
     </Pressable>
   );
 }
 
 export function ActionButton({
+  accessibilityLabel,
   disabled = false,
   label,
   onPress,
   tone = 'primary',
 }: {
+  accessibilityLabel?: string;
   disabled?: boolean;
   label: string;
   onPress: () => void;
-  tone?: 'danger' | 'primary' | 'secondary';
+  tone?: 'danger' | 'primary' | 'secondary' | 'tertiary';
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
@@ -451,11 +468,19 @@ export function ActionButton({
         styles.button,
         tone === 'danger' && styles.dangerButton,
         tone === 'secondary' && styles.secondaryButton,
+        tone === 'tertiary' && styles.tertiaryButton,
         disabled && styles.disabledButton,
         pressed && !disabled && styles.pressedButton,
       ]}
     >
-      <Text style={[styles.buttonText, tone === 'secondary' && styles.secondaryButtonText]}>
+      <Text
+        style={[
+          styles.buttonText,
+          tone === 'danger' && styles.dangerButtonText,
+          tone === 'secondary' && styles.secondaryButtonText,
+          tone === 'tertiary' && styles.tertiaryButtonText,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>

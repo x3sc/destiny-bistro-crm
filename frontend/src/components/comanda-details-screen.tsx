@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
@@ -17,10 +17,10 @@ import {
   cancelCreditOrder,
   finalizeCreditOrder,
 } from '../services/credits-api';
+import { themeColors } from '../theme/tokens';
 import {
   ActionButton,
   ComandaActions,
-  ComandaHistory,
   ComandaItems,
   Message,
   statusLabels,
@@ -180,8 +180,10 @@ export function ComandaDetailsScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-        <Text style={styles.title}>Detalhes da comanda</Text>
+        <ComandaHeader
+          comanda={state.kind === 'success' ? state.comanda : undefined}
+          onBack={onBack}
+        />
 
         {!normalizedApiBaseUrl && (
           <Message text="Configure EXPO_PUBLIC_API_URL antes de iniciar o aplicativo." />
@@ -190,7 +192,7 @@ export function ComandaDetailsScreen({
 
         {normalizedApiBaseUrl && comandaId && state.kind === 'loading' && (
           <View style={styles.loading}>
-            <ActivityIndicator color="#6f4e37" size="large" />
+            <ActivityIndicator color={themeColors.primaryActivity} size="large" />
             <Text style={styles.description}>Carregando comanda...</Text>
           </View>
         )}
@@ -204,104 +206,123 @@ export function ComandaDetailsScreen({
         )}
 
         {state.kind === 'success' && (
-          <>
-            <ComandaSummary comanda={state.comanda} />
-            <ComandaItems
-              comanda={state.comanda}
-              disabled={isMutating || readOnly}
-              onChangeQuantity={(item, delta) => {
-                if (!normalizedApiBaseUrl) {
-                  return;
-                }
-
-                void mutateComanda(
-                  changeItemQuantityRequest(
-                    normalizedApiBaseUrl,
-                    comandaId,
-                    item.id,
-                    delta,
-                  ),
-                );
-              }}
-              onConfirmItem={(item) => {
-                if (normalizedApiBaseUrl) {
-                  void mutateComanda(
-                    confirmItemRequest(normalizedApiBaseUrl, comandaId, item.id),
-                  );
-                }
-              }}
-              onRemoveItem={(item) => {
-                if (normalizedApiBaseUrl) {
-                  void mutateComanda(removeItemRequest(normalizedApiBaseUrl, comandaId, item.id));
-                }
-              }}
-            />
-            <ComandaHistory comanda={state.comanda} />
-            <ComandaActions
-              canCancel={state.comanda.items.length === 0}
-              canClose={state.comanda.items.every(
-                (item) => item.quantity === item.confirmedQuantity,
-              )}
-              canCreateCredit={
-                state.comanda.items.length > 0 &&
-                state.comanda.items.every(
-                  (item) => item.quantity === item.confirmedQuantity,
-                )
+          <ComandaItems
+            comanda={state.comanda}
+            disabled={isMutating || readOnly}
+            onChangeQuantity={(item, delta) => {
+              if (!normalizedApiBaseUrl) {
+                return;
               }
-              credit={state.comanda.credit}
-              disabled={isMutating}
-              isClosing={isClosing}
-              onAddProducts={() => {
-                onAddProducts(comandaId);
-              }}
-              onBack={onBack}
-              onCancel={() => {
-                void confirmCancellation();
-              }}
-              onCancelCredit={() => {
-                void cancelCreditDraft(state.comanda);
-              }}
-              onClose={() => {
-                void closeTable();
-              }}
-              onCloseAsCredit={() => {
-                onCloseAsCredit?.(state.comanda);
-              }}
-              onFinalizeCredit={() => {
-                void finalizeCreditDraft(state.comanda);
-              }}
-              status={state.comanda.status}
-              readOnly={readOnly}
-            />
-          </>
+
+              void mutateComanda(
+                changeItemQuantityRequest(
+                  normalizedApiBaseUrl,
+                  comandaId,
+                  item.id,
+                  delta,
+                ),
+              );
+            }}
+            onConfirmItem={(item) => {
+              if (normalizedApiBaseUrl) {
+                void mutateComanda(
+                  confirmItemRequest(normalizedApiBaseUrl, comandaId, item.id),
+                );
+              }
+            }}
+            onRemoveItem={(item) => {
+              if (normalizedApiBaseUrl) {
+                void mutateComanda(removeItemRequest(normalizedApiBaseUrl, comandaId, item.id));
+              }
+            }}
+          />
         )}
       </ScrollView>
+
+      {state.kind === 'success' && (
+        <ComandaActions
+          canCancel={state.comanda.items.length === 0}
+          canClose={state.comanda.items.every(
+            (item) => item.quantity === item.confirmedQuantity,
+          )}
+          canCreateCredit={
+            state.comanda.items.length > 0 &&
+            state.comanda.items.every(
+              (item) => item.quantity === item.confirmedQuantity,
+            )
+          }
+          credit={state.comanda.credit}
+          disabled={isMutating}
+          isClosing={isClosing}
+          onAddProducts={() => {
+            onAddProducts(comandaId);
+          }}
+          onCancel={() => {
+            void confirmCancellation();
+          }}
+          onCancelCredit={() => {
+            void cancelCreditDraft(state.comanda);
+          }}
+          onClose={() => {
+            void closeTable();
+          }}
+          onCloseAsCredit={() => {
+            onCloseAsCredit?.(state.comanda);
+          }}
+          onFinalizeCredit={() => {
+            void finalizeCreditDraft(state.comanda);
+          }}
+          status={state.comanda.status}
+          readOnly={readOnly}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
-function ComandaSummary({ comanda }: { comanda: Comanda }) {
+function ComandaHeader({
+  comanda,
+  onBack,
+}: {
+  comanda?: Comanda;
+  onBack: () => void;
+}) {
   return (
-    <View style={styles.card}>
-      <Text style={styles.comandaNumber}>Comanda #{comanda.number}</Text>
-      {comanda.name && <Text style={styles.comandaName}>{comanda.name}</Text>}
-      <Text style={styles.description}>
-        {comanda.table ? `Mesa ${comanda.table.number}` : 'Fiado manual'}
-      </Text>
-      {comanda.credit && (
-        <Text style={styles.description}>
-          Cliente: {comanda.credit.customerName}
+    <View style={styles.screenHeader}>
+      <Pressable
+        accessibilityLabel="Voltar"
+        accessibilityRole="button"
+        onPress={onBack}
+        style={({ pressed }) => [
+          styles.backButton,
+          pressed && styles.pressedButton,
+        ]}
+      >
+        <Text style={styles.backButtonText}>‹</Text>
+      </Pressable>
+      <View style={styles.headerCopy}>
+        <View style={styles.contextRow}>
+          <Text style={styles.eyebrow}>
+            {comanda?.table ? `Mesa ${comanda.table.number}` : 'Destiny Bistro CRM'}
+          </Text>
+          {comanda?.name && <Text style={styles.contextName}>· {comanda.name}</Text>}
+        </View>
+        <Text style={styles.title}>
+          {comanda ? `Comanda #${comanda.number}` : 'Detalhes da comanda'}
         </Text>
-      )}
-      <Text style={styles.description}>Status: {statusLabels[comanda.status]}</Text>
-      <Text style={styles.description}>Aberta em: {formatDateTime(comanda.openedAt)}</Text>
-      {comanda.closedAt && (
-        <Text style={styles.description}>Fechada em: {formatDateTime(comanda.closedAt)}</Text>
+      </View>
+      {comanda && (
+        <Text
+          style={[
+            styles.statusBadge,
+            comanda.status === 'OPEN' && styles.openStatusBadge,
+            comanda.status === 'CLOSED' && styles.closedStatusBadge,
+            comanda.status === 'CANCELLED' && styles.cancelledStatusBadge,
+          ]}
+        >
+          • {statusLabels[comanda.status]}
+        </Text>
       )}
     </View>
   );
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('pt-BR');
 }

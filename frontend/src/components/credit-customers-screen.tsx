@@ -15,6 +15,7 @@ import {
   type CreditCustomerSummary,
 } from '../services/credits-api';
 import { formatCentsAsBrl } from '../services/money';
+import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
 
@@ -76,7 +77,7 @@ export function CreditCustomersScreen({
 
         {state.kind === 'loading' && (
           <View style={creditStyles.loading}>
-            <ActivityIndicator color="#6f4e37" size="large" />
+            <ActivityIndicator color={themeColors.primaryActivity} size="large" />
             <Text style={creditStyles.description}>Carregando fiados...</Text>
           </View>
         )}

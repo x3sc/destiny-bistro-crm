@@ -18,6 +18,7 @@ import {
   loadStatement,
   type StatementReport,
 } from '../services/statements-api';
+import { themeColors } from '../theme/tokens';
 import { statementStyles as styles } from './statements-screen.styles';
 
 LocaleConfig.locales['pt-br'] = {
@@ -177,10 +178,11 @@ export function StatementsScreen({
             onDayPress={selectDay}
             testID="statement-calendar"
             theme={{
-              arrowColor: '#76513d',
-              monthTextColor: '#382b25',
-              selectedDayBackgroundColor: '#76513d',
-              todayTextColor: '#8a5f48',
+              arrowColor: themeColors.primary,
+              calendarBackground: themeColors.surface,
+              monthTextColor: themeColors.foreground,
+              selectedDayBackgroundColor: themeColors.primary,
+              todayTextColor: themeColors.primary,
             }}
           />
           <Text style={styles.period}>
@@ -196,7 +198,7 @@ export function StatementsScreen({
 
         {state.kind === 'loading' && (
           <View style={styles.loading}>
-            <ActivityIndicator color="#6f4e37" size="large" />
+            <ActivityIndicator color={themeColors.primaryActivity} size="large" />
             <Text style={styles.description}>Carregando extrato...</Text>
           </View>
         )}
@@ -357,10 +359,10 @@ function createPeriodMarkings(from: string, to: string | null) {
 
   while (date <= end) {
     markings[date] = {
-      color: '#76513d',
+      color: themeColors.primary,
       endingDay: date === end,
       startingDay: date === from,
-      textColor: '#fff',
+      textColor: themeColors.foregroundOnPrimary,
     };
     date = addDays(date, 1);
   }
