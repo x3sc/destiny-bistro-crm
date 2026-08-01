@@ -16,6 +16,7 @@ import {
   loadCreditCustomers,
   type CreditCustomerSummary,
 } from '../services/credits-api';
+import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
 
@@ -141,7 +142,7 @@ export function CreditCustomerPickerScreen({
 
         {state.kind === 'loading' && (
           <View style={creditStyles.loading}>
-            <ActivityIndicator color="#6f4e37" size="large" />
+            <ActivityIndicator color={themeColors.primaryActivity} size="large" />
           </View>
         )}
         {state.kind === 'error' && (

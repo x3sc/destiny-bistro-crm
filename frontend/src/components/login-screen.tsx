@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { themeColors } from '../theme/tokens';
+
 export function LoginScreen({
   onLogin,
 }: {
@@ -57,6 +59,7 @@ export function LoginScreen({
           editable={!loading}
           onChangeText={setName}
           placeholder="Seu nome"
+          placeholderTextColor={themeColors.placeholder}
           style={styles.input}
           testID="login-name"
           value={name}
@@ -72,6 +75,7 @@ export function LoginScreen({
             void submit();
           }}
           placeholder="Sua senha"
+          placeholderTextColor={themeColors.placeholder}
           secureTextEntry
           style={styles.input}
           testID="login-password"
@@ -93,7 +97,7 @@ export function LoginScreen({
           ]}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={themeColors.foregroundOnPrimary} />
           ) : (
             <Text style={styles.buttonText}>Entrar</Text>
           )}
@@ -106,7 +110,7 @@ export function LoginScreen({
 export function AuthLoadingScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ActivityIndicator color="#80583f" size="large" />
+      <ActivityIndicator color={themeColors.primaryActivity} size="large" />
     </SafeAreaView>
   );
 }
@@ -114,7 +118,7 @@ export function AuthLoadingScreen() {
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
-    backgroundColor: '#80583f',
+    backgroundColor: themeColors.primary,
     borderRadius: 14,
     marginTop: 10,
     minHeight: 52,
@@ -127,13 +131,13 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   buttonText: {
-    color: '#fff',
+    color: themeColors.foregroundOnPrimary,
     fontSize: 16,
     fontWeight: '800',
   },
   card: {
-    backgroundColor: '#fff',
-    borderColor: '#ddcbbc',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
     borderRadius: 22,
     borderWidth: 1,
     gap: 10,
@@ -142,46 +146,46 @@ const styles = StyleSheet.create({
     width: '90%',
   },
   description: {
-    color: '#6c5d54',
+    color: themeColors.foregroundMuted,
     fontSize: 15,
     lineHeight: 21,
     marginBottom: 12,
   },
   error: {
-    color: '#a33131',
+    color: themeColors.dangerText,
     fontSize: 14,
   },
   eyebrow: {
-    color: '#8a5f48',
+    color: themeColors.primary,
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: '#fffdfb',
-    borderColor: '#cdb8a7',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
-    color: '#382b25',
+    color: themeColors.foreground,
     fontSize: 16,
     minHeight: 50,
     paddingHorizontal: 14,
   },
   label: {
-    color: '#4c3a31',
+    color: themeColors.foregroundBody,
     fontSize: 14,
     fontWeight: '700',
     marginTop: 4,
   },
   safeArea: {
     alignItems: 'center',
-    backgroundColor: '#f7f3ed',
+    backgroundColor: themeColors.background,
     flex: 1,
     justifyContent: 'center',
   },
   title: {
-    color: '#382b25',
+    color: themeColors.foreground,
     fontSize: 32,
     fontWeight: '800',
   },

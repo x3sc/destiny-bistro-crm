@@ -1,49 +1,181 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 
-export const tableStatusStyles = StyleSheet.create({
+import { themeColors } from '../theme/tokens';
+
+const titleFont = Platform.select({
+  android: 'serif',
+  default: 'Georgia',
+  ios: 'Georgia',
+  web: 'Georgia, serif',
+});
+
+export const tableStatusBadgeStyles = StyleSheet.create({
   AWAITING_CHECK: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#ffca2c',
+    backgroundColor: themeColors.statusAwaitingBadge,
+    color: themeColors.statusAwaitingText,
   },
   FREE: {
-    backgroundColor: '#d1e7dd',
-    borderColor: '#75b798',
+    backgroundColor: themeColors.statusFreeBadge,
+    color: themeColors.statusFreeText,
   },
   OPEN: {
-    backgroundColor: '#f8d7da',
-    borderColor: '#ea868f',
+    backgroundColor: themeColors.statusOpenBadge,
+    color: themeColors.statusOpenText,
+  },
+});
+
+export const tableStatusCardStyles = StyleSheet.create({
+  AWAITING_CHECK: {
+    backgroundColor: themeColors.statusAwaitingSurface,
+    borderColor: themeColors.statusAwaitingBorder,
+  },
+  FREE: {
+    backgroundColor: themeColors.statusFreeSurface,
+    borderColor: themeColors.statusFreeBorder,
+  },
+  OPEN: {
+    backgroundColor: themeColors.statusOpenSurface,
+    borderColor: themeColors.statusOpenBorder,
   },
 });
 
 export const styles = StyleSheet.create({
   safeArea: {
+    backgroundColor: themeColors.background,
     flex: 1,
-    backgroundColor: '#f5f2eb',
   },
   content: {
+    alignSelf: 'center',
     flex: 1,
-    gap: 20,
-    padding: 24,
+    gap: 12,
+    maxWidth: 1180,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    width: '100%',
   },
   heading: {
-    gap: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 62,
+    paddingVertical: 8,
+  },
+  backButton: {
+    alignItems: 'center',
+    backgroundColor: themeColors.surfaceMuted,
+    borderColor: themeColors.border,
+    borderRadius: 11,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  backButtonText: {
+    color: themeColors.titleIcon,
+    fontSize: 32,
+    fontWeight: '300',
+    lineHeight: 34,
+  },
+  headingCopy: {
+    flex: 1,
+    gap: 1,
   },
   eyebrow: {
-    color: '#795548',
-    fontSize: 14,
+    color: themeColors.titleEyebrow,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
   },
   title: {
-    color: '#2f241f',
-    fontSize: 32,
+    color: themeColors.foreground,
+    fontFamily: titleFont,
+    fontSize: 25,
     fontWeight: '700',
   },
-  description: {
-    color: '#5d514b',
-    fontSize: 16,
-    lineHeight: 24,
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  summaryCard: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    minHeight: 70,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  summaryLabel: {
+    color: themeColors.foregroundSoft,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  summaryValue: {
+    color: themeColors.foreground,
+    fontFamily: titleFont,
+    fontSize: 21,
+    fontWeight: '700',
+  },
+  searchField: {
+    alignItems: 'center',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
+    borderRadius: 13,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 9,
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  searchIcon: {
+    color: themeColors.icon,
+    fontSize: 23,
+  },
+  searchInput: {
+    color: themeColors.foregroundBody,
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 10,
+  },
+  filterChips: {
+    alignItems: 'center',
+    gap: 8,
+    height: 48,
+    paddingRight: 4,
+  },
+  filterBar: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 48,
+    overflow: 'hidden',
+  },
+  filterScroll: {
+    height: 48,
+  },
+  filterChip: {
+    alignItems: 'center',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    height: 44,
+    justifyContent: 'center',
+    minWidth: 88,
+    paddingHorizontal: 16,
+  },
+  activeFilterChip: {
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
+  },
+  filterChipText: {
+    color: themeColors.primaryText,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  activeFilterChipText: {
+    color: themeColors.foregroundOnPrimary,
   },
   loading: {
     alignItems: 'center',
@@ -52,70 +184,130 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   feedback: {
-    gap: 16,
+    gap: 14,
   },
   message: {
-    color: '#5d514b',
-    fontSize: 16,
+    color: themeColors.message,
+    fontSize: 15,
   },
   messageCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
     borderRadius: 12,
-    color: '#5d514b',
-    padding: 16,
+    borderWidth: 1,
+    color: themeColors.message,
+    padding: 15,
   },
   errorMessage: {
-    backgroundColor: '#f8d7da',
-    color: '#842029',
+    backgroundColor: themeColors.dangerSurface,
+    borderColor: themeColors.dangerBorder,
+    color: themeColors.dangerText,
   },
   tableGrid: {
     gap: 12,
+    paddingBottom: 4,
+    paddingTop: 4,
+  },
+  tableList: {
+    flex: 1,
+    minHeight: 0,
   },
   tableRow: {
     gap: 12,
   },
   tableCard: {
-    borderRadius: 12,
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.borderStrong,
+    borderRadius: 16,
     borderWidth: 1,
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 0,
+    gap: 9,
+    minHeight: 142,
+    padding: 15,
+  },
+  tableCardHeading: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
     gap: 8,
-    minHeight: 108,
-    padding: 16,
+    justifyContent: 'space-between',
   },
   tableNumber: {
-    color: '#2f241f',
-    fontSize: 20,
+    color: themeColors.foreground,
+    flex: 1,
+    fontFamily: titleFont,
+    fontSize: 19,
     fontWeight: '700',
-  },
-  comandaNumber: {
-    color: '#5d514b',
-    fontSize: 14,
-  },
-  comandaName: {
-    color: '#2f241f',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  tableCardPressed: {
-    opacity: 0.75,
   },
   tableStatus: {
-    color: '#5d514b',
+    borderRadius: 999,
+    fontSize: 10,
+    fontWeight: '700',
+    maxWidth: '62%',
+    overflow: 'hidden',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  comandaName: {
+    color: themeColors.foregroundBody,
+    fontSize: 13,
+  },
+  comandaNumber: {
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    color: themeColors.foregroundBody,
+    fontSize: 13,
+    marginTop: 'auto',
+    paddingTop: 9,
+  },
+  openComandaAction: {
+    color: themeColors.primary,
     fontSize: 14,
     fontWeight: '700',
+    marginTop: 'auto',
+  },
+  tableCardPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.99 }],
+  },
+  emptyResults: {
+    borderColor: themeColors.borderStrong,
+    borderRadius: 14,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    color: themeColors.foregroundSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 30,
+    textAlign: 'center',
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#6f4e37',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
+    borderRadius: 11,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 45,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  secondaryButton: {
+    alignSelf: 'center',
+    backgroundColor: 'transparent',
+    borderColor: themeColors.borderStrong,
+    minHeight: 44,
+    paddingVertical: 7,
   },
   buttonPressed: {
-    opacity: 0.8,
+    opacity: 0.72,
   },
   buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
+    color: themeColors.foregroundOnPrimary,
+    fontSize: 14,
     fontWeight: '700',
+  },
+  secondaryButtonText: {
+    color: themeColors.primary,
+    fontSize: 12,
   },
 });

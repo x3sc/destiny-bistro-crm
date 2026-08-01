@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { themeColors } from '../theme/tokens';
+
 export function MainMenuScreen({
   canAccessCredits = true,
   canAccessStatements = true,
@@ -33,7 +35,11 @@ export function MainMenuScreen({
         {userName && (
           <View style={styles.session}>
             <Text style={styles.sessionText}>Conectado como {userName}</Text>
-            <Pressable accessibilityRole="button" onPress={onLogout}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onLogout}
+              style={styles.logoutButton}
+            >
               <Text style={styles.logout}>Sair</Text>
             </Pressable>
           </View>
@@ -103,9 +109,9 @@ function MenuCard({
 
 const styles = StyleSheet.create({
   badge: {
-    backgroundColor: '#e7ddd4',
+    backgroundColor: themeColors.surfaceAccent,
     borderRadius: 999,
-    color: '#6f4e37',
+    color: themeColors.primary,
     fontSize: 12,
     fontWeight: '700',
     overflow: 'hidden',
@@ -113,15 +119,15 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   card: {
-    backgroundColor: '#fff',
-    borderColor: '#d8c5b4',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,
     padding: 20,
   },
   cardDescription: {
-    color: '#6c5d54',
+    color: themeColors.foregroundMuted,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -131,7 +137,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    color: '#382b25',
+    color: themeColors.foreground,
     fontSize: 22,
     fontWeight: '800',
   },
@@ -147,7 +153,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   description: {
-    color: '#6c5d54',
+    color: themeColors.foregroundMuted,
     fontSize: 16,
     marginTop: 8,
   },
@@ -155,29 +161,35 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   eyebrow: {
-    color: '#8a5f48',
+    color: themeColors.primary,
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   establishmentName: {
-    color: '#80583f',
+    color: themeColors.primary,
     fontSize: 16,
     fontWeight: '700',
     marginTop: 6,
   },
   logout: {
-    color: '#80583f',
+    color: themeColors.primary,
     fontSize: 14,
     fontWeight: '800',
+  },
+  logoutButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
   },
   pressedCard: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
   },
   safeArea: {
-    backgroundColor: '#f7f3ed',
+    backgroundColor: themeColors.background,
     flex: 1,
   },
   session: {
@@ -187,11 +199,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   sessionText: {
-    color: '#6c5d54',
+    color: themeColors.foregroundMuted,
     fontSize: 14,
   },
   title: {
-    color: '#382b25',
+    color: themeColors.foreground,
     fontSize: 32,
     fontWeight: '800',
     marginTop: 12,
