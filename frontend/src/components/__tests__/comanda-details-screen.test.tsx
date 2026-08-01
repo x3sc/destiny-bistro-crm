@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { Alert, Platform } from 'react-native';
 
 import type { Comanda } from '../../services/comandas-api';
+import { themeColors } from '../../theme/tokens';
+import { styles as comandaStyles } from '../comanda-details-screen.styles';
 import { ComandaDetailsScreen } from '../comanda-details-screen';
 
 jest.mock('expo-router', () => {
@@ -139,9 +141,22 @@ it('shows comanda details', async () => {
 
   expect(await screen.findByText('Comanda #42')).toBeTruthy();
   expect(screen.getByText('Mesa 1')).toBeTruthy();
-  expect(screen.getByText('Status: Aberta')).toBeTruthy();
+  expect(screen.getByText('• Aberta')).toBeTruthy();
   expect(screen.getByText(/Nenhum item/)).toBeTruthy();
-  expect(screen.getByText('Total R$ 0,00')).toBeTruthy();
+  expect(screen.getByLabelText('Total R$ 0,00')).toBeTruthy();
+  expect(screen.queryByText('Histórico')).toBeNull();
+});
+
+it('uses the shared light theme on the comanda screen', () => {
+  expect(comandaStyles.safeArea).toEqual(
+    expect.objectContaining({ backgroundColor: themeColors.background }),
+  );
+  expect(comandaStyles.card).toEqual(
+    expect.objectContaining({ backgroundColor: themeColors.surface }),
+  );
+  expect(comandaStyles.button).toEqual(
+    expect.objectContaining({ backgroundColor: themeColors.primary }),
+  );
 });
 
 it('shows the comanda name when the table was named', async () => {
@@ -156,7 +171,7 @@ it('shows the comanda name when the table was named', async () => {
     />,
   );
 
-  expect(await screen.findByText('João')).toBeTruthy();
+  expect(await screen.findByText(/João/)).toBeTruthy();
 });
 
 it('opens the product catalog from comanda details', async () => {
@@ -312,18 +327,14 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   );
 
   expect(await screen.findByText('Cafe')).toBeTruthy();
-  expect(screen.getByText('Itens novos')).toBeTruthy();
-  expect(screen.getByText('Itens imutáveis')).toBeTruthy();
-  expect(screen.getByText('Nenhum item imutável.')).toBeTruthy();
+  expect(screen.getByText('Itens em aberto')).toBeTruthy();
+  expect(screen.getByText('Itens confirmados')).toBeTruthy();
+  expect(screen.getByText('Nenhum item confirmado.')).toBeTruthy();
   expect(screen.getByText('1 x R$ 6,00 = R$ 6,00')).toBeTruthy();
-  expect(screen.getByText('Total R$ 6,00')).toBeTruthy();
-  expect(
-    screen.getByText('Remova todos os itens antes de cancelar e liberar esta comanda.'),
-  ).toBeTruthy();
+  expect(screen.getByLabelText('Total R$ 6,00')).toBeTruthy();
+  expect(screen.queryByText(/Remova todos os itens/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Cancelar comanda vazia' })).toBeNull();
-  expect(
-    screen.getByText('Confirme todos os itens novos antes de fechar a mesa.'),
-  ).toBeTruthy();
+  expect(screen.queryByText(/Confirme todos os itens novos/)).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
   expect(closeRequest).not.toHaveBeenCalled();
 });
@@ -390,7 +401,7 @@ it('confirms a new item using the tick action', async () => {
       'item-id',
     );
   });
-  expect(await screen.findByText('Nenhum item novo.')).toBeTruthy();
+  expect(await screen.findByText('Nenhum item em aberto.')).toBeTruthy();
   expect(screen.getByText('1 x R$ 6,00 = R$ 6,00')).toBeTruthy();
   expect(screen.queryByRole('button', { name: '-' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Remover Cafe' })).toBeNull();
@@ -409,8 +420,8 @@ it('shows confirmed and new quantities in separate divisions', async () => {
   );
 
   expect(await screen.findAllByText('Cafe')).toHaveLength(2);
-  expect(screen.getByText('Itens novos')).toBeTruthy();
-  expect(screen.getByText('Itens imutáveis')).toBeTruthy();
+  expect(screen.getByText('Itens em aberto')).toBeTruthy();
+  expect(screen.getByText('Itens confirmados')).toBeTruthy();
   expect(screen.getAllByText('1 x R$ 6,00 = R$ 6,00')).toHaveLength(2);
   expect(screen.getByRole('button', { name: 'Confirmar Cafe' })).toBeTruthy();
   expect(screen.getByRole('button', { name: '-' })).toBeTruthy();

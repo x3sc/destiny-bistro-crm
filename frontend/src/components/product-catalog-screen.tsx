@@ -4,7 +4,9 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,8 +14,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import {
   addComandaItem,
+  changeComandaItemQuantity,
   loadComanda,
   type Comanda,
+  type ComandaItem,
+  removeComandaItem,
 } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
 import {
@@ -22,15 +27,18 @@ import {
   type Product,
   type ProductCategory,
 } from '../services/products-api';
+import { themeColors } from '../theme/tokens';
 import { styles } from './product-catalog-screen.styles';
 
 interface ProductCatalogScreenProps {
   addItemRequest?: typeof addComandaItem;
   apiBaseUrl?: string;
+  changeItemQuantityRequest?: typeof changeComandaItemQuantity;
   comandaId: string;
   loadComandaRequest?: typeof loadComanda;
   loadProductsRequest?: typeof loadProducts;
   onBack: () => void;
+  removeItemRequest?: typeof removeComandaItem;
 }
 
 type ProductCatalogState =
@@ -41,14 +49,17 @@ type ProductCatalogState =
 export function ProductCatalogScreen({
   addItemRequest = addComandaItem,
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
+  changeItemQuantityRequest = changeComandaItemQuantity,
   comandaId,
   loadComandaRequest = loadComanda,
   loadProductsRequest = loadProducts,
   onBack,
+  removeItemRequest = removeComandaItem,
 }: ProductCatalogScreenProps) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [lastError, setLastError] = useState<string>();
   const [mutatingProductId, setMutatingProductId] = useState<string>();
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory>();
   const [state, setState] = useState<ProductCatalogState>({ kind: 'loading' });
 
@@ -59,6 +70,7 @@ export function ProductCatalogScreen({
 
     setState({ kind: 'loading' });
     setLastError(undefined);
+    setSearchQuery('');
     setSelectedCategory(undefined);
     void Promise.all([
       loadProductsRequest(normalizedApiBaseUrl),
@@ -75,8 +87,19 @@ export function ProductCatalogScreen({
 
   useFocusEffect(refresh);
 
-  const addProduct = async (product: Product) => {
+  const changeProductQuantity = async (product: Product, delta: 1 | -1) => {
     if (!normalizedApiBaseUrl || state.kind !== 'success') {
+      return;
+    }
+
+    const item = state.comanda.items.find(
+      (comandaItem) => comandaItem.productId === product.id,
+    );
+    const temporaryQuantity = item
+      ? item.quantity - item.confirmedQuantity
+      : 0;
+
+    if (delta === -1 && (!item || temporaryQuantity === 0)) {
       return;
     }
 
@@ -84,18 +107,43 @@ export function ProductCatalogScreen({
     setLastError(undefined);
 
     try {
-      const comanda = await addItemRequest(normalizedApiBaseUrl, comandaId, product.id);
+      let comanda: Comanda;
+
+      if (delta === 1 && !item) {
+        comanda = await addItemRequest(normalizedApiBaseUrl, comandaId, product.id);
+      } else if (
+        delta === -1 &&
+        item &&
+        item.confirmedQuantity === 0 &&
+        item.quantity === 1
+      ) {
+        comanda = await removeItemRequest(normalizedApiBaseUrl, comandaId, item.id);
+      } else if (item) {
+        comanda = await changeItemQuantityRequest(
+          normalizedApiBaseUrl,
+          comandaId,
+          item.id,
+          delta,
+        );
+      } else {
+        return;
+      }
+
       setState({ ...state, comanda });
     } catch {
-      setLastError('Não foi possível adicionar o produto.');
+      setLastError(
+        delta === 1 && !item
+          ? 'Não foi possível adicionar o produto.'
+          : 'Não foi possível atualizar o produto.',
+      );
     } finally {
       setMutatingProductId(undefined);
     }
   };
 
-  const quantitiesByProduct = new Map(
+  const itemsByProduct = new Map(
     state.kind === 'success'
-      ? state.comanda.items.map((item) => [item.productId, item.quantity])
+      ? state.comanda.items.map((item) => [item.productId, item])
       : [],
   );
   const availableCategories =
@@ -104,21 +152,44 @@ export function ProductCatalogScreen({
           state.products.some((product) => product.category === value),
         )
       : [];
+  const normalizedSearchQuery = normalizeSearchText(searchQuery.trim());
   const visibleProducts =
-    state.kind === 'success' && selectedCategory
-      ? state.products.filter((product) => product.category === selectedCategory)
+    state.kind === 'success'
+      ? state.products.filter(
+          (product) =>
+            (!selectedCategory || product.category === selectedCategory) &&
+            (!normalizedSearchQuery ||
+              normalizeSearchText(product.name).includes(normalizedSearchQuery)),
+        )
       : [];
-  const selectedCategoryLabel = PRODUCT_CATEGORY_OPTIONS.find(
-    ({ value }) => value === selectedCategory,
-  )?.label;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
         <View style={styles.heading}>
-          <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-          <Text style={styles.title}>Adicionar produtos</Text>
-          <Text style={styles.description}>Permaneça nesta tela para lançar vários itens.</Text>
+          <Pressable
+            accessibilityLabel="Voltar para comanda"
+            accessibilityRole="button"
+            onPress={onBack}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.pressedButton,
+            ]}
+          >
+            <Text style={styles.backButtonText}>‹</Text>
+          </Pressable>
+          <View style={styles.headingCopy}>
+            <Text style={styles.eyebrow}>
+              {state.kind === 'success'
+                ? `${
+                    state.comanda.table
+                      ? `Mesa ${state.comanda.table.number}`
+                      : 'Fiado manual'
+                  } · Comanda #${state.comanda.number}`
+                : 'Destiny Bistro CRM'}
+            </Text>
+            <Text style={styles.title}>Adicionar produtos</Text>
+          </View>
         </View>
 
         {!normalizedApiBaseUrl && (
@@ -128,7 +199,7 @@ export function ProductCatalogScreen({
 
         {normalizedApiBaseUrl && comandaId && state.kind === 'loading' && (
           <View style={styles.loading}>
-            <ActivityIndicator color="#6f4e37" size="large" />
+            <ActivityIndicator color={themeColors.primaryActivity} size="large" />
             <Text style={styles.description}>Carregando catálogo...</Text>
           </View>
         )}
@@ -147,62 +218,73 @@ export function ProductCatalogScreen({
             {state.products.length === 0 && (
               <Text style={styles.messageCard}>Nenhum produto ativo disponível.</Text>
             )}
-            {availableCategories.length > 0 && !selectedCategory && (
-              <FlatList
-                columnWrapperStyle={styles.categoryRow}
-                contentContainerStyle={styles.categoryGrid}
-                data={availableCategories}
-                key="category-grid"
-                keyExtractor={(category) => category.value}
-                numColumns={2}
-                renderItem={({ item }) => (
-                  <CategoryCard
-                    count={
-                      state.products.filter((product) => product.category === item.value)
-                        .length
-                    }
-                    label={item.label}
-                    onPress={() => {
-                      setSelectedCategory(item.value);
-                    }}
-                  />
-                )}
-              />
-            )}
-            {selectedCategory && (
+            {state.products.length > 0 && (
               <>
-                <View style={styles.selectedCategoryHeader}>
-                  <Text style={styles.selectedCategoryTitle}>
-                    {selectedCategoryLabel}
-                  </Text>
-                  <ActionButton
-                    label="Voltar às categorias"
-                    onPress={() => {
-                      setSelectedCategory(undefined);
-                    }}
-                    tone="secondary"
+                <View style={styles.searchField}>
+                  <Text style={styles.searchIcon}>⌕</Text>
+                  <TextInput
+                    accessibilityLabel="Buscar produto"
+                    accessibilityRole="search"
+                    onChangeText={setSearchQuery}
+                    placeholder="Buscar produto..."
+                    placeholderTextColor={themeColors.placeholder}
+                    style={styles.searchInput}
+                    value={searchQuery}
                   />
+                </View>
+                <View style={styles.categoryBar}>
+                  <ScrollView
+                    contentContainerStyle={styles.categoryChips}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.categoryScroll}
+                  >
+                    <CategoryChip
+                      active={!selectedCategory}
+                      label="Todos"
+                      onPress={() => {
+                        setSelectedCategory(undefined);
+                      }}
+                    />
+                    {availableCategories.map((category) => (
+                      <CategoryChip
+                        active={selectedCategory === category.value}
+                        key={category.value}
+                        label={category.label}
+                        onPress={() => {
+                          setSelectedCategory(category.value);
+                        }}
+                      />
+                    ))}
+                  </ScrollView>
                 </View>
                 <FlatList
                   contentContainerStyle={styles.productList}
                   data={visibleProducts}
-                  key="product-list"
                   keyExtractor={(product) => product.id}
+                  ListEmptyComponent={
+                    <Text style={styles.emptyResults}>
+                      Nenhum produto encontrado para “{searchQuery}”.
+                    </Text>
+                  }
                   renderItem={({ item }) => (
                     <ProductCard
                       disabled={!!mutatingProductId}
-                      onAdd={() => {
-                        void addProduct(item);
+                      item={itemsByProduct.get(item.id)}
+                      onDecrement={() => {
+                        void changeProductQuantity(item, -1);
+                      }}
+                      onIncrement={() => {
+                        void changeProductQuantity(item, 1);
                       }}
                       product={item}
-                      quantity={quantitiesByProduct.get(item.id) ?? 0}
                       submitting={mutatingProductId === item.id}
                     />
                   )}
+                  style={styles.productListContainer}
                 />
               </>
             )}
-            <ActionButton label="Voltar para comanda" onPress={onBack} tone="secondary" />
           </>
         )}
       </View>
@@ -210,60 +292,134 @@ export function ProductCatalogScreen({
   );
 }
 
-function CategoryCard({
-  count,
+function CategoryChip({
+  active,
   label,
   onPress,
 }: {
-  count: number;
+  active: boolean;
   label: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.categoryCard,
-        pressed && styles.pressedCategoryCard,
+        styles.categoryChip,
+        active && styles.activeCategoryChip,
+        pressed && styles.pressedButton,
       ]}
     >
-      <Text style={styles.categoryCardText}>{label}</Text>
-      <Text style={styles.categoryCount}>
-        {count} {count === 1 ? 'opção' : 'opções'}
+      <Text
+        style={[
+          styles.categoryChipText,
+          active && styles.activeCategoryChipText,
+        ]}
+      >
+        {label}
       </Text>
     </Pressable>
   );
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
+}
+
 function ProductCard({
   disabled,
-  onAdd,
+  item,
+  onDecrement,
+  onIncrement,
   product,
-  quantity,
   submitting,
 }: {
   disabled: boolean;
-  onAdd: () => void;
+  item?: ComandaItem;
+  onDecrement: () => void;
+  onIncrement: () => void;
   product: Product;
-  quantity: number;
   submitting: boolean;
 }) {
+  const temporaryQuantity = item
+    ? item.quantity - item.confirmedQuantity
+    : 0;
+
   return (
     <View style={styles.productCard}>
       <View style={styles.productInfo}>
         <Text style={styles.productName}>{product.name}</Text>
         <Text style={styles.description}>{formatCentsAsBrl(product.priceCents)}</Text>
-        {quantity > 0 && (
-          <Text style={styles.quantityText}>Já lançado: {quantity}</Text>
+        {item && (
+          <Text style={styles.quantityText}>Já lançado: {item.quantity}</Text>
         )}
       </View>
-      <ActionButton
-        disabled={disabled}
-        label={submitting ? 'Adicionando...' : 'Adicionar'}
-        onPress={onAdd}
-      />
+      {temporaryQuantity > 0 ? (
+        <View style={[styles.quantityControl, disabled && styles.disabledButton]}>
+          <QuantityButton
+            accessibilityLabel={`Diminuir ${product.name}`}
+            disabled={disabled}
+            label="−"
+            onPress={onDecrement}
+          />
+          {submitting ? (
+            <ActivityIndicator color={themeColors.primary} size="small" />
+          ) : (
+            <Text
+              accessibilityLabel={`${temporaryQuantity} unidades temporárias`}
+              style={styles.quantityControlValue}
+            >
+              {temporaryQuantity}
+            </Text>
+          )}
+          <QuantityButton
+            accessibilityLabel={`Aumentar ${product.name}`}
+            disabled={disabled}
+            label="+"
+            onPress={onIncrement}
+          />
+        </View>
+      ) : (
+        <ActionButton
+          accessibilityLabel={`Adicionar ${product.name}`}
+          disabled={disabled}
+          label={submitting ? 'Adicionando...' : '＋  Adicionar'}
+          onPress={onIncrement}
+        />
+      )}
     </View>
+  );
+}
+
+function QuantityButton({
+  accessibilityLabel,
+  disabled,
+  label,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quantityControlButton,
+        pressed && !disabled && styles.pressedButton,
+      ]}
+    >
+      <Text style={styles.quantityControlButtonText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -272,11 +428,13 @@ function Message({ text }: { text: string }) {
 }
 
 function ActionButton({
+  accessibilityLabel,
   disabled = false,
   label,
   onPress,
   tone = 'primary',
 }: {
+  accessibilityLabel?: string;
   disabled?: boolean;
   label: string;
   onPress: () => void;
@@ -284,6 +442,7 @@ function ActionButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
