@@ -77,7 +77,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     },
   );
 
-  app.post<{ Body: CloseComandaBody; Params: ComandaParams }>(
+  app.post<{ Params: ComandaParams }>(
     "/comandas/:comandaId/cancel",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
