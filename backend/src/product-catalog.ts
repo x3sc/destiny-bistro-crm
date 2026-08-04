@@ -13,6 +13,19 @@ export const PRODUCT_CATEGORIES = [
 
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
+export const DEFAULT_MENU_CATEGORY_NAMES: Record<ProductCategory, string> = {
+  ARTISAN_BURGERS: "Hambúrgueres artesanais",
+  BEERS: "Cervejas",
+  BEVERAGES: "Bebidas",
+  CLASSIC_BURGERS: "Hambúrgueres clássicos",
+  COCKTAILS: "Drinks",
+  COMBOS: "Combos",
+  EXTRAS: "Adicionais",
+  OTHER: "Outros",
+  SIDES: "Batatas e nuggets",
+  SNACKS: "Petiscos",
+};
+
 const menuItems = [
   { code: "CLASSIC_HAMBURGER", name: "Hambúrguer", priceCents: 1_099 },
   { code: "CLASSIC_CHESSBURGER", name: "Chessburguer", priceCents: 1_200 },

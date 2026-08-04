@@ -16,10 +16,14 @@ import {
   ComandaNotCancellableError,
   ComandaNotClosableError,
   ComandaNotFoundError,
+  ComandaCreditPermissionError,
+  ComandaPaymentError,
   TableNotFoundError,
   TableUnavailableError,
   type ComandaRepository,
 } from "./comanda-types.js";
+import { createPayment } from "./payment-persistence.js";
+import { paymentTotal } from "./payment-types.js";
 
 export * from "./comanda-types.js";
 
@@ -118,7 +122,14 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         ),
       );
     },
-    async close(establishmentId, id, actorUserId) {
+    async close(
+      establishmentId,
+      id,
+      payments,
+      customerId,
+      canCreateCredit,
+      actorUserId,
+    ) {
       return prisma.$transaction(async (transaction) => {
         const activeComanda = await transaction.comanda.findFirst({
           select: {
@@ -131,8 +142,10 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               select: {
                 confirmedQuantity: true,
                 quantity: true,
+                unitPriceCents: true,
               },
             },
+            openedAt: true,
             status: true,
             tableId: true,
           },
@@ -156,6 +169,30 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           throw new ComandaNotClosableError();
         }
 
+        const totalCents = activeComanda.items.reduce(
+          (total, item) => total + item.quantity * item.unitPriceCents,
+          0,
+        );
+        const paidCents = paymentTotal(payments);
+        const balanceCents = totalCents - paidCents;
+
+        if (paidCents > totalCents || (balanceCents > 0 && !customerId)) {
+          throw new ComandaPaymentError();
+        }
+        if (balanceCents > 0 && !canCreateCredit) {
+          throw new ComandaCreditPermissionError();
+        }
+
+        if (customerId) {
+          const customer = await transaction.creditCustomer.findFirst({
+            select: { id: true },
+            where: { establishmentId, id: customerId },
+          });
+          if (!customer) {
+            throw new ComandaPaymentError();
+          }
+        }
+
         await releaseActiveTable(
           transaction,
           establishmentId,
@@ -164,9 +201,74 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           () => new ComandaNotClosableError(),
         );
 
+        const paidAt = new Date();
+
+        if (balanceCents > 0) {
+          const order = await transaction.creditOrder.create({
+            data: {
+              comandaId: id,
+              customerId: customerId!,
+              establishmentId,
+              finalizedAt: paidAt,
+              orderedAt: activeComanda.openedAt,
+              source: "TABLE",
+              status: "OPEN",
+              totalCents,
+            },
+            select: { id: true },
+          });
+
+          if (paidCents > 0) {
+            await createPayment(transaction, {
+              actorUserId,
+              allocations: payments,
+              amountCents: paidCents,
+              comandaId: id,
+              creditOrderId: order.id,
+              establishmentId,
+              origin: "TABLE_CHECKOUT",
+              paidAt,
+            });
+          }
+
+          await transaction.auditLog.create({
+            data: createAuditData({
+              action: "COMANDA_CONVERTED_TO_CREDIT",
+              establishmentId,
+              metadata: {
+                balanceCents,
+                customerId,
+                paidCents,
+                payments: payments.map(({ amountCents, method }) => ({
+                  amountCents,
+                  method,
+                })),
+                totalCents,
+              },
+              resourceId: order.id,
+              resourceType: "CREDIT_ORDER",
+              userId: actorUserId,
+            }),
+          });
+
+          return getComandaOrThrow(transaction, establishmentId, id);
+        }
+
+        if (paidCents > 0) {
+          await createPayment(transaction, {
+            actorUserId,
+            allocations: payments,
+            amountCents: paidCents,
+            comandaId: id,
+            establishmentId,
+            origin: "TABLE_CHECKOUT",
+            paidAt,
+          });
+        }
+
         const closedComanda = await transaction.comanda.updateMany({
           data: {
-            closedAt: new Date(),
+            closedAt: paidAt,
             status: "CLOSED",
           },
           where: {
@@ -192,6 +294,14 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           data: createAuditData({
             action: "COMANDA_CLOSED",
             establishmentId,
+            metadata: {
+              paidCents,
+              payments: payments.map(({ amountCents, method }) => ({
+                amountCents,
+                method,
+              })),
+              totalCents,
+            },
             resourceId: id,
             resourceType: "COMANDA",
             userId: actorUserId,

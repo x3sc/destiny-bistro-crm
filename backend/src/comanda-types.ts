@@ -1,3 +1,5 @@
+import type { Payment, PaymentAllocationInput } from "./payment-types.js";
+
 export type ComandaStatus = "OPEN" | "CANCELLED" | "CLOSED";
 export type ComandaEventType =
   | "OPENED"
@@ -41,11 +43,14 @@ export interface Comanda {
   cancelledAt: string | null;
   closedAt: string | null;
   credit: {
+    balanceCents: number;
     customerId: string;
     customerName: string;
     orderId: string;
+    paidCents: number;
     source: "MANUAL" | "TABLE";
     status: "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
+    totalCents: number;
   } | null;
   events: ComandaEvent[];
   id: string;
@@ -53,6 +58,7 @@ export interface Comanda {
   name: string | null;
   number: number;
   openedAt: string;
+  payments: Payment[];
   status: ComandaStatus;
   table: {
     id: number;
@@ -76,7 +82,14 @@ export interface ComandaRepository {
     delta: 1 | -1,
     actorUserId: string,
   ): Promise<Comanda>;
-  close(establishmentId: string, id: string, actorUserId: string): Promise<Comanda>;
+  close(
+    establishmentId: string,
+    id: string,
+    payments: PaymentAllocationInput[],
+    customerId: string | null,
+    canCreateCredit: boolean,
+    actorUserId: string,
+  ): Promise<Comanda>;
   confirmItem(
     establishmentId: string,
     comandaId: string,
@@ -103,6 +116,8 @@ export class TableUnavailableError extends Error {}
 export class ComandaNotFoundError extends Error {}
 export class ComandaNotCancellableError extends Error {}
 export class ComandaNotClosableError extends Error {}
+export class ComandaPaymentError extends Error {}
+export class ComandaCreditPermissionError extends Error {}
 export class ComandaNotMutableError extends Error {}
 export class ComandaItemNotFoundError extends Error {}
 export class ComandaItemQuantityError extends Error {}

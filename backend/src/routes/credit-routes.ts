@@ -8,6 +8,10 @@ import {
   CreditSettlementConflictError,
   type CreditRepository,
 } from "../credit-repository.js";
+import {
+  normalizePaymentAllocations,
+  PaymentInputError,
+} from "../payment-types.js";
 
 interface CustomerParams {
   customerId: string;
@@ -31,6 +35,10 @@ interface ConvertComandaBody {
 
 interface CustomerListQuery {
   includeInactive?: string;
+}
+
+interface SettleCreditBody {
+  payments?: unknown;
 }
 
 export function registerCreditRoutes(
@@ -155,7 +163,7 @@ export function registerCreditRoutes(
     },
   );
 
-  app.post<{ Params: OrderParams }>(
+  app.post<{ Body: SettleCreditBody; Params: OrderParams }>(
     "/credit-orders/:orderId/finalize",
     { config: { permission: "credits.write" } },
     async (request, reply) => {
@@ -195,14 +203,27 @@ export function registerCreditRoutes(
     "/credit-orders/:orderId/settle",
     { config: { permission: "credits.write" } },
     async (request, reply) => {
+      const body = request.body as SettleCreditBody | undefined;
+      let payments;
       try {
-        return {
-          settlement: await credits.settleOrder(
+        payments = normalizePaymentAllocations(body?.payments ?? []);
+      } catch (error) {
+        if (error instanceof PaymentInputError) {
+          return reply.code(400).send({
+            status: "error",
+            message: "Invalid payment allocations",
+          });
+        }
+        throw error;
+      }
+
+      try {
+        return await credits.settleOrder(
             requireAuthUser(request).establishment.id,
             request.params.orderId,
+            payments,
             requireAuthUser(request).id,
-          ),
-        };
+          );
       } catch (error) {
         if (error instanceof CreditOrderNotFoundError) {
           return reply.code(404).send({
