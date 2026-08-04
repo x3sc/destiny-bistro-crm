@@ -835,7 +835,7 @@ void test("admin menu mutations validate values before persistence", async () =>
     url: "/admin/products",
   });
 
-  assert.equal(response.statusCode, 409);
+  assert.equal(response.statusCode, 400);
   assert.equal(createCalls, 0);
   await app.close();
 });
