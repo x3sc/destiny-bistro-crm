@@ -217,7 +217,7 @@ function isCreditOrder(value: unknown): value is CreditOrder {
   const order = value as Partial<CreditOrder>;
 
   return (
-    Number.isInteger(order.balanceCents) &&
+    Number.isInteger(order.balanceCents) && Number(order.balanceCents) >= 0 &&
     (order.cancelledAt === null || typeof order.cancelledAt === 'string') &&
     typeof order.comandaId === 'string' &&
     (order.comandaName === null || typeof order.comandaName === 'string') &&
