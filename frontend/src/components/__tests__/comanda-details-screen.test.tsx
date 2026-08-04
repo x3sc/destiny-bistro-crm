@@ -40,6 +40,7 @@ const comanda: Comanda = {
   name: null,
   number: 42,
   openedAt: '2026-06-02T19:00:00.000Z',
+  payments: [],
   status: 'OPEN',
   table: {
     id: 1,
@@ -100,27 +101,6 @@ const comandaWithConfirmedAndNewItem: Comanda = {
       confirmedQuantity: 1,
     },
   ],
-};
-
-const closedComanda: Comanda = {
-  ...comandaWithConfirmedItem,
-  closedAt: '2026-06-02T20:00:00.000Z',
-  events: [
-    ...comandaWithConfirmedItem.events,
-    {
-      actor: null,
-      createdAt: '2026-06-02T20:00:00.000Z',
-      itemId: null,
-      newQuantity: null,
-      previousQuantity: null,
-      productId: null,
-      productName: null,
-      reason: null,
-      type: 'CLOSED',
-      unitPriceCents: null,
-    },
-  ],
-  status: 'CLOSED',
 };
 
 afterEach(() => {
@@ -312,17 +292,17 @@ it('does not cancel an empty comanda when browser confirm is cancelled', async (
 });
 
 it('shows items, total and blocks cancellation when the comanda has consumption', async () => {
-  const closeRequest = jest.fn(() => Promise.resolve(closedComanda));
+  const onCheckout = jest.fn();
 
   render(
     <ComandaDetailsScreen
       apiBaseUrl="http://192.168.0.10:3333"
-      closeRequest={closeRequest}
       comandaId="comanda-id"
       loadRequest={() => Promise.resolve(comandaWithItem)}
       onAddProducts={jest.fn()}
       onBack={jest.fn()}
       onCancelled={jest.fn()}
+      onCheckout={onCheckout}
     />,
   );
 
@@ -336,45 +316,26 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.queryByRole('button', { name: 'Cancelar comanda vazia' })).toBeNull();
   expect(screen.queryByText(/Confirme todos os itens novos/)).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
-  expect(closeRequest).not.toHaveBeenCalled();
+  expect(onCheckout).not.toHaveBeenCalled();
 });
 
-it('closes the table after all item quantities are confirmed', async () => {
-  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
-  const closeRequest = jest.fn(() => Promise.resolve(closedComanda));
-  const onClosed = jest.fn();
+it('opens the unified checkout after all item quantities are confirmed', async () => {
+  const onCheckout = jest.fn();
 
   render(
     <ComandaDetailsScreen
       apiBaseUrl="http://192.168.0.10:3333"
-      closeRequest={closeRequest}
       comandaId="comanda-id"
       loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
       onAddProducts={jest.fn()}
       onBack={jest.fn()}
       onCancelled={jest.fn()}
-      onClosed={onClosed}
+      onCheckout={onCheckout}
     />,
   );
 
   fireEvent.press(await screen.findByRole('button', { name: 'Fechar mesa' }));
-  expect(closeRequest).not.toHaveBeenCalled();
-  expect(alertSpy).toHaveBeenCalledWith(
-    'Fechar mesa',
-    'Deseja fechar esta mesa? Os itens confirmados serão preservados no histórico.',
-    expect.any(Array),
-  );
-
-  const alertButtons = alertSpy.mock.calls[0][2];
-  await act(async () => {
-    alertButtons?.[1]?.onPress?.();
-  });
-
-  expect(closeRequest).toHaveBeenCalledWith(
-    'http://192.168.0.10:3333',
-    'comanda-id',
-  );
-  expect(onClosed).toHaveBeenCalled();
+  expect(onCheckout).toHaveBeenCalledWith(comandaWithConfirmedItem);
 });
 
 it('confirms a new item using the tick action', async () => {
@@ -588,6 +549,7 @@ it('does not remove an item when browser confirm is cancelled', async () => {
 it('finalizes a manual credit draft after every item is confirmed', async () => {
   const finalizeCreditRequest = jest.fn(() =>
     Promise.resolve({
+      balanceCents: 600,
       cancelledAt: null,
       comandaId: 'comanda-id',
       comandaName: 'Maria',
@@ -598,6 +560,8 @@ it('finalizes a manual credit draft after every item is confirmed', async () => 
       hasPendingItems: false,
       id: 'order-id',
       orderedAt: '2026-06-02T19:00:00.000Z',
+      paidCents: 0,
+      payments: [],
       settledAt: null,
       source: 'MANUAL' as const,
       status: 'OPEN' as const,
@@ -616,11 +580,14 @@ it('finalizes a manual credit draft after every item is confirmed', async () => 
         Promise.resolve({
           ...comandaWithConfirmedItem,
           credit: {
+            balanceCents: 600,
             customerId: 'customer-id',
             customerName: 'Maria',
             orderId: 'order-id',
+            paidCents: 0,
             source: 'MANUAL',
             status: 'DRAFT',
+            totalCents: 600,
           },
           name: 'Maria',
           table: null,
@@ -644,8 +611,7 @@ it('finalizes a manual credit draft after every item is confirmed', async () => 
   });
 });
 
-it('opens person selection when closing a table as credit', async () => {
-  const onCloseAsCredit = jest.fn();
+it('does not expose a separate close-as-credit action', async () => {
 
   render(
     <ComandaDetailsScreen
@@ -655,14 +621,12 @@ it('opens person selection when closing a table as credit', async () => {
       onAddProducts={jest.fn()}
       onBack={jest.fn()}
       onCancelled={jest.fn()}
-      onCloseAsCredit={onCloseAsCredit}
+      onCheckout={jest.fn()}
     />,
   );
 
-  fireEvent.press(
-    await screen.findByRole('button', { name: 'Fechar como fiado' }),
-  );
-  expect(onCloseAsCredit).toHaveBeenCalledWith(comandaWithConfirmedItem);
+  expect(await screen.findByRole('button', { name: 'Fechar mesa' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Fechar como fiado' })).toBeNull();
 });
 
 it('shows an error when loading fails', async () => {

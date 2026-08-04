@@ -24,6 +24,11 @@ export default function CreditDetailsRoute() {
           },
         );
       }}
+      onPayOrder={(order) => {
+        router.push(
+          `/credits/${encodeURIComponent(customerId)}/orders/${encodeURIComponent(order.id)}/payment` as Href,
+        );
+      }}
       onViewOrder={(order) => {
         router.push(`/comandas/${encodeURIComponent(order.comandaId)}` as Href);
       }}

@@ -25,15 +25,19 @@ export async function addComandaItem(
 
   const product = await transaction.product.findFirst({
     select: {
-      active: true,
       id: true,
       name: true,
       priceCents: true,
     },
-    where: { establishmentId, id: productId },
+    where: {
+      active: true,
+      category: { active: true },
+      establishmentId,
+      id: productId,
+    },
   });
 
-  if (!product?.active) {
+  if (!product) {
     throw new ProductUnavailableError();
   }
 

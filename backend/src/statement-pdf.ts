@@ -2,8 +2,12 @@ import PDFDocument from "pdfkit";
 import type {
   StatementDay,
   StatementEntry,
+  StatementEntryFilters,
+  StatementMovementType,
+  StatementOriginFilter,
   StatementReport,
 } from "./statement-report.js";
+import { filterStatementEntries } from "./statement-report.js";
 
 const colors = {
   accent: "#76513d",
@@ -11,14 +15,6 @@ const colors = {
   border: "#d8c5b4",
   muted: "#6c5d54",
   text: "#382b25",
-};
-
-const eventLabels: Record<StatementEntry["event"], string> = {
-  COMANDA_CANCELLED: "Cancelamento",
-  CREDIT_ADDITION: "Acréscimo no fiado",
-  CREDIT_FINALIZED: "Fiado finalizado",
-  CREDIT_SETTLED: "Fiado quitado",
-  TABLE_CLOSED: "Mesa fechada",
 };
 
 const originLabels: Record<StatementEntry["origin"], string> = {
@@ -33,7 +29,44 @@ const statusLabels: Record<StatementEntry["status"], string> = {
   OPEN: "Em aberto",
 };
 
-export function createStatementPdf(report: StatementReport): Promise<Buffer> {
+const paymentMethodLabels = {
+  CASH: "Dinheiro",
+  CREDIT_CARD: "Cartão de crédito",
+  DEBIT_CARD: "Cartão de débito",
+  PIX: "Pix",
+} as const;
+
+const paymentSummaryLabels = {
+  ...paymentMethodLabels,
+  UNSPECIFIED: "Não informado",
+} as const;
+
+export type StatementPdfView = "detailed" | "summary";
+
+const defaultFilters: StatementEntryFilters = {
+  movementType: "ALL",
+  origin: "ALL",
+};
+
+const movementTypeLabels: Record<StatementMovementType, string> = {
+  ALL: "Todos",
+  CANCELLATIONS: "Cancelamentos",
+  RECEIPTS: "Recebimentos",
+  SALES: "Vendas",
+};
+
+const originFilterLabels: Record<StatementOriginFilter, string> = {
+  ALL: "Todas",
+  CREDIT_MANUAL: "Fiado manual",
+  CREDIT_TABLE: "Fiado de mesa",
+  TABLE: "Mesa",
+};
+
+export function createStatementPdf(
+  report: StatementReport,
+  view: StatementPdfView = "detailed",
+  filters: StatementEntryFilters = defaultFilters,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
       bufferPages: true,
@@ -50,16 +83,28 @@ export function createStatementPdf(report: StatementReport): Promise<Buffer> {
     });
     document.on("error", reject);
 
-    renderHeader(document, report);
-    renderSummary(document, report);
-    renderDays(document, report.days);
-    renderEntries(document, report.entries);
+    renderHeader(document, report, view, filters);
+    if (view === "summary") {
+      renderSummary(document, report);
+      renderPaymentMethods(document, report);
+      renderOrigins(document, report);
+      renderDays(document, report.days);
+    } else {
+      const filteredEntries = filterStatementEntries(report.entries, filters);
+      renderDetailedTotals(document, filteredEntries);
+      renderEntries(document, filteredEntries, filters);
+    }
     renderPageNumbers(document);
     document.end();
   });
 }
 
-function renderHeader(document: PDFKit.PDFDocument, report: StatementReport) {
+function renderHeader(
+  document: PDFKit.PDFDocument,
+  report: StatementReport,
+  view: StatementPdfView,
+  filters: StatementEntryFilters,
+) {
   document
     .fillColor(colors.accent)
     .font("Helvetica-Bold")
@@ -68,7 +113,10 @@ function renderHeader(document: PDFKit.PDFDocument, report: StatementReport) {
   document
     .fillColor(colors.text)
     .fontSize(24)
-    .text("Extrato financeiro", { lineGap: 4 });
+    .text(
+      view === "summary" ? "Extrato resumido" : "Extrato detalhado",
+      { lineGap: 4 },
+    );
   document
     .fillColor(colors.muted)
     .font("Helvetica")
@@ -77,6 +125,11 @@ function renderHeader(document: PDFKit.PDFDocument, report: StatementReport) {
       `Período: ${formatDateKey(report.period.from)} a ${formatDateKey(report.period.to)}`,
     )
     .text(`Fuso: ${report.period.timeZone}`)
+    .text(
+      view === "detailed"
+        ? `Filtros: ${movementTypeLabels[filters.movementType]} · ${originFilterLabels[filters.origin]}`
+        : "",
+    )
     .text(
       `Gerado em: ${new Intl.DateTimeFormat("pt-BR", {
         dateStyle: "short",
@@ -98,6 +151,9 @@ function renderSummary(document: PDFKit.PDFDocument, report: StatementReport) {
     ["Comandas processadas", String(report.summary.processedCommandCount)],
     ["Comandas fechadas", String(report.summary.closedCommandCount)],
     ["Comandas canceladas", String(report.summary.cancelledCommandCount)],
+    ["Comandas com venda", String(report.indicators.saleCommandCount)],
+    ["Diferença do período", formatCents(report.indicators.differenceCents)],
+    ["Ticket médio", formatCents(report.indicators.averageTicketCents)],
   ];
 
   for (const [label, value] of rows) {
@@ -114,6 +170,77 @@ function renderSummary(document: PDFKit.PDFDocument, report: StatementReport) {
   }
 
   document.moveDown(1.2);
+}
+
+function renderPaymentMethods(
+  document: PDFKit.PDFDocument,
+  report: StatementReport,
+) {
+  sectionTitle(document, "Recebimentos por forma de pagamento");
+  for (const payment of report.indicators.paymentMethodSummaries) {
+    ensureSpace(document, 22);
+    document
+      .fillColor(colors.muted)
+      .font("Helvetica")
+      .fontSize(10)
+      .text(paymentSummaryLabels[payment.method], 46, document.y, {
+        continued: true,
+        width: 330,
+      })
+      .fillColor(colors.text)
+      .font("Helvetica-Bold")
+      .text(formatCents(payment.receivedCents), {
+        align: "right",
+        width: 165,
+      });
+    divider(document);
+  }
+  document.moveDown(1.2);
+}
+
+function renderOrigins(document: PDFKit.PDFDocument, report: StatementReport) {
+  sectionTitle(document, "Totais por origem");
+  for (const origin of report.indicators.originSummaries) {
+    ensureSpace(document, 46);
+    document
+      .fillColor(colors.text)
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text(originLabels[origin.origin]);
+    document
+      .fillColor(colors.muted)
+      .font("Helvetica")
+      .fontSize(9)
+      .text(
+        `Vendido ${formatCents(origin.soldCents)} · Recebido ${formatCents(origin.receivedCents)} · ` +
+          `${origin.movementCount} movimentações`,
+      );
+    divider(document);
+  }
+  document.moveDown(1.2);
+}
+
+function renderDetailedTotals(
+  document: PDFKit.PDFDocument,
+  entries: StatementEntry[],
+) {
+  const soldCents = entries.reduce((total, entry) => total + entry.soldCents, 0);
+  const receivedCents = entries.reduce(
+    (total, entry) => total + entry.receivedCents,
+    0,
+  );
+  const commandCount = new Set(entries.map((entry) => entry.comandaId)).size;
+  sectionTitle(document, "Totais das etapas exibidas");
+  document
+    .fillColor(colors.muted)
+    .font("Helvetica")
+    .fontSize(10)
+    .text(
+      `Vendas ${formatCents(soldCents)} · ` +
+        `Recebimentos ${formatCents(receivedCents)} · ` +
+        `${entries.length} etapas em ${commandCount} comandas`,
+    )
+    .moveDown(1.2);
 }
 
 function renderDays(document: PDFKit.PDFDocument, days: StatementDay[]) {
@@ -145,43 +272,193 @@ function renderDays(document: PDFKit.PDFDocument, days: StatementDay[]) {
 function renderEntries(
   document: PDFKit.PDFDocument,
   entries: StatementEntry[],
+  filters: StatementEntryFilters,
 ) {
-  sectionTitle(document, "Movimentações");
+  sectionTitle(document, "Linha do tempo por comanda");
 
   if (entries.length === 0) {
     document
       .fillColor(colors.muted)
       .font("Helvetica")
       .fontSize(10)
-      .text("Nenhuma movimentação encontrada no período.");
+      .text(
+        filters.movementType === "ALL" && filters.origin === "ALL"
+          ? "Nenhuma movimentação encontrada no período."
+          : "Nenhuma movimentação encontrada para os filtros selecionados.",
+      );
     return;
   }
 
-  for (const entry of entries) {
-    ensureSpace(document, 70);
-    const identification = entry.comandaName
-      ? `Comanda #${entry.comandaNumber} · ${entry.comandaName}`
-      : `Comanda #${entry.comandaNumber}`;
-
+  for (const group of groupEntriesByCommand(entries)) {
+    const firstEntry = group[0];
+    ensureSpace(document, 84);
     document
       .fillColor(colors.text)
       .font("Helvetica-Bold")
-      .fontSize(10)
-      .text(identification);
+      .fontSize(12)
+      .text(commandIdentification(firstEntry));
     document
       .fillColor(colors.muted)
       .font("Helvetica")
       .fontSize(9)
       .text(
-        `${formatDateTime(entry.occurredAt)} · ${eventLabels[entry.event]} · ` +
-          `${originLabels[entry.origin]} · ${statusLabels[entry.status]}`,
-      )
-      .text(
-        `Vendido ${formatCents(entry.soldCents)} (${entry.soldItemCount} itens) · ` +
-          `Recebido ${formatCents(entry.receivedCents)} (${entry.receivedItemCount} itens)`,
+        `${commandLocation(firstEntry)} · ${originLabels[firstEntry.origin]} · ` +
+          `${statusLabels[firstEntry.status]}`,
       );
+
+    for (const [index, entry] of group.entries()) {
+      const presentation = entryPresentation(entry);
+      ensureSpace(document, 64);
+      document
+        .fillColor(colors.text)
+        .font("Helvetica-Bold")
+        .fontSize(10)
+        .text(
+          `Etapa ${index + 1} · ${formatDateTime(entry.occurredAt)} · ${presentation.title}`,
+          { indent: 10 },
+        )
+        .fillColor(colors.muted)
+        .font("Helvetica")
+        .fontSize(9);
+      for (const row of presentation.rows) {
+        document.text(`${row.label}: ${formatCents(row.valueCents)}`, {
+          indent: 10,
+        });
+      }
+      if (presentation.note) {
+        document.text(presentation.note, { indent: 10 });
+      }
+      if (entry.receivedCents > 0) {
+        document.text(
+          entry.payments.length === 0
+            ? "Pagamento: forma não informada"
+            : `Pagamento: ${entry.payments
+                .map(
+                  (payment) =>
+                    `${paymentMethodLabels[payment.method]} ${formatCents(payment.amountCents)}`,
+                )
+                .join(" · ")}`,
+          { indent: 10 },
+        );
+      }
+      for (const item of entry.items) {
+        ensureSpace(document, 18);
+        document.text(
+          `${item.quantity}× ${item.productName} · ${formatCents(item.unitPriceCents)} · ` +
+            `Subtotal ${formatCents(item.quantity * item.unitPriceCents)}`,
+          { indent: 20 },
+        );
+      }
+    }
     divider(document);
   }
+}
+
+function groupEntriesByCommand(entries: StatementEntry[]) {
+  const groups = new Map<string, StatementEntry[]>();
+  for (const entry of entries) {
+    const group = groups.get(entry.comandaId) ?? [];
+    group.push(entry);
+    groups.set(entry.comandaId, group);
+  }
+  return [...groups.values()];
+}
+
+function commandIdentification(entry: StatementEntry) {
+  const name = entry.customerName ?? entry.comandaName;
+  return name
+    ? `Comanda #${entry.comandaNumber} · ${name}`
+    : `Comanda #${entry.comandaNumber}`;
+}
+
+function commandLocation(entry: StatementEntry) {
+  if (entry.tableNumber !== null) {
+    return `Mesa ${entry.tableNumber}`;
+  }
+  return entry.customerName ? `Cliente ${entry.customerName}` : "Sem mesa";
+}
+
+function entryPresentation(entry: StatementEntry): {
+  note?: string;
+  rows: { label: string; valueCents: number }[];
+  title: string;
+} {
+  const total = entry.creditTotalCents ?? entry.soldCents;
+  const open = entry.creditBalanceAfterCents ?? 0;
+  const paid = entry.creditPaidAfterCents ?? entry.receivedCents;
+
+  if (entry.event === "COMANDA_CANCELLED") {
+    return {
+      note: "Sem impacto nas vendas e recebimentos.",
+      rows: [],
+      title: "Comanda cancelada",
+    };
+  }
+  if (entry.event === "TABLE_CLOSED") {
+    return {
+      rows: [
+        { label: "Total", valueCents: entry.soldCents },
+        { label: "Valor pago", valueCents: entry.receivedCents },
+      ],
+      title: "Comanda paga",
+    };
+  }
+  if (
+    entry.event === "CREDIT_FINALIZED" &&
+    entry.origin === "CREDIT_TABLE" &&
+    (entry.tableCheckoutPaidCents ?? 0) > 0
+  ) {
+    return {
+      rows: [
+        { label: "Valor pago", valueCents: entry.tableCheckoutPaidCents ?? 0 },
+        { label: "Valor fiado", valueCents: open },
+      ],
+      title: "Comanda paga parcialmente",
+    };
+  }
+  if (
+    entry.event === "CREDIT_FINALIZED" ||
+    entry.paymentOrigin === "TABLE_CHECKOUT"
+  ) {
+    return {
+      rows: [
+        { label: "Total", valueCents: total },
+        { label: "Valor aberto", valueCents: open },
+        { label: "Valor já pago", valueCents: paid },
+      ],
+      title: "Fiado aberto",
+    };
+  }
+  if (entry.event === "CREDIT_SETTLED") {
+    return {
+      rows: [
+        { label: "Total", valueCents: total },
+        { label: "Pago do fiado", valueCents: entry.receivedCents },
+        {
+          label:
+            entry.origin === "CREDIT_TABLE"
+              ? "Valor pago na comanda anterior"
+              : "Valor pago anteriormente",
+          valueCents:
+            entry.origin === "CREDIT_TABLE"
+              ? (entry.tableCheckoutPaidCents ?? 0)
+              : (entry.creditPaidBeforeCents ?? 0),
+        },
+      ],
+      title: "Fiado fechado",
+    };
+  }
+  return {
+    rows: [
+      { label: "Total", valueCents: total },
+      { label: "Valor aberto", valueCents: open },
+      { label: "Valor já pago", valueCents: paid },
+    ],
+    title:
+      entry.event === "CREDIT_ADDITION"
+        ? "Novo valor adicionado ao fiado"
+        : "Fiado pago parcialmente",
+  };
 }
 
 function sectionTitle(document: PDFKit.PDFDocument, title: string) {

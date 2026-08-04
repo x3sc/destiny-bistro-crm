@@ -38,6 +38,7 @@ const comanda: Comanda = {
   name: null,
   number: 42,
   openedAt: '2026-06-02T19:00:00.000Z',
+  payments: [],
   status: 'OPEN',
   table: {
     id: 1,
@@ -48,13 +49,15 @@ const comanda: Comanda = {
 
 const products: Product[] = [
   {
-    category: 'CLASSIC_BURGERS',
+    category: { id: 'food-id', name: 'Lanches' },
+    description: null,
     id: 'coffee-id',
     name: 'Café',
     priceCents: 600,
   },
   {
-    category: 'BEVERAGES',
+    category: { id: 'drinks-id', name: 'Bebidas' },
+    description: null,
     id: 'water-id',
     name: 'Água',
     priceCents: 500,
@@ -73,7 +76,7 @@ it('shows all products and filters them with category chips', async () => {
   );
 
   expect(await screen.findByRole('button', { name: 'Todos' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Hambúrgueres clássicos' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Lanches' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Bebidas' })).toBeTruthy();
   expect(await screen.findByText('Café')).toBeTruthy();
   expect(screen.getByText('Água')).toBeTruthy();

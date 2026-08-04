@@ -1,8 +1,14 @@
 import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
-import type { CreditOrderSource, CreditOrderStatus } from './comandas-api';
+import type {
+  CreditOrderSource,
+  CreditOrderStatus,
+  Payment,
+  PaymentAllocationInput,
+} from './comandas-api';
 
 export interface CreditOrder {
+  balanceCents: number;
   cancelledAt: string | null;
   comandaId: string;
   comandaName: string | null;
@@ -13,18 +19,13 @@ export interface CreditOrder {
   hasPendingItems: boolean;
   id: string;
   orderedAt: string;
+  paidCents: number;
+  payments: Payment[];
   settledAt: string | null;
   source: CreditOrderSource;
   status: CreditOrderStatus;
   tableNumber: number | null;
   totalCents: number;
-}
-
-export interface CreditSettlement {
-  amountCents: number;
-  id: string;
-  orderId: string;
-  paidAt: string;
 }
 
 export interface CreditCustomerSummary {
@@ -37,7 +38,6 @@ export interface CreditCustomerSummary {
 
 export interface CreditCustomerDetails extends CreditCustomerSummary {
   orders: CreditOrder[];
-  settlements: CreditSettlement[];
 }
 
 export async function loadCreditCustomers(
@@ -139,10 +139,11 @@ export async function cancelCreditOrder(
 export async function settleCreditOrder(
   apiBaseUrl: string,
   orderId: string,
+  payments: PaymentAllocationInput[],
 ) {
   const response = await authenticatedFetch(
     `${requireApiBaseUrl(apiBaseUrl)}/credit-orders/${encodeURIComponent(orderId)}/settle`,
-    jsonPost(),
+    jsonPost({ payments }),
   );
 
   if (!response.ok) {
@@ -150,16 +151,16 @@ export async function settleCreditOrder(
   }
 
   const payload: unknown = await response.json();
-  const settlement =
+  const result =
     payload && typeof payload === 'object'
-      ? (payload as { settlement?: unknown }).settlement
+      ? (payload as { order?: unknown; payment?: unknown })
       : undefined;
 
-  if (!isCreditSettlement(settlement)) {
+  if (!result || !isCreditOrder(result.order) || !isPayment(result.payment)) {
     throw new Error('Invalid credit settlement response');
   }
 
-  return settlement;
+  return { order: result.order, payment: result.payment };
 }
 
 export async function convertComandaToCredit(
@@ -204,9 +205,7 @@ function isCreditCustomerDetails(
 
   return (
     Array.isArray(customer.orders) &&
-    customer.orders.every(isCreditOrder) &&
-    Array.isArray(customer.settlements) &&
-    customer.settlements.every(isCreditSettlement)
+    customer.orders.every(isCreditOrder)
   );
 }
 
@@ -218,6 +217,7 @@ function isCreditOrder(value: unknown): value is CreditOrder {
   const order = value as Partial<CreditOrder>;
 
   return (
+    Number.isInteger(order.balanceCents) && Number(order.balanceCents) >= 0 &&
     (order.cancelledAt === null || typeof order.cancelledAt === 'string') &&
     typeof order.comandaId === 'string' &&
     (order.comandaName === null || typeof order.comandaName === 'string') &&
@@ -228,6 +228,9 @@ function isCreditOrder(value: unknown): value is CreditOrder {
     typeof order.hasPendingItems === 'boolean' &&
     typeof order.id === 'string' &&
     typeof order.orderedAt === 'string' &&
+    Number.isInteger(order.paidCents) &&
+    Array.isArray(order.payments) &&
+    order.payments.every(isPayment) &&
     (order.settledAt === null || typeof order.settledAt === 'string') &&
     (order.source === 'MANUAL' || order.source === 'TABLE') &&
     (order.status === 'DRAFT' ||
@@ -239,18 +242,32 @@ function isCreditOrder(value: unknown): value is CreditOrder {
   );
 }
 
-function isCreditSettlement(value: unknown): value is CreditSettlement {
+function isPayment(value: unknown): value is Payment {
   if (!value || typeof value !== 'object') {
     return false;
   }
 
-  const settlement = value as Partial<CreditSettlement>;
+  const payment = value as Partial<Payment>;
 
   return (
-    Number.isInteger(settlement.amountCents) &&
-    typeof settlement.id === 'string' &&
-    typeof settlement.orderId === 'string' &&
-    typeof settlement.paidAt === 'string'
+    Array.isArray(payment.allocations) &&
+    payment.allocations.every(
+      (allocation) =>
+        typeof allocation.id === 'string' &&
+        Number.isInteger(allocation.amountCents) &&
+        (allocation.method === 'CASH' ||
+          allocation.method === 'PIX' ||
+          allocation.method === 'DEBIT_CARD' ||
+          allocation.method === 'CREDIT_CARD'),
+    ) &&
+    Number.isInteger(payment.amountCents) &&
+    (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
+    typeof payment.id === 'string' &&
+    (payment.origin === 'TABLE_CHECKOUT' || payment.origin === 'CREDIT_INSTALLMENT') &&
+    typeof payment.paidAt === 'string' &&
+    (payment.recordedBy === null ||
+      (typeof payment.recordedBy?.id === 'string' &&
+        typeof payment.recordedBy?.name === 'string'))
   );
 }
 

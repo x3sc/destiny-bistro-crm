@@ -1,7 +1,10 @@
+import type { Payment, PaymentAllocationInput } from "./payment-types.js";
+
 export type CreditOrderSource = "MANUAL" | "TABLE";
 export type CreditOrderStatus = "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
 
 export interface CreditOrder {
+  balanceCents: number;
   cancelledAt: string | null;
   comandaId: string;
   comandaName: string | null;
@@ -12,18 +15,13 @@ export interface CreditOrder {
   hasPendingItems: boolean;
   id: string;
   orderedAt: string;
+  paidCents: number;
+  payments: Payment[];
   settledAt: string | null;
   source: CreditOrderSource;
   status: CreditOrderStatus;
   tableNumber: number | null;
   totalCents: number;
-}
-
-export interface CreditSettlement {
-  amountCents: number;
-  id: string;
-  orderId: string;
-  paidAt: string;
 }
 
 export interface CreditCustomerSummary {
@@ -36,7 +34,11 @@ export interface CreditCustomerSummary {
 
 export interface CreditCustomerDetails extends CreditCustomerSummary {
   orders: CreditOrder[];
-  settlements: CreditSettlement[];
+}
+
+export interface CreditPaymentResult {
+  order: CreditOrder;
+  payment: Payment;
 }
 
 export interface CreditRepository {
@@ -77,8 +79,9 @@ export interface CreditRepository {
   settleOrder(
     establishmentId: string,
     orderId: string,
+    payments: PaymentAllocationInput[],
     actorUserId: string,
-  ): Promise<CreditSettlement>;
+  ): Promise<CreditPaymentResult>;
 }
 
 export class CreditCustomerNotFoundError extends Error {}

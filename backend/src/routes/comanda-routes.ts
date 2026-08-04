@@ -7,9 +7,15 @@ import {
   ComandaNotCancellableError,
   ComandaNotClosableError,
   ComandaNotFoundError,
+  ComandaCreditPermissionError,
+  ComandaPaymentError,
   ProductUnavailableError,
   type ComandaRepository,
 } from "../comanda-repository.js";
+import {
+  normalizePaymentAllocations,
+  PaymentInputError,
+} from "../payment-types.js";
 
 interface ComandaParams {
   comandaId: string;
@@ -25,6 +31,11 @@ interface AddComandaItemBody {
 
 interface ChangeComandaItemBody {
   delta?: unknown;
+}
+
+interface CloseComandaBody {
+  customerId?: unknown;
+  payments?: unknown;
 }
 
 function isItemConflict(error: unknown) {
@@ -107,15 +118,44 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     "/comandas/:comandaId/close",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
+      const body = request.body as CloseComandaBody | undefined;
+      let payments;
+      try {
+        payments = normalizePaymentAllocations(body?.payments ?? []);
+      } catch (error) {
+        if (error instanceof PaymentInputError) {
+          return reply.code(400).send({
+            status: "error",
+            message: "Invalid payment allocations",
+          });
+        }
+        throw error;
+      }
+
+      const customerId =
+        typeof body?.customerId === "string" && body.customerId
+          ? body.customerId
+          : null;
+      const user = requireAuthUser(request);
       try {
         return {
           comanda: await comandas.close(
-            requireAuthUser(request).establishment.id,
+            user.establishment.id,
             request.params.comandaId,
-            requireAuthUser(request).id,
+            payments,
+            customerId,
+            user.permissions.includes("credits.write"),
+            user.id,
           ),
         };
       } catch (error) {
+        if (error instanceof ComandaCreditPermissionError) {
+          return reply.code(403).send({
+            status: "error",
+            message: "Permission denied",
+          });
+        }
+
         if (error instanceof ComandaNotFoundError) {
           return reply.code(404).send({
             status: "error",
@@ -123,7 +163,10 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
           });
         }
 
-        if (error instanceof ComandaNotClosableError) {
+        if (
+          error instanceof ComandaNotClosableError ||
+          error instanceof ComandaPaymentError
+        ) {
           return reply.code(409).send({
             status: "error",
             message: "Comanda cannot be closed",

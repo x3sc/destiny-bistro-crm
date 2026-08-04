@@ -24,6 +24,7 @@ import {
   tableStatusBadgeStyles,
   tableStatusCardStyles,
 } from './table-grid-screen.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 type TableGridState =
   | { apiBaseUrl: string; kind: 'error' }
@@ -156,17 +157,7 @@ export function TableGridScreen({
       <View style={styles.content}>
         <View style={styles.heading}>
           {onBack && (
-            <Pressable
-              accessibilityLabel="Voltar ao menu"
-              accessibilityRole="button"
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text style={styles.backButtonText}>‹</Text>
-            </Pressable>
+            <ScreenBackButton onPress={onBack} />
           )}
           <View style={styles.headingCopy}>
             <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>

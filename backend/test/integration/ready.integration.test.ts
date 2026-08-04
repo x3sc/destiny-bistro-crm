@@ -7,6 +7,7 @@ import { resetOperationalData } from "../../src/operational-data-reset.js";
 import { AuthCredentialsError } from "../../src/auth-repository.js";
 import { provisionEstablishment } from "../../src/establishment-provisioning.js";
 import {
+  DEFAULT_MENU_CATEGORY_NAMES,
   LEGACY_SEED_PRODUCT_CODES,
   PORTUGAS_MENU,
 } from "../../src/product-catalog.js";
@@ -52,10 +53,11 @@ async function cleanupEstablishment(name: string) {
       data: { activeComandaId: null, status: "FREE" },
       where: { establishmentId },
     });
-    await transaction.creditOrder.deleteMany({ where: { establishmentId } });
-    await transaction.creditSettlement.deleteMany({
+    await transaction.paymentAllocation.deleteMany({ where: { establishmentId } });
+    await transaction.payment.deleteMany({
       where: { establishmentId },
     });
+    await transaction.creditOrder.deleteMany({ where: { establishmentId } });
     await transaction.creditCustomer.deleteMany({
       where: { establishmentId },
     });
@@ -78,6 +80,7 @@ async function cleanupEstablishment(name: string) {
     });
     await transaction.user.deleteMany({ where: { establishmentId } });
     await transaction.product.deleteMany({ where: { establishmentId } });
+    await transaction.menuCategory.deleteMany({ where: { establishmentId } });
     await transaction.restaurantTable.deleteMany({
       where: { establishmentId },
     });
@@ -455,7 +458,8 @@ void test("product seed is idempotent and listed as active catalog", async () =>
     assert.equal(response.statusCode, 200);
     const catalog = response.json<{
       products: {
-        category: string;
+        category: { id: string; name: string };
+        description: string | null;
         id: string;
         name: string;
         priceCents: number;
@@ -467,11 +471,80 @@ void test("product seed is idempotent and listed as active catalog", async () =>
     assert.equal(catalogByName.size, activeMenu.length);
 
     for (const product of activeMenu) {
-      assert.equal(catalogByName.get(product.name)?.category, product.category);
+      assert.equal(
+        catalogByName.get(product.name)?.category.name,
+        DEFAULT_MENU_CATEGORY_NAMES[product.category],
+      );
       assert.equal(catalogByName.get(product.name)?.priceCents, product.priceCents);
     }
 
-    assert.equal(catalog.some(({ category }) => category === "EXTRAS"), false);
+    assert.equal(
+      catalog.some(({ category }) => category.name === "Adicionais"),
+      false,
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+void test("administrators manage an audited tenant menu", async () => {
+  const app = await createAuthenticatedApp();
+
+  try {
+    const categoryResponse = await app.inject({
+      method: "POST",
+      payload: { name: "Sobremesas de integracao" },
+      url: "/admin/categories",
+    });
+    assert.equal(categoryResponse.statusCode, 201);
+    const category = categoryResponse.json<{
+      category: { id: string };
+    }>().category;
+
+    const productResponse = await app.inject({
+      method: "POST",
+      payload: {
+        categoryId: category.id,
+        description: "Fatia",
+        name: "Torta de integracao",
+        priceCents: 1250,
+      },
+      url: "/admin/products",
+    });
+    assert.equal(productResponse.statusCode, 201);
+    const product = productResponse.json<{
+      product: { id: string };
+    }>().product;
+
+    const publicCatalog = await app.inject({ method: "GET", url: "/products" });
+    assert.equal(
+      publicCatalog
+        .json<{ products: { id: string }[] }>()
+        .products.some(({ id }) => id === product.id),
+      true,
+    );
+
+    const deletion = await app.inject({
+      method: "DELETE",
+      url: `/admin/categories/${category.id}`,
+    });
+    assert.equal(deletion.statusCode, 200);
+    assert.equal(
+      await prisma.product.count({
+        where: { active: true, establishmentId: integrationEstablishmentId, id: product.id },
+      }),
+      0,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: { in: ["MENU_CATEGORY_CREATED", "MENU_PRODUCT_CREATED", "MENU_CATEGORY_DEACTIVATED"] },
+          establishmentId: integrationEstablishmentId,
+          resourceId: { in: [category.id, product.id] },
+        },
+      }),
+      3,
+    );
   } finally {
     await app.close();
   }
@@ -684,6 +757,9 @@ void test("comanda items are consolidated, totaled and audited", async () => {
 
     const closeResponse = await app.inject({
       method: "POST",
+      payload: {
+        payments: [{ amountCents: 1_099, method: "PIX" }],
+      },
       url: `/comandas/${openedComanda.id}/close`,
     });
     assert.equal(closeResponse.statusCode, 200);
@@ -733,6 +809,9 @@ void test("comanda items are consolidated, totaled and audited", async () => {
 
     const secondCloseResponse = await app.inject({
       method: "POST",
+      payload: {
+        payments: [{ amountCents: 1_099, method: "PIX" }],
+      },
       url: `/comandas/${openedComanda.id}/close`,
     });
     assert.equal(secondCloseResponse.statusCode, 409);
@@ -800,11 +879,14 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
     }>().comanda;
     assert.equal(draftComanda.table, null);
     assert.deepEqual(draftComanda.credit, {
+      balanceCents: 0,
       customerId: customer.id,
       customerName: "Maria José",
       orderId: draftOrder.id,
+      paidCents: 0,
       source: "MANUAL",
       status: "DRAFT",
+      totalCents: 0,
     });
 
     const emptyFinalizeResponse = await app.inject({
@@ -918,23 +1000,31 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
 
     const settlementResponse = await app.inject({
       method: "POST",
+      payload: {
+        payments: [{ amountCents: 1_099, method: "CASH" }],
+      },
       url: `/credit-orders/${draftOrder.id}/settle`,
     });
     const settlement = settlementResponse.json<{
-      settlement: {
+      payment: {
         amountCents: number;
         id: string;
-        orderId: string;
         paidAt: string;
       };
-    }>().settlement;
+      order: { balanceCents: number; id: string; status: string };
+    }>();
     assert.equal(settlementResponse.statusCode, 200);
-    assert.equal(settlement.amountCents, 1_099);
-    assert.equal(settlement.orderId, draftOrder.id);
-    assert.ok(settlement.paidAt);
+    assert.equal(settlement.payment.amountCents, 1_099);
+    assert.equal(settlement.order.id, draftOrder.id);
+    assert.equal(settlement.order.balanceCents, 0);
+    assert.equal(settlement.order.status, "SETTLED");
+    assert.ok(settlement.payment.paidAt);
 
     const secondSettlementResponse = await app.inject({
       method: "POST",
+      payload: {
+        payments: [{ amountCents: 1_099, method: "CASH" }],
+      },
       url: `/credit-orders/${draftOrder.id}/settle`,
     });
     assert.equal(secondSettlementResponse.statusCode, 409);
@@ -961,8 +1051,12 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
     });
     const details = detailsResponse.json<{
       customer: {
-        orders: { status: string; totalCents: number }[];
-        settlements: { amountCents: number; orderId: string; paidAt: string }[];
+        orders: {
+          id: string;
+          payments: { amountCents: number; paidAt: string }[];
+          status: string;
+          totalCents: number;
+        }[];
       };
     }>().customer;
     assert.deepEqual(
@@ -975,9 +1069,9 @@ void test("manual credit orders are resumed, finalized, grouped and settled", as
         { status: "SETTLED", totalCents: 1_099 },
       ],
     );
-    assert.equal(details.settlements[0].amountCents, 1_099);
-    assert.equal(details.settlements[0].orderId, draftOrder.id);
-    assert.ok(details.settlements[0].paidAt);
+    const settledDetails = details.orders.find(({ id }) => id === draftOrder.id);
+    assert.equal(settledDetails?.payments[0].amountCents, 1_099);
+    assert.ok(settledDetails?.payments[0].paidAt);
   } finally {
     await app.close();
   }
@@ -1144,10 +1238,268 @@ void test("table credit conversion is atomic and releases only confirmed orders"
   }
 });
 
+void test("mixed checkout supports installments, later additions and concurrent final payment", async () => {
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 3 },
+  });
+  const allCreditTable = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 5 },
+  });
+  const hamburger = await prisma.product.findFirstOrThrow({
+    where: {
+      code: "CLASSIC_HAMBURGER",
+      establishmentId: integrationEstablishmentId,
+    },
+  });
+  const app = await createAuthenticatedApp();
+
+  try {
+    const customerResponse = await app.inject({
+      method: "POST",
+      payload: { name: "Cliente pagamento misto" },
+      url: "/credit-customers",
+    });
+    const customerId = customerResponse.json<{
+      customer: { id: string };
+    }>().customer.id;
+
+    const openAndConfirm = async (tableId: number) => {
+      const openResponse = await app.inject({
+        method: "POST",
+        payload: { name: "Pagamento misto" },
+        url: `/tables/${tableId}/comandas`,
+      });
+      const opened = openResponse.json<{
+        comanda: { id: string };
+      }>().comanda;
+      const addResponse = await app.inject({
+        method: "POST",
+        payload: { productId: hamburger.id },
+        url: `/comandas/${opened.id}/items`,
+      });
+      const itemId = addResponse.json<{
+        comanda: { items: { id: string }[] };
+      }>().comanda.items[0].id;
+      await app.inject({
+        method: "POST",
+        url: `/comandas/${opened.id}/items/${itemId}/confirm`,
+      });
+      return { comandaId: opened.id, itemId };
+    };
+
+    const mixed = await openAndConfirm(table.id);
+    const overpayment = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 1_100, method: "PIX" }] },
+      url: `/comandas/${mixed.comandaId}/close`,
+    });
+    assert.equal(overpayment.statusCode, 409);
+    assert.equal(
+      await prisma.payment.count({ where: { comandaId: mixed.comandaId } }),
+      0,
+    );
+
+    const missingCustomer = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 500, method: "PIX" }] },
+      url: `/comandas/${mixed.comandaId}/close`,
+    });
+    assert.equal(missingCustomer.statusCode, 409);
+
+    const checkout = await app.inject({
+      method: "POST",
+      payload: {
+        customerId,
+        payments: [
+          { amountCents: 100, method: "CASH" },
+          { amountCents: 200, method: "CASH" },
+          { amountCents: 200, method: "PIX" },
+        ],
+      },
+      url: `/comandas/${mixed.comandaId}/close`,
+    });
+    const checkedOut = checkout.json<{
+      comanda: {
+        credit: {
+          balanceCents: number;
+          orderId: string;
+          paidCents: number;
+          totalCents: number;
+        };
+        payments: {
+          allocations: { amountCents: number; id: string; method: string }[];
+          amountCents: number;
+          comandaId: string;
+        }[];
+        status: string;
+      };
+    }>().comanda;
+    assert.equal(checkout.statusCode, 200);
+    assert.equal(checkedOut.status, "OPEN");
+    assert.deepEqual(checkedOut.credit, {
+      balanceCents: 599,
+      customerId,
+      customerName: "Cliente pagamento misto",
+      orderId: checkedOut.credit.orderId,
+      paidCents: 500,
+      source: "TABLE",
+      status: "OPEN",
+      totalCents: 1_099,
+    });
+    assert.equal(checkedOut.payments[0].amountCents, 500);
+    assert.equal(checkedOut.payments[0].comandaId, mixed.comandaId);
+    assert.deepEqual(checkedOut.payments[0].allocations, [
+      { amountCents: 300, id: checkedOut.payments[0].allocations[0].id, method: "CASH" },
+      { amountCents: 200, id: checkedOut.payments[0].allocations[1].id, method: "PIX" },
+    ]);
+    assert.equal(
+      (await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } }))
+        .status,
+      "FREE",
+    );
+
+    const firstInstallment = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 200, method: "DEBIT_CARD" }] },
+      url: `/credit-orders/${checkedOut.credit.orderId}/settle`,
+    });
+    assert.equal(firstInstallment.statusCode, 200);
+    assert.equal(
+      firstInstallment.json<{ order: { balanceCents: number; status: string } }>()
+        .order.balanceCents,
+      399,
+    );
+
+    const addAfterPayment = await app.inject({
+      method: "POST",
+      payload: { productId: hamburger.id },
+      url: `/comandas/${mixed.comandaId}/items`,
+    });
+    assert.equal(addAfterPayment.statusCode, 200);
+    await app.inject({
+      method: "POST",
+      url: `/comandas/${mixed.comandaId}/items/${mixed.itemId}/confirm`,
+    });
+
+    const secondInstallment = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 500, method: "CREDIT_CARD" }] },
+      url: `/credit-orders/${checkedOut.credit.orderId}/settle`,
+    });
+    const afterSecond = secondInstallment.json<{
+      order: { balanceCents: number; paidCents: number; totalCents: number };
+    }>().order;
+    assert.deepEqual(afterSecond, {
+      ...afterSecond,
+      balanceCents: 998,
+      paidCents: 1_200,
+      totalCents: 2_198,
+    });
+
+    const concurrentFinalPayments = await Promise.all([
+      app.inject({
+        method: "POST",
+        payload: { payments: [{ amountCents: 998, method: "PIX" }] },
+        url: `/credit-orders/${checkedOut.credit.orderId}/settle`,
+      }),
+      app.inject({
+        method: "POST",
+        payload: { payments: [{ amountCents: 998, method: "PIX" }] },
+        url: `/credit-orders/${checkedOut.credit.orderId}/settle`,
+      }),
+    ]);
+    assert.deepEqual(
+      concurrentFinalPayments.map(({ statusCode }) => statusCode).sort(),
+      [200, 409],
+    );
+
+    const allCredit = await openAndConfirm(allCreditTable.id);
+    const allCreditCheckout = await app.inject({
+      method: "POST",
+      payload: { customerId, payments: [] },
+      url: `/comandas/${allCredit.comandaId}/close`,
+    });
+    const allCreditOrderId = allCreditCheckout.json<{
+      comanda: { credit: { orderId: string } };
+    }>().comanda.credit.orderId;
+    assert.equal(allCreditCheckout.statusCode, 200);
+
+    const detailsResponse = await app.inject({
+      method: "GET",
+      url: `/credit-customers/${customerId}`,
+    });
+    const orders = detailsResponse.json<{
+      customer: {
+        orders: {
+          balanceCents: number;
+          id: string;
+          paidCents: number;
+          payments: { amountCents: number }[];
+          status: string;
+          totalCents: number;
+        }[];
+      };
+    }>().customer.orders;
+    const settled = orders.find(({ id }) => id === checkedOut.credit.orderId);
+    const untouched = orders.find(({ id }) => id === allCreditOrderId);
+    assert.deepEqual(
+      {
+        balanceCents: settled?.balanceCents,
+        paidCents: settled?.paidCents,
+        paymentAmounts: settled?.payments.map(({ amountCents }) => amountCents),
+        status: settled?.status,
+        totalCents: settled?.totalCents,
+      },
+      {
+        balanceCents: 0,
+        paidCents: 2_198,
+        paymentAmounts: [500, 200, 500, 998],
+        status: "SETTLED",
+        totalCents: 2_198,
+      },
+    );
+    assert.deepEqual(
+      {
+        balanceCents: untouched?.balanceCents,
+        paidCents: untouched?.paidCents,
+        payments: untouched?.payments,
+        status: untouched?.status,
+      },
+      { balanceCents: 1_099, paidCents: 0, payments: [], status: "OPEN" },
+    );
+
+    const auditActions = await prisma.auditLog.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { action: true },
+      where: {
+        establishmentId: integrationEstablishmentId,
+        resourceId: checkedOut.credit.orderId,
+      },
+    });
+    assert.deepEqual(
+      auditActions.map(({ action }) => action),
+      [
+        "COMANDA_CONVERTED_TO_CREDIT",
+        "CREDIT_PAYMENT_RECORDED",
+        "CREDIT_PAYMENT_RECORDED",
+        "CREDIT_ORDER_SETTLED",
+      ],
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 void test("statements aggregate dated sales, credit additions and settlements", async () => {
+  const statementCategory = await prisma.menuCategory.findFirstOrThrow({
+    where: {
+      establishmentId: integrationEstablishmentId,
+      normalizedName: "outros",
+    },
+  });
   const product = await prisma.product.upsert({
     create: {
-      category: "OTHER",
+      categoryId: statementCategory.id,
       code: "STATEMENT_TEST_PRODUCT",
       establishmentId: integrationEstablishmentId,
       name: "Produto de extrato",
@@ -1228,24 +1580,15 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       status: "CLOSED",
     },
   });
-  const settlement = await prisma.creditSettlement.create({
-    data: {
-      amountCents: 1_500,
-      customerId: customer.id,
-      establishmentId: integrationEstablishmentId,
-      paidAt: new Date("2031-04-12T15:00:00.000Z"),
-    },
-  });
-  await prisma.creditOrder.create({
+  const settledOrder = await prisma.creditOrder.create({
     data: {
       comandaId: creditComanda.id,
       customerId: customer.id,
       establishmentId: integrationEstablishmentId,
       finalizedAt: new Date("2031-04-10T13:00:00.000Z"),
       orderedAt: new Date("2031-04-10T11:00:00.000Z"),
-      settlementId: settlement.id,
-      settledAt: settlement.paidAt,
-      source: "MANUAL",
+      settledAt: new Date("2031-04-12T15:00:00.000Z"),
+      source: "TABLE",
       status: "SETTLED",
       totalCents: 1_500,
     },
@@ -1255,9 +1598,67 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       cancellationReason: "OPENED_BY_MISTAKE",
       cancelledAt: new Date("2031-04-11T16:00:00.000Z"),
       establishmentId: integrationEstablishmentId,
+      items: {
+        create: {
+          confirmedQuantity: 0,
+          productId: product.id,
+          productName: product.name,
+          quantity: 1,
+          unitPriceCents: 500,
+        },
+      },
       name: "Cancelada extrato",
       status: "CANCELLED",
     },
+  });
+  const checkoutPayment = await prisma.payment.create({
+    data: {
+      amountCents: 200,
+      comandaId: creditComanda.id,
+      creditOrderId: settledOrder.id,
+      establishmentId: integrationEstablishmentId,
+      origin: "TABLE_CHECKOUT",
+      paidAt: new Date("2031-04-10T13:00:00.000Z"),
+    },
+  });
+  const statementPayment = await prisma.payment.create({
+    data: {
+      amountCents: 1_300,
+      comandaId: creditComanda.id,
+      creditOrderId: settledOrder.id,
+      establishmentId: integrationEstablishmentId,
+      origin: "CREDIT_INSTALLMENT",
+      paidAt: new Date("2031-04-12T15:00:00.000Z"),
+    },
+  });
+  await prisma.paymentAllocation.createMany({
+    data: [
+      {
+        amountCents: 200,
+        establishmentId: integrationEstablishmentId,
+        method: "CASH",
+        paymentId: checkoutPayment.id,
+      },
+      {
+        amountCents: 300,
+        establishmentId: integrationEstablishmentId,
+        method: "CASH",
+        paymentId: statementPayment.id,
+      },
+      {
+        amountCents: 1_000,
+        establishmentId: integrationEstablishmentId,
+        method: "PIX",
+        paymentId: statementPayment.id,
+      },
+    ],
+  });
+  await prisma.product.update({
+    data: {
+      name: "Produto alterado depois",
+      priceCents: 900,
+    },
+    where: { id: product.id },
   });
   const app = await createAuthenticatedApp();
 
@@ -1271,7 +1672,31 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     const report = response.json<{
       statement: {
         days: Array<{ date: string; soldCents: number }>;
-        entries: Array<{ comandaId: string; event: string }>;
+        entries: Array<{
+          comandaId: string;
+          creditBalanceAfterCents: number | null;
+          creditPaidAfterCents: number | null;
+          creditPaidBeforeCents: number | null;
+          creditTotalCents: number | null;
+          customerName: string | null;
+          event: string;
+          items: Array<{
+            productName: string;
+            quantity: number;
+            unitPriceCents: number;
+          }>;
+          paymentOrigin: string | null;
+          tableCheckoutPaidCents: number | null;
+        }>;
+        indicators: {
+          averageTicketCents: number;
+          differenceCents: number;
+          paymentMethodSummaries: Array<{
+            method: string;
+            receivedCents: number;
+          }>;
+          saleCommandCount: number;
+        };
         summary: {
           cancelledCommandCount: number;
           closedCommandCount: number;
@@ -1289,7 +1714,7 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       closedCommandCount: 2,
       processedCommandCount: 3,
       receivedCents: 3_500,
-      receivedItemCount: 5,
+      receivedItemCount: 2,
       soldCents: 3_500,
       soldItemCount: 5,
     });
@@ -1306,34 +1731,102 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       [
         "TABLE_CLOSED",
         "CREDIT_FINALIZED",
+        "CREDIT_PAYMENT",
         "CREDIT_ADDITION",
         "COMANDA_CANCELLED",
         "CREDIT_SETTLED",
       ],
     );
+    assert.equal(report.indicators.averageTicketCents, 1_750);
+    assert.equal(report.indicators.differenceCents, 0);
+    assert.equal(report.indicators.saleCommandCount, 2);
+    assert.deepEqual(
+      report.entries
+        .filter((entry) => entry.comandaId === creditComanda.id)
+        .map((entry) => ({
+          balance: entry.creditBalanceAfterCents,
+          event: entry.event,
+          paidAfter: entry.creditPaidAfterCents,
+          paidBefore: entry.creditPaidBeforeCents,
+          paymentOrigin: entry.paymentOrigin,
+          tableCheckoutPaid: entry.tableCheckoutPaidCents,
+          total: entry.creditTotalCents,
+        })),
+      [
+        { balance: 300, event: "CREDIT_FINALIZED", paidAfter: 200, paidBefore: 0, paymentOrigin: null, tableCheckoutPaid: 200, total: 500 },
+        { balance: 300, event: "CREDIT_PAYMENT", paidAfter: 200, paidBefore: 0, paymentOrigin: "TABLE_CHECKOUT", tableCheckoutPaid: 200, total: 500 },
+        { balance: 1_300, event: "CREDIT_ADDITION", paidAfter: 200, paidBefore: 200, paymentOrigin: null, tableCheckoutPaid: 200, total: 1_500 },
+        { balance: 0, event: "CREDIT_SETTLED", paidAfter: 1_500, paidBefore: 200, paymentOrigin: "CREDIT_INSTALLMENT", tableCheckoutPaid: 200, total: 1_500 },
+      ],
+    );
+    assert.deepEqual(report.indicators.paymentMethodSummaries, [
+      { method: "CASH", receivedCents: 500 },
+      { method: "PIX", receivedCents: 1_000 },
+      { method: "DEBIT_CARD", receivedCents: 0 },
+      { method: "CREDIT_CARD", receivedCents: 0 },
+      { method: "UNSPECIFIED", receivedCents: 2_000 },
+    ]);
+    assert.equal(
+      report.indicators.paymentMethodSummaries.reduce(
+        (total, payment) => total + payment.receivedCents,
+        0,
+      ),
+      report.summary.receivedCents,
+    );
+    assert.deepEqual(
+      report.entries.map((entry) => ({
+        customerName: entry.customerName,
+        event: entry.event,
+        items: entry.items.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+        })),
+      })),
+      [
+        { customerName: null, event: "TABLE_CLOSED", items: [{ productName: "Produto de extrato", quantity: 2, unitPriceCents: 1_000 }] },
+        { customerName: "Cliente extrato", event: "CREDIT_FINALIZED", items: [{ productName: "Produto de extrato", quantity: 1, unitPriceCents: 500 }] },
+        { customerName: "Cliente extrato", event: "CREDIT_PAYMENT", items: [] },
+        { customerName: "Cliente extrato", event: "CREDIT_ADDITION", items: [{ productName: "Produto de extrato", quantity: 2, unitPriceCents: 500 }] },
+        { customerName: null, event: "COMANDA_CANCELLED", items: [{ productName: "Produto de extrato", quantity: 1, unitPriceCents: 500 }] },
+        { customerName: "Cliente extrato", event: "CREDIT_SETTLED", items: [] },
+      ],
+    );
 
     const pdfResponse = await app.inject({
       method: "GET",
-      url: "/statements/export.pdf?from=2031-04-10&to=2031-04-12",
+      url: "/statements/export.pdf?from=2031-04-10&to=2031-04-12&view=summary",
     });
     assert.equal(pdfResponse.statusCode, 200);
     assert.equal(pdfResponse.rawPayload.subarray(0, 4).toString(), "%PDF");
+
+    const filteredPdfResponse = await app.inject({
+      method: "GET",
+      url: "/statements/export.pdf?from=2031-04-10&to=2031-04-12&view=detailed&movementType=RECEIPTS&origin=CREDIT_TABLE",
+    });
+    assert.equal(filteredPdfResponse.statusCode, 200);
+    assert.equal(filteredPdfResponse.rawPayload.subarray(0, 4).toString(), "%PDF");
   } finally {
     await app.close();
+    await prisma.paymentAllocation.deleteMany({
+      where: {
+        paymentId: { in: [checkoutPayment.id, statementPayment.id] },
+      },
+    });
+    await prisma.payment.deleteMany({
+      where: {
+        comandaId: creditComanda.id,
+      },
+    });
     await prisma.creditOrder.deleteMany({
       where: {
         comandaId: creditComanda.id,
       },
     });
-    await prisma.creditSettlement.delete({
-      where: {
-        id: settlement.id,
-      },
-    });
     await prisma.comandaItem.deleteMany({
       where: {
         comandaId: {
-          in: [tableComanda.id, creditComanda.id],
+          in: [tableComanda.id, creditComanda.id, cancelledComanda.id],
         },
       },
     });
@@ -1638,7 +2131,7 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     assert.equal(await prisma.creditCustomer.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.creditOrder.count({ where: tenantFilter }), 0);
     assert.equal(
-      await prisma.creditSettlement.count({ where: tenantFilter }),
+      await prisma.payment.count({ where: tenantFilter }),
       0,
     );
     assert.equal(

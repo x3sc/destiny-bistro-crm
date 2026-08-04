@@ -10,8 +10,9 @@ import {
   type CreditCustomerSummary,
   type CreditOrder,
   type CreditRepository,
-  type CreditSettlement,
 } from "./credit-types.js";
+import { createPayment, mapPayment, paymentSelect } from "./payment-persistence.js";
+import { paymentTotal } from "./payment-types.js";
 
 export * from "./credit-types.js";
 
@@ -44,6 +45,10 @@ const creditOrderSelect = {
   finalizedAt: true,
   id: true,
   orderedAt: true,
+  payments: {
+    orderBy: { paidAt: "asc" },
+    select: paymentSelect,
+  },
   settledAt: true,
   source: true,
   status: true,
@@ -413,22 +418,6 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             },
             select: creditOrderSelect,
           },
-          settlements: {
-            orderBy: {
-              paidAt: "desc",
-            },
-            select: {
-              amountCents: true,
-              id: true,
-              orders: {
-                select: {
-                  id: true,
-                },
-                take: 1,
-              },
-              paidAt: true,
-            },
-          },
         },
         where: { establishmentId, id: customerId },
       });
@@ -449,6 +438,9 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           name: true,
           orders: {
             select: {
+              payments: {
+                select: { amountCents: true },
+              },
               status: true,
               totalCents: true,
             },
@@ -475,8 +467,15 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
 
       return customers.map(mapCustomerSummary);
     },
-    async settleOrder(establishmentId, orderId, actorUserId) {
+    async settleOrder(establishmentId, orderId, payments, actorUserId) {
       return prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT id
+          FROM CreditOrder
+          WHERE id = ${orderId} AND establishmentId = ${establishmentId}
+          FOR UPDATE
+        `;
+
         const order = await transaction.creditOrder.findFirst({
           select: {
             comanda: {
@@ -492,6 +491,9 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             },
             comandaId: true,
             customerId: true,
+            payments: {
+              select: { amountCents: true },
+            },
             status: true,
             totalCents: true,
           },
@@ -514,62 +516,82 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           throw new CreditSettlementConflictError();
         }
 
-        const settlement = await transaction.creditSettlement.create({
-          data: {
-            amountCents: order.totalCents,
-            customerId: order.customerId,
-            establishmentId,
-          },
-          select: {
-            amountCents: true,
-            id: true,
-            paidAt: true,
-          },
-        });
-        const settledOrder = await transaction.creditOrder.updateMany({
-          data: {
-            settledAt: settlement.paidAt,
-            settlementId: settlement.id,
-            status: "SETTLED",
-          },
-          where: {
-            comanda: { establishmentId },
-            id: orderId,
-            status: "OPEN",
-          },
-        });
-        const closedComanda = await transaction.comanda.updateMany({
-          data: {
-            closedAt: settlement.paidAt,
-            status: "CLOSED",
-          },
-          where: {
-            establishmentId,
-            id: order.comandaId,
-            status: "OPEN",
-          },
-        });
-
-        if (settledOrder.count !== 1 || closedComanda.count !== 1) {
+        const paidCents = order.payments.reduce(
+          (total, payment) => total + payment.amountCents,
+          0,
+        );
+        const balanceCents = order.totalCents - paidCents;
+        const amountCents = paymentTotal(payments);
+        if (amountCents <= 0 || amountCents > balanceCents) {
           throw new CreditSettlementConflictError();
         }
 
-        await transaction.comandaEvent.create({
-          data: {
-            actorUserId,
-            comandaId: order.comandaId,
-            establishmentId,
-            type: "CLOSED",
-          },
+        const paidAt = new Date();
+        const persistedPayment = await createPayment(transaction, {
+          actorUserId,
+          allocations: payments,
+          amountCents,
+          comandaId: order.comandaId,
+          creditOrderId: orderId,
+          establishmentId,
+          origin: "CREDIT_INSTALLMENT",
+          paidAt,
         });
+        const remainingCents = balanceCents - amountCents;
+
+        if (remainingCents === 0) {
+          const settledOrder = await transaction.creditOrder.updateMany({
+            data: {
+              settledAt: paidAt,
+              status: "SETTLED",
+            },
+            where: {
+              comanda: { establishmentId },
+              id: orderId,
+              status: "OPEN",
+            },
+          });
+          const closedComanda = await transaction.comanda.updateMany({
+            data: {
+              closedAt: paidAt,
+              status: "CLOSED",
+            },
+            where: {
+              establishmentId,
+              id: order.comandaId,
+              status: "OPEN",
+            },
+          });
+
+          if (settledOrder.count !== 1 || closedComanda.count !== 1) {
+            throw new CreditSettlementConflictError();
+          }
+
+          await transaction.comandaEvent.create({
+            data: {
+              actorUserId,
+              comandaId: order.comandaId,
+              establishmentId,
+              type: "CLOSED",
+            },
+          });
+        }
         await transaction.auditLog.create({
           data: createAuditData({
-            action: "CREDIT_ORDER_SETTLED",
+            action:
+              remainingCents === 0
+                ? "CREDIT_ORDER_SETTLED"
+                : "CREDIT_PAYMENT_RECORDED",
             establishmentId,
             metadata: {
-              amountCents: settlement.amountCents,
+              amountCents,
               comandaId: order.comandaId,
-              settlementId: settlement.id,
+              paymentId: persistedPayment.id,
+              payments: payments.map(({ amountCents: value, method }) => ({
+                amountCents: value,
+                method,
+              })),
+              remainingCents,
             },
             resourceId: orderId,
             resourceType: "CREDIT_ORDER",
@@ -577,7 +599,10 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           }),
         });
 
-        return mapSettlement(settlement, orderId);
+        return {
+          order: await getOrderOrThrow(transaction, establishmentId, orderId),
+          payment: mapPayment(persistedPayment),
+        };
       });
     },
   };
@@ -602,7 +627,13 @@ function totalItems(items: { quantity: number; unitPriceCents: number }[]) {
 }
 
 function mapOrder(order: PersistedCreditOrder): CreditOrder {
+  const payments = order.payments.map(mapPayment);
+  const paidCents = payments.reduce(
+    (total, payment) => total + payment.amountCents,
+    0,
+  );
   return {
+    balanceCents: Math.max(order.totalCents - paidCents, 0),
     cancelledAt: order.cancelledAt?.toISOString() ?? null,
     comandaId: order.comandaId,
     comandaName: order.comanda.name,
@@ -615,24 +646,13 @@ function mapOrder(order: PersistedCreditOrder): CreditOrder {
     ),
     id: order.id,
     orderedAt: order.orderedAt.toISOString(),
+    paidCents,
+    payments,
     settledAt: order.settledAt?.toISOString() ?? null,
     source: order.source,
     status: order.status,
     tableNumber: order.comanda.table?.number ?? null,
     totalCents: order.totalCents,
-  };
-}
-
-function mapSettlement(settlement: {
-  amountCents: number;
-  id: string;
-  paidAt: Date;
-}, orderId: string): CreditSettlement {
-  return {
-    amountCents: settlement.amountCents,
-    id: settlement.id,
-    orderId,
-    paidAt: settlement.paidAt.toISOString(),
   };
 }
 
@@ -653,13 +673,25 @@ function mapCustomerSummary(customer: {
   id: string;
   name: string;
   orders: {
+    payments: { amountCents: number }[];
     status: "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
     totalCents: number;
   }[];
 }): CreditCustomerSummary {
   return {
     balanceCents: customer.orders.reduce(
-      (total, order) => total + (order.status === "OPEN" ? order.totalCents : 0),
+      (total, order) =>
+        total +
+        (order.status === "OPEN"
+          ? Math.max(
+              order.totalCents -
+                order.payments.reduce(
+                  (paid, payment) => paid + payment.amountCents,
+                  0,
+                ),
+              0,
+            )
+          : 0),
       0,
     ),
     draftOrderCount: customer.orders.filter(({ status }) => status === "DRAFT").length,
@@ -673,12 +705,6 @@ function mapCustomerDetails(customer: {
   id: string;
   name: string;
   orders: PersistedCreditOrder[];
-  settlements: {
-    amountCents: number;
-    id: string;
-    orders: { id: string }[];
-    paidAt: Date;
-  }[];
 }): CreditCustomerDetails {
   const activeOrders = customer.orders.filter(
     ({ status }) => status === "DRAFT" || status === "OPEN",
@@ -691,9 +717,6 @@ function mapCustomerDetails(customer: {
       orders: activeOrders,
     }),
     orders: customer.orders.map(mapOrder),
-    settlements: customer.settlements.map((settlement) =>
-      mapSettlement(settlement, settlement.orders[0]?.id ?? ""),
-    ),
   };
 }
 

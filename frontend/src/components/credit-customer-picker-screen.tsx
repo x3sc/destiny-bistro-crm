@@ -19,6 +19,7 @@ import {
 import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 type State =
   | { kind: 'error' }
@@ -104,6 +105,7 @@ export function CreditCustomerPickerScreen({
   return (
     <SafeAreaView style={creditStyles.safeArea}>
       <ScrollView contentContainerStyle={creditStyles.content}>
+        <ScreenBackButton onPress={onBack} />
         <View style={creditStyles.heading}>
           <Text style={creditStyles.eyebrow}>Destiny Bistro CRM</Text>
           <Text style={creditStyles.title}>{title}</Text>
@@ -180,8 +182,6 @@ export function CreditCustomerPickerScreen({
             ))}
           </View>
         )}
-
-        <CreditButton label="Voltar" onPress={onBack} tone="secondary" />
       </ScrollView>
     </SafeAreaView>
   );

@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { openComanda, type Comanda } from '../services/comandas-api';
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import { themeColors } from '../theme/tokens';
+import { ScreenBackButton } from './screen-back-button';
 
 interface OpenComandaScreenProps {
   apiBaseUrl?: string;
@@ -48,6 +49,7 @@ export function OpenComandaScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
+        <ScreenBackButton onPress={onBack} />
         <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
         <Text style={styles.title}>Abrir comanda</Text>
 
@@ -83,7 +85,6 @@ export function OpenComandaScreen({
             {error && <Text style={styles.error}>{error}</Text>}
 
             <View style={styles.actions}>
-              <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
               <ActionButton
                 disabled={isSubmitting}
                 label={isSubmitting ? 'Abrindo...' : 'Confirmar abertura'}
@@ -103,12 +104,10 @@ function ActionButton({
   disabled = false,
   label,
   onPress,
-  tone = 'primary',
 }: {
   disabled?: boolean;
   label: string;
   onPress: () => void;
-  tone?: 'primary' | 'secondary';
 }) {
   return (
     <Pressable
@@ -117,14 +116,11 @@ function ActionButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
-        tone === 'secondary' && styles.secondaryButton,
         disabled && styles.disabledButton,
         pressed && !disabled && styles.pressedButton,
       ]}
     >
-      <Text style={[styles.buttonText, tone === 'secondary' && styles.secondaryButtonText]}>
-        {label}
-      </Text>
+      <Text style={styles.buttonText}>{label}</Text>
     </Pressable>
   );
 }
@@ -137,7 +133,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     gap: 20,
-    justifyContent: 'center',
     padding: 24,
   },
   eyebrow: {
@@ -199,11 +194,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
   },
-  secondaryButton: {
-    backgroundColor: themeColors.surface,
-    borderColor: themeColors.primary,
-    borderWidth: 1,
-  },
   disabledButton: {
     opacity: 0.55,
   },
@@ -214,8 +204,5 @@ const styles = StyleSheet.create({
     color: themeColors.foregroundOnPrimary,
     fontSize: 16,
     fontWeight: '700',
-  },
-  secondaryButtonText: {
-    color: themeColors.primary,
   },
 });

@@ -5,6 +5,7 @@ import {
   type Comanda,
 } from "./comanda-types.js";
 import { createAuditData } from "./audit.js";
+import { mapPayment, paymentSelect } from "./payment-persistence.js";
 
 export const comandaSelect = {
   cancellationReason: true,
@@ -19,8 +20,14 @@ export const comandaSelect = {
       },
       customerId: true,
       id: true,
+      payments: {
+        select: {
+          amountCents: true,
+        },
+      },
       source: true,
       status: true,
+      totalCents: true,
     },
   },
   events: {
@@ -63,6 +70,12 @@ export const comandaSelect = {
   name: true,
   number: true,
   openedAt: true,
+  payments: {
+    orderBy: {
+      paidAt: "asc",
+    },
+    select: paymentSelect,
+  },
   status: true,
   table: {
     select: {
@@ -79,7 +92,7 @@ type PersistedComanda = Prisma.ComandaGetPayload<{
 export type Transaction = Prisma.TransactionClient;
 
 export function mapComanda(comanda: PersistedComanda): Comanda {
-  const { creditOrder, ...persistedComanda } = comanda;
+  const { creditOrder, payments, ...persistedComanda } = comanda;
   const items = comanda.items.map((item) => ({
     ...item,
     createdAt: item.createdAt.toISOString(),
@@ -91,13 +104,22 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
     cancelledAt: comanda.cancelledAt?.toISOString() ?? null,
     closedAt: comanda.closedAt?.toISOString() ?? null,
     credit: creditOrder
-      ? {
-          customerId: creditOrder.customerId,
-          customerName: creditOrder.customer.name,
-          orderId: creditOrder.id,
-          source: creditOrder.source,
-          status: creditOrder.status,
-        }
+      ? (() => {
+          const paidCents = creditOrder.payments.reduce(
+            (total, payment) => total + payment.amountCents,
+            0,
+          );
+          return {
+            balanceCents: Math.max(creditOrder.totalCents - paidCents, 0),
+            customerId: creditOrder.customerId,
+            customerName: creditOrder.customer.name,
+            orderId: creditOrder.id,
+            paidCents,
+            source: creditOrder.source,
+            status: creditOrder.status,
+            totalCents: creditOrder.totalCents,
+          };
+        })()
       : null,
     events: comanda.events.map(({ actorUser, ...event }) => ({
       ...event,
@@ -106,6 +128,7 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
     })),
     items,
     openedAt: comanda.openedAt.toISOString(),
+    payments: payments.map(mapPayment),
     totalCents: items.reduce((total, item) => total + item.subtotalCents, 0),
   };
 }

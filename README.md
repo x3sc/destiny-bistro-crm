@@ -91,7 +91,11 @@ A API fica disponivel em `http://localhost:3333`:
 - `GET /auth/me`: retorna estabelecimento, usuário, cargos e permissões da sessão.
 - `POST /auth/logout`: revoga a sessão atual.
 - `GET /tables`: lista as mesas persistidas e seus estados.
-- `GET /products`: lista os produtos ativos do catalogo seedado.
+- `GET /products`: lista os produtos e categorias ativos do cardapio.
+- `GET /admin/menu`: lista categorias e itens ativos e inativos para gestao.
+- `POST/PATCH/DELETE /admin/categories`: cria, edita e desativa categorias.
+- `POST/PATCH/DELETE /admin/products`: cria, edita e desativa itens com nome,
+  descricao, categoria e preco em centavos.
 - `GET /inventory`: lista ingredientes, saldo atual e estoque minimo.
 - `POST /ingredients`: cadastra um ingrediente e cria seu saldo inicial zerado.
 - `POST /inventory/:stockId/movements`: registra entrada, saida ou ajuste de
@@ -104,22 +108,35 @@ A API fica disponivel em `http://localhost:3333`:
 - `POST /comandas/:comandaId/items/:itemId/confirm`: confirma a quantidade atual.
 - `DELETE /comandas/:comandaId/items/:itemId`: remove apenas a quantidade ainda
   nao confirmada.
-- `POST /comandas/:comandaId/close`: fecha uma comanda sem itens pendentes e
-  libera a mesa.
+- `POST /comandas/:comandaId/close`: recebe `payments` com parcelas em dinheiro,
+  Pix, cartao de debito ou credito e `customerId` quando restar saldo. O fechamento
+  libera a mesa e mantem a comanda aberta enquanto existir fiado.
 - `POST /comandas/:comandaId/cancel`: cancela uma comanda vazia aberta por engano.
 - `GET/POST /credit-customers`: lista pessoas com saldo/rascunho e cadastra
   pessoas por nome normalizado.
-- `GET /credit-customers/:customerId`: consulta pedidos, saldo e quitacoes.
+- `GET /credit-customers/:customerId`: consulta pedidos, pagamentos, total pago e
+  saldo restante.
 - `POST /credit-customers/:customerId/orders`: cria um fiado manual em rascunho.
 - `POST /credit-orders/:orderId/finalize`: finaliza um rascunho sem itens
   pendentes.
 - `POST /credit-orders/:orderId/cancel`: cancela um rascunho com auditoria.
-- `POST /credit-orders/:orderId/settle`: quita apenas o fiado selecionado.
-- `POST /comandas/:comandaId/credit`: fecha uma mesa como fiado e libera a mesa.
-- `GET /statements?from=AAAA-MM-DD&to=AAAA-MM-DD`: consulta o resumo geral,
-  detalhamento diario e movimentacoes do periodo no fuso `America/Sao_Paulo`.
-- `GET /statements/export.pdf?from=AAAA-MM-DD&to=AAAA-MM-DD`: exporta o mesmo
-  extrato como PDF.
+- `POST /credit-orders/:orderId/settle`: registra uma parcela parcial ou integral,
+  com uma ou mais formas de pagamento, apenas no fiado selecionado.
+- `POST /comandas/:comandaId/credit`: endpoint mantido para compatibilidade com o
+  fluxo anterior de conversao integral em fiado.
+- `GET /statements?from=AAAA-MM-DD&to=AAAA-MM-DD`: consulta indicadores,
+  totais diarios e movimentacoes com os produtos historicos do periodo no fuso
+  `America/Sao_Paulo`. O resumo inclui os recebimentos conciliados por dinheiro,
+  Pix, cartao de debito, cartao de credito e valores antigos sem forma registrada.
+  Nas movimentacoes de fiado, `creditTotalCents`, `creditPaidBeforeCents`,
+  `creditPaidAfterCents`, `creditBalanceAfterCents`, `paymentOrigin` e
+  `tableCheckoutPaidCents` distinguem o valor pago na comanda do valor recebido
+  posteriormente no fiado.
+- `GET /statements/export.pdf?from=AAAA-MM-DD&to=AAAA-MM-DD&view=summary|detailed`:
+  exporta o extrato resumido ou detalhado. Sem `view`, o detalhado e usado para
+  manter compatibilidade. O detalhado aceita os filtros opcionais
+  `movementType=ALL|SALES|RECEIPTS|CANCELLATIONS` e
+  `origin=ALL|TABLE|CREDIT_MANUAL|CREDIT_TABLE`.
 
 Somente `/health`, `/ready` e `/auth/login` são públicos. Todas as demais rotas
 exigem `Authorization: Bearer <token>` e validam permissões no backend. Senhas
@@ -136,9 +153,31 @@ Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Nov
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
 separadas dos itens imutaveis no aplicativo.
 
-O fechamento grava o status `CLOSED`, a data `closedAt` e um evento `CLOSED`.
-Itens, valores e eventos permanecem persistidos para o historico, enquanto a mesa
-volta ao estado `FREE`.
+O fechamento usa uma unica colecao `payments`, por exemplo:
+
+```json
+{
+  "payments": [
+    { "method": "CASH", "amountCents": 2000 },
+    { "method": "PIX", "amountCents": 1500 }
+  ],
+  "customerId": "obrigatorio somente quando restar saldo"
+}
+```
+
+Os meios aceitos sao `CASH`, `PIX`, `DEBIT_CARD` e `CREDIT_CARD`. Valores
+repetidos do mesmo meio sao agregados, o total recebido nunca pode exceder o
+saldo e nao ha calculo de troco. Sem saldo, a comanda recebe `CLOSED`, `closedAt`
+e evento `CLOSED`. Com saldo, o fiado preserva total, pago e restante; comanda e
+fiado continuam abertos para novos itens e parcelas, embora a mesa volte a
+`FREE`. A parcela final grava `SETTLED`/`settledAt` no fiado e
+`CLOSED`/`closedAt` na comanda na mesma transacao.
+
+Cada pagamento e imutavel e inclui horario, operador e o rateio por meio. Registros
+migrados sem meio conhecido continuam visiveis como forma de pagamento nao
+informada. O extrato registra a venda integral quando a mesa vira fiado, mas
+reconhece como recebido apenas cada pagamento efetivo, sem duplicar a receita na
+quitacao final.
 
 Na abertura, o aplicativo permite informar um nome opcional de ate 80 caracteres.
 O valor e normalizado, salvo na comanda e exibido na grade de mesas e nos detalhes;
@@ -157,22 +196,34 @@ npm.cmd start
 Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
 computador.
 
-O menu principal separa **Mesas**, **Fiados** e **Extratos**. Em Fiados, o
-aplicativo permite cadastrar ou selecionar uma pessoa, retomar rascunhos, fechar
-comandas de mesa como divida e quitar cada fiado individualmente. Fiados em aberto
-continuam editaveis; a comanda exibe a data e hora em que cada produto foi
-adicionado. O detalhe da pessoa permite filtrar pedidos em aberto e quitados e
-abrir a comanda completa.
+O menu principal separa **Mesas**, **Fiados** e **Administrativo**. No modulo
+administrativo, o extrato abre no dia atual e o gestor pode criar, editar,
+desativar e reativar categorias e itens do cardapio. Cada item pertence a uma
+categoria do mesmo estabelecimento, e os valores sao persistidos como centavos
+inteiros e formatados em reais somente na interface. Em Fiados, o
+aplicativo permite cadastrar ou selecionar uma pessoa, retomar rascunhos e pagar
+cada fiado individualmente. A tela unica de fechamento aceita pagamento integral,
+misto, parcial ou tudo em fiado; a pessoa e exigida somente quando restar saldo.
+Fiados em aberto continuam editaveis, inclusive depois de pagamentos parciais. A
+comanda exibe o historico de recebimentos e a data e hora em que cada produto foi
+adicionado. O detalhe da pessoa mostra total, pago e restante, permite filtrar
+pedidos em aberto e quitados e abrir a comanda completa.
 
 Antes do menu, o aplicativo exige login. A sessão fica no `expo-secure-store` no
 Android/iOS e os módulos são exibidos conforme as permissões do usuário.
 `KITCHEN` pode consultar mesas, comandas e itens confirmados sem alterar valores;
 o histórico da comanda identifica o operador e o horário de cada evento.
 
-Em Extratos, um unico calendario seleciona um dia ou intervalo. A tela separa
-valores e itens vendidos dos recebidos, mostra comandas processadas, fechadas e
-canceladas e detalha cada dia. O botao de exportacao baixa o PDF no navegador ou
-abre o compartilhamento nativo no Android e iOS.
+Em Extrato do dia, um unico calendario permite manter o dia atual ou selecionar
+outro dia ou intervalo. A aba **Resumido** apresenta valores vendidos e recebidos,
+diferenca do periodo, ticket medio, comandas, itens e totais por origem e dia. A
+aba **Detalhado** organiza uma linha do tempo por comanda, identifica cada etapa
+como comanda paga parcialmente, fiado aberto, fiado pago parcialmente ou fiado
+fechado. Cada etapa explicita total, valor pago, valor aberto e pagamentos
+anteriores conforme o contexto. A visualizacao pode
+ser filtrada por tipo de movimentacao e origem; os mesmos filtros sao aplicados
+ao PDF detalhado. O botao de exportacao gera o PDF correspondente a aba ativa no
+navegador, Android ou iOS, incluindo pagamentos legados sem meio informado.
 
 ### Compatibilidade do Expo
 
@@ -190,7 +241,7 @@ memoria, sem arquivos temporarios. Os lockfiles registram as versoes resolvidas.
 ## Limpeza operacional
 
 O comando abaixo apaga comandas, itens, eventos, clientes e fiados, libera todas
-as mesas e preserva produtos, mesas, usuários, cargos e permissões:
+as mesas e preserva categorias do cardapio, produtos, mesas, usuários, cargos e permissões:
 
 ```powershell
 Set-Location backend

@@ -10,6 +10,7 @@ import {
   ComandaNotCancellableError,
   ComandaNotClosableError,
   ComandaNotFoundError,
+  ComandaCreditPermissionError,
   ComandaItemQuantityError,
   ComandaNotMutableError,
   ProductUnavailableError,
@@ -26,8 +27,8 @@ import {
   type CreditCustomerSummary,
   type CreditOrder,
   type CreditRepository,
-  type CreditSettlement,
 } from "../../src/credit-repository.js";
+import type { Payment } from "../../src/payment-types.js";
 import type { Database } from "../../src/database.js";
 import {
   InventoryBalanceError,
@@ -36,7 +37,11 @@ import {
   type InventoryMovement,
   type InventoryRepository,
 } from "../../src/inventory-repository.js";
-import type { Product, ProductRepository } from "../../src/product-repository.js";
+import type {
+  MenuCategory,
+  Product,
+  ProductRepository,
+} from "../../src/product-repository.js";
 import type {
   RestaurantTable,
   RestaurantTableRepository,
@@ -60,6 +65,7 @@ const authenticatedUser: AuthUser = {
     "inventory.read",
     "inventory.write",
     "products.read",
+    "products.write",
     "statements.read",
     "tables.read",
   ],
@@ -95,6 +101,7 @@ const comanda: Comanda = {
   name: null,
   number: 42,
   openedAt,
+  payments: [],
   status: "OPEN",
   table: {
     id: 1,
@@ -112,6 +119,7 @@ const creditCustomer: CreditCustomerSummary = {
 };
 
 const creditOrder: CreditOrder = {
+  balanceCents: 600,
   cancelledAt: null,
   comandaId: "comanda-id",
   comandaName: "Maria",
@@ -122,6 +130,8 @@ const creditOrder: CreditOrder = {
   hasPendingItems: false,
   id: "order-id",
   orderedAt: openedAt,
+  paidCents: 0,
+  payments: [],
   settledAt: null,
   source: "MANUAL",
   status: "OPEN",
@@ -129,11 +139,15 @@ const creditOrder: CreditOrder = {
   totalCents: 600,
 };
 
-const creditSettlement: CreditSettlement = {
+const creditPayment: Payment = {
+  allocations: [{ amountCents: 600, id: "allocation-id", method: "PIX" }],
   amountCents: 600,
-  id: "settlement-id",
-  orderId: "order-id",
+  comandaId: "credit-comanda-id",
+  creditOrderId: "order-id",
+  id: "payment-id",
+  origin: "CREDIT_INSTALLMENT",
   paidAt: openedAt,
+  recordedBy: { id: "user-id", name: "Operador" },
 };
 
 const inventoryItem: InventoryItem = {
@@ -161,10 +175,24 @@ const inventoryMovement: InventoryMovement = {
   type: "ENTRY",
 };
 
+const menuCategory: MenuCategory = {
+  active: true,
+  id: "category-id",
+  name: "Bebidas",
+  products: [
+    {
+      active: true,
+      description: "Copo 300 ml",
+      id: "product-id",
+      name: "Suco de laranja",
+      priceCents: 900,
+    },
+  ],
+};
+
 const creditCustomerDetails: CreditCustomerDetails = {
   ...creditCustomer,
   orders: [creditOrder],
-  settlements: [],
 };
 
 const statementReport: StatementReport = {
@@ -185,18 +213,72 @@ const statementReport: StatementReport = {
       comandaId: "comanda-id",
       comandaName: "Maria",
       comandaNumber: 42,
+      creditBalanceAfterCents: null,
+      creditPaidAfterCents: null,
+      creditPaidBeforeCents: null,
+      creditTotalCents: null,
+      customerName: null,
       event: "TABLE_CLOSED",
       id: "entry-id",
+      items: [
+        {
+          productId: "product-id",
+          productName: "Café",
+          quantity: 1,
+          unitPriceCents: 600,
+        },
+      ],
       occurredAt: openedAt,
       origin: "TABLE",
+      payments: [],
+      paymentOrigin: null,
       receivedCents: 600,
       receivedItemCount: 1,
       soldCents: 600,
       soldItemCount: 1,
       status: "CLOSED",
       tableNumber: 1,
+      tableCheckoutPaidCents: null,
     },
   ],
+  indicators: {
+    averageTicketCents: 600,
+    differenceCents: 0,
+    originSummaries: [
+      {
+        movementCount: 1,
+        origin: "TABLE",
+        receivedCents: 600,
+        receivedItemCount: 1,
+        soldCents: 600,
+        soldItemCount: 1,
+      },
+      {
+        movementCount: 0,
+        origin: "CREDIT_MANUAL",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
+      {
+        movementCount: 0,
+        origin: "CREDIT_TABLE",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
+    ],
+    paymentMethodSummaries: [
+      { method: "CASH", receivedCents: 0 },
+      { method: "PIX", receivedCents: 0 },
+      { method: "DEBIT_CARD", receivedCents: 0 },
+      { method: "CREDIT_CARD", receivedCents: 0 },
+      { method: "UNSPECIFIED", receivedCents: 600 },
+    ],
+    saleCommandCount: 1,
+  },
   period: {
     from: "2026-07-28",
     timeZone: "America/Sao_Paulo",
@@ -297,15 +379,29 @@ function createCredits(overrides: Partial<CreditRepository> = {}): CreditReposit
     finalizeOrder: () => Promise.resolve(creditOrder),
     findCustomer: () => Promise.resolve(creditCustomerDetails),
     listCustomers: () => Promise.resolve([creditCustomer]),
-    settleOrder: () => Promise.resolve(creditSettlement),
+    settleOrder: () =>
+      Promise.resolve({
+        order: { ...creditOrder, balanceCents: 0, paidCents: 600, status: "SETTLED" },
+        payment: creditPayment,
+      }),
     ...overrides,
   };
 }
 
 function createProducts(
-  listActive: ProductRepository["listActive"] = () => Promise.resolve([]),
+  overrides: Partial<ProductRepository> = {},
 ): ProductRepository {
-  return { listActive };
+  return {
+    createCategory: () => Promise.resolve(menuCategory),
+    createProduct: () => Promise.resolve(menuCategory.products[0]),
+    deactivateCategory: () => Promise.resolve(menuCategory),
+    deactivateProduct: () => Promise.resolve(menuCategory.products[0]),
+    listActive: () => Promise.resolve([]),
+    listMenu: () => Promise.resolve([menuCategory]),
+    updateCategory: () => Promise.resolve(menuCategory),
+    updateProduct: () => Promise.resolve(menuCategory.products[0]),
+    ...overrides,
+  };
 }
 
 function createInventory(
@@ -571,20 +667,22 @@ void test("GET /tables hides database errors from the client", async () => {
 void test("GET /products returns active products ordered by name", async () => {
   const products: Product[] = [
     {
-      category: "CLASSIC_BURGERS",
+      category: { id: "category-food", name: "Lanches" },
+      description: null,
       id: "coffee-id",
       name: "Café",
       priceCents: 600,
     },
     {
-      category: "BEVERAGES",
+      category: { id: "category-drinks", name: "Bebidas" },
+      description: "Sem gas",
       id: "water-id",
       name: "Água",
       priceCents: 500,
     },
   ];
   const app = await createApp({
-    products: createProducts(() => Promise.resolve(products)),
+    products: createProducts({ listActive: () => Promise.resolve(products) }),
   });
 
   const response = await app.inject({
@@ -620,7 +718,9 @@ void test("OPTIONS allows item mutation methods for browser clients", async () =
 
 void test("GET /products hides database errors from the client", async () => {
   const app = await createApp({
-    products: createProducts(() => Promise.reject(new Error("internal product detail"))),
+    products: createProducts({
+      listActive: () => Promise.reject(new Error("internal product detail")),
+    }),
   });
 
   const response = await app.inject({
@@ -635,6 +735,108 @@ void test("GET /products hides database errors from the client", async () => {
   });
   assert.doesNotMatch(response.body, /internal product detail/);
 
+  await app.close();
+});
+
+void test("GET /admin/menu returns categories and inactive products", async () => {
+  let receivedEstablishmentId = "";
+  const app = await createApp({
+    products: createProducts({
+      listMenu: (establishmentId) => {
+        receivedEstablishmentId = establishmentId;
+        return Promise.resolve([menuCategory]);
+      },
+    }),
+  });
+
+  const response = await app.inject({ method: "GET", url: "/admin/menu" });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedEstablishmentId, "establishment-id");
+  assert.deepEqual(response.json(), { categories: [menuCategory] });
+  await app.close();
+});
+
+void test("POST /admin/categories creates an audited tenant category", async () => {
+  const app = await createApp({
+    products: createProducts({
+      createCategory: (establishmentId, input, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(actorUserId, "user-id");
+        assert.deepEqual(input, { name: "Porcoes" });
+        return Promise.resolve(menuCategory);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { name: "Porcoes" },
+    url: "/admin/categories",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(response.json(), { category: menuCategory });
+  await app.close();
+});
+
+void test("POST /admin/products creates an item in a tenant category", async () => {
+  const app = await createApp({
+    products: createProducts({
+      createProduct: (establishmentId, input, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(actorUserId, "user-id");
+        assert.deepEqual(input, {
+          categoryId: "category-id",
+          description: "Copo 300 ml",
+          name: "Suco de laranja",
+          priceCents: 900,
+        });
+        return Promise.resolve(menuCategory.products[0]);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      categoryId: "category-id",
+      description: "Copo 300 ml",
+      name: "Suco de laranja",
+      priceCents: 900,
+    },
+    url: "/admin/products",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(response.json(), { product: menuCategory.products[0] });
+  await app.close();
+});
+
+void test("admin menu mutations validate values before persistence", async () => {
+  let createCalls = 0;
+  const app = await createApp({
+    products: createProducts({
+      createProduct: () => {
+        createCalls += 1;
+        return Promise.resolve(menuCategory.products[0]);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      categoryId: "category-id",
+      description: null,
+      name: "",
+      priceCents: 0,
+    },
+    url: "/admin/products",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(createCalls, 0);
   await app.close();
 });
 
@@ -947,15 +1149,40 @@ void test("POST /comandas/:comandaId/cancel rejects an inactive comanda", async 
 });
 
 void test("POST /comandas/:comandaId/close closes a comanda", async () => {
-  const app = await createApp();
+  const calls: unknown[][] = [];
+  const app = await createApp({
+    comandas: createComandas({
+      close: (...args) => {
+        calls.push(args);
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
 
   const response = await app.inject({
+    payload: {
+      payments: [
+        { amountCents: 200, method: "PIX" },
+        { amountCents: 400, method: "CASH" },
+      ],
+    },
     method: "POST",
     url: "/comandas/comanda-id/close",
   });
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json(), { comanda });
+  assert.deepEqual(calls[0], [
+    "establishment-id",
+    "comanda-id",
+    [
+      { amountCents: 400, method: "CASH" },
+      { amountCents: 200, method: "PIX" },
+    ],
+    null,
+    true,
+    "user-id",
+  ]);
 
   await app.close();
 });
@@ -1298,21 +1525,122 @@ void test("GET /statements rejects invalid periods before querying persistence",
   await app.close();
 });
 
-void test("GET /statements/export.pdf returns a named PDF document", async () => {
+void test("GET /statements/export.pdf returns a named PDF for each view", async () => {
   const app = await createApp();
 
-  const response = await app.inject({
+  const summaryResponse = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28&view=summary",
+  });
+
+  assert.equal(summaryResponse.statusCode, 200);
+  assert.match(summaryResponse.headers["content-type"] ?? "", /^application\/pdf/);
+  assert.equal(
+    summaryResponse.headers["content-disposition"],
+    'attachment; filename="extrato-resumido-2026-07-28-a-2026-07-28.pdf"',
+  );
+  assert.equal(summaryResponse.rawPayload.subarray(0, 4).toString(), "%PDF");
+
+  const detailedResponse = await app.inject({
     method: "GET",
     url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28",
   });
 
-  assert.equal(response.statusCode, 200);
-  assert.match(response.headers["content-type"] ?? "", /^application\/pdf/);
+  assert.equal(detailedResponse.statusCode, 200);
   assert.equal(
-    response.headers["content-disposition"],
-    'attachment; filename="extrato-2026-07-28-a-2026-07-28.pdf"',
+    detailedResponse.headers["content-disposition"],
+    'attachment; filename="extrato-detalhado-2026-07-28-a-2026-07-28.pdf"',
   );
-  assert.equal(response.rawPayload.subarray(0, 4).toString(), "%PDF");
+
+  const filteredDetailedResponse = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28&view=detailed&movementType=RECEIPTS&origin=TABLE",
+  });
+  assert.equal(filteredDetailedResponse.statusCode, 200);
+
+  const invalidResponse = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28&view=unknown",
+  });
+  assert.equal(invalidResponse.statusCode, 400);
+
+  const invalidMovementResponse = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28&movementType=UNKNOWN",
+  });
+  assert.equal(invalidMovementResponse.statusCode, 400);
+
+  const invalidOriginResponse = await app.inject({
+    method: "GET",
+    url: "/statements/export.pdf?from=2026-07-28&to=2026-07-28&origin=UNKNOWN",
+  });
+  assert.equal(invalidOriginResponse.statusCode, 400);
+
+  await app.close();
+});
+
+void test("credit balance at checkout requires credits.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: ["comandas.write"],
+        }),
+    }),
+    comandas: createComandas({
+      close: () => Promise.reject(new ComandaCreditPermissionError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { customerId: "customer-id", payments: [] },
+    url: "/comandas/comanda-id/close",
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), {
+    message: "Permission denied",
+    status: "error",
+  });
+
+  await app.close();
+});
+
+void test("payment routes reject malformed allocations before persistence", async () => {
+  let closeCalled = false;
+  let settleCalled = false;
+  const app = await createApp({
+    comandas: createComandas({
+      close: () => {
+        closeCalled = true;
+        return Promise.resolve(comanda);
+      },
+    }),
+    credits: createCredits({
+      settleOrder: () => {
+        settleCalled = true;
+        return Promise.resolve({ order: creditOrder, payment: creditPayment });
+      },
+    }),
+  });
+
+  const closeResponse = await app.inject({
+    method: "POST",
+    payload: { payments: [{ amountCents: -1, method: "PIX" }] },
+    url: "/comandas/comanda-id/close",
+  });
+  const settleResponse = await app.inject({
+    method: "POST",
+    payload: { payments: [{ amountCents: 100, method: "CHEQUE" }] },
+    url: "/credit-orders/order-id/settle",
+  });
+
+  assert.equal(closeResponse.statusCode, 400);
+  assert.equal(settleResponse.statusCode, 400);
+  assert.equal(closeCalled, false);
+  assert.equal(settleCalled, false);
 
   await app.close();
 });
