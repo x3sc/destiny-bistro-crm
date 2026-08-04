@@ -270,7 +270,7 @@ interface Reply {
 }
 
 function invalid(reply: Reply) {
-  return reply.code(409).send({ message: "Invalid menu entry", status: "error" });
+  return reply.code(400).send({ message: "Invalid menu entry", status: "error" });
 }
 
 function unavailable(reply: Reply) {
