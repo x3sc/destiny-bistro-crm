@@ -46,6 +46,7 @@ const comanda = {
   name: null,
   number: 42,
   openedAt: '2026-06-02T19:00:00.000Z',
+  payments: [],
   status: 'OPEN',
   table: {
     id: 1,
@@ -145,12 +146,18 @@ it('closes a comanda by encoded id', async () => {
   });
 
   await expect(
-    closeComanda('http://192.168.0.10:3333', 'comanda/id'),
+    closeComanda(
+      'http://192.168.0.10:3333',
+      'comanda/id',
+      [{ amountCents: 1200, method: 'PIX' }],
+    ),
   ).resolves.toEqual(comanda);
   expect(mockFetch).toHaveBeenCalledWith(
     'http://192.168.0.10:3333/comandas/comanda%2Fid/close',
     {
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        payments: [{ amountCents: 1200, method: 'PIX' }],
+      }),
       headers: {
         'Content-Type': 'application/json',
       },

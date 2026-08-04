@@ -1,13 +1,12 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import {
   cancelComanda,
   changeComandaItemQuantity,
-  closeComanda,
   confirmComandaItem,
   loadComanda,
   removeComandaItem,
@@ -26,13 +25,13 @@ import {
   statusLabels,
 } from './comanda-details-parts';
 import { styles } from './comanda-details-screen.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 interface ComandaDetailsScreenProps {
   apiBaseUrl?: string;
   cancelCreditRequest?: typeof cancelCreditOrder;
   cancelRequest?: typeof cancelComanda;
   changeItemQuantityRequest?: typeof changeComandaItemQuantity;
-  closeRequest?: typeof closeComanda;
   comandaId: string;
   confirmItemRequest?: typeof confirmComandaItem;
   finalizeCreditRequest?: typeof finalizeCreditOrder;
@@ -40,8 +39,7 @@ interface ComandaDetailsScreenProps {
   onAddProducts: (comandaId: string) => void;
   onBack: () => void;
   onCancelled: () => void;
-  onCloseAsCredit?: (comanda: Comanda) => void;
-  onClosed?: () => void;
+  onCheckout?: (comanda: Comanda) => void;
   onCreditFinished?: (customerId: string) => void;
   readOnly?: boolean;
   removeItemRequest?: typeof removeComandaItem;
@@ -57,7 +55,6 @@ export function ComandaDetailsScreen({
   cancelCreditRequest = cancelCreditOrder,
   cancelRequest = cancelComanda,
   changeItemQuantityRequest = changeComandaItemQuantity,
-  closeRequest = closeComanda,
   comandaId,
   confirmItemRequest = confirmComandaItem,
   finalizeCreditRequest = finalizeCreditOrder,
@@ -65,8 +62,7 @@ export function ComandaDetailsScreen({
   onAddProducts,
   onBack,
   onCancelled,
-  onCloseAsCredit,
-  onClosed = onCancelled,
+  onCheckout,
   onCreditFinished = onCancelled,
   readOnly = false,
   removeItemRequest = removeComandaItem,
@@ -119,26 +115,6 @@ export function ComandaDetailsScreen({
       onCancelled();
     } catch {
       setState({ kind: 'error' });
-      setIsMutating(false);
-    }
-  };
-
-  const closeTable = async () => {
-    if (!normalizedApiBaseUrl) {
-      return;
-    }
-
-    setIsClosing(true);
-    setIsMutating(true);
-
-    try {
-      const closedComanda = await closeRequest(normalizedApiBaseUrl, comandaId);
-      setState({ comanda: closedComanda, kind: 'success' });
-      onClosed();
-    } catch {
-      setState({ kind: 'error' });
-    } finally {
-      setIsClosing(false);
       setIsMutating(false);
     }
   };
@@ -201,7 +177,6 @@ export function ComandaDetailsScreen({
           <View style={styles.actions}>
             <Message text="Não foi possível carregar a comanda." />
             <ActionButton label="Tentar novamente" onPress={refresh} />
-            <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
           </View>
         )}
 
@@ -264,10 +239,7 @@ export function ComandaDetailsScreen({
             void cancelCreditDraft(state.comanda);
           }}
           onClose={() => {
-            void closeTable();
-          }}
-          onCloseAsCredit={() => {
-            onCloseAsCredit?.(state.comanda);
+            onCheckout?.(state.comanda);
           }}
           onFinalizeCredit={() => {
             void finalizeCreditDraft(state.comanda);
@@ -289,17 +261,7 @@ function ComandaHeader({
 }) {
   return (
     <View style={styles.screenHeader}>
-      <Pressable
-        accessibilityLabel="Voltar"
-        accessibilityRole="button"
-        onPress={onBack}
-        style={({ pressed }) => [
-          styles.backButton,
-          pressed && styles.pressedButton,
-        ]}
-      >
-        <Text style={styles.backButtonText}>‹</Text>
-      </Pressable>
+      <ScreenBackButton onPress={onBack} />
       <View style={styles.headerCopy}>
         <View style={styles.contextRow}>
           <Text style={styles.eyebrow}>

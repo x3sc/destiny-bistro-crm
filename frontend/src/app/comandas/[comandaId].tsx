@@ -22,16 +22,8 @@ export default function ComandaDetailsRoute() {
       onCancelled={() => {
         router.replace('/tables' as Href);
       }}
-      onCloseAsCredit={(comanda) => {
-        const name = comanda.name
-          ? `?name=${encodeURIComponent(comanda.name)}`
-          : '';
-        router.push(
-          `/comandas/${encodeURIComponent(comanda.id)}/credit${name}` as Href,
-        );
-      }}
-      onClosed={() => {
-        router.replace('/tables' as Href);
+      onCheckout={(comanda) => {
+        router.push(`/comandas/${encodeURIComponent(comanda.id)}/checkout` as Href);
       }}
       onCreditFinished={(customerId) => {
         router.replace(`/credits/${encodeURIComponent(customerId)}` as Href);

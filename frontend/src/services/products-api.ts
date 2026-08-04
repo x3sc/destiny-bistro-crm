@@ -1,30 +1,12 @@
 import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
 
-export const PRODUCT_CATEGORY_OPTIONS = [
-  { label: 'Hambúrgueres clássicos', value: 'CLASSIC_BURGERS' },
-  { label: 'Hambúrgueres artesanais', value: 'ARTISAN_BURGERS' },
-  { label: 'Adicionais', value: 'EXTRAS' },
-  { label: 'Bebidas', value: 'BEVERAGES' },
-  { label: 'Drinks', value: 'COCKTAILS' },
-  { label: 'Cervejas', value: 'BEERS' },
-  { label: 'Batatas e nuggets', value: 'SIDES' },
-  { label: 'Petiscos', value: 'SNACKS' },
-  { label: 'Combos', value: 'COMBOS' },
-  { label: 'Outros', value: 'OTHER' },
-] as const;
-
-export type ProductCategory = (typeof PRODUCT_CATEGORY_OPTIONS)[number]['value'];
-
 export interface Product {
-  category: ProductCategory;
+  category: { id: string; name: string };
+  description: string | null;
   id: string;
   name: string;
   priceCents: number;
-}
-
-function isProductCategory(value: unknown): value is ProductCategory {
-  return PRODUCT_CATEGORY_OPTIONS.some(({ value: category }) => category === value);
 }
 
 function isProduct(value: unknown): value is Product {
@@ -35,7 +17,11 @@ function isProduct(value: unknown): value is Product {
   const product = value as Partial<Product>;
 
   return (
-    isProductCategory(product.category) &&
+    !!product.category &&
+    typeof product.category === 'object' &&
+    typeof product.category.id === 'string' &&
+    typeof product.category.name === 'string' &&
+    (product.description === null || typeof product.description === 'string') &&
     typeof product.id === 'string' &&
     typeof product.name === 'string' &&
     Number.isInteger(product.priceCents)

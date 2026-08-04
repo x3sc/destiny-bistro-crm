@@ -14,6 +14,7 @@ const comanda: Comanda = {
   name: 'João',
   number: 42,
   openedAt: '2026-06-02T19:00:00.000Z',
+  payments: [],
   status: 'OPEN',
   table: {
     id: 1,

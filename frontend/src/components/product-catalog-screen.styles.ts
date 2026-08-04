@@ -30,22 +30,6 @@ export const styles = StyleSheet.create({
     minHeight: 62,
     paddingVertical: 8,
   },
-  backButton: {
-    alignItems: 'center',
-    backgroundColor: themeColors.surfaceMuted,
-    borderColor: themeColors.border,
-    borderRadius: 11,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    width: 44,
-  },
-  backButtonText: {
-    color: themeColors.titleIcon,
-    fontSize: 32,
-    fontWeight: '300',
-    lineHeight: 34,
-  },
   headingCopy: {
     flex: 1,
     gap: 1,

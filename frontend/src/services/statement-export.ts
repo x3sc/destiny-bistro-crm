@@ -6,16 +6,24 @@ import {
   authenticatedFetch,
   getActiveAuthToken,
 } from './auth-session';
-import { statementPdfUrl } from './statements-api';
+import {
+  defaultStatementEntryFilters,
+  statementPdfUrl,
+  type StatementEntryFilters,
+  type StatementView,
+} from './statements-api';
 
 export async function exportStatementPdf(
   apiBaseUrl: string,
   from: string,
   to: string,
+  view: StatementView,
+  filters: StatementEntryFilters = defaultStatementEntryFilters,
   runtime: StatementExportRuntime = defaultRuntime,
 ) {
-  const url = statementPdfUrl(apiBaseUrl, from, to);
-  const filename = `extrato-${from}-a-${to}.pdf`;
+  const url = statementPdfUrl(apiBaseUrl, from, to, view, filters);
+  const viewLabel = view === 'summary' ? 'resumido' : 'detalhado';
+  const filename = `extrato-${viewLabel}-${from}-a-${to}.pdf`;
 
   if (runtime.platform === 'web') {
     await runtime.downloadWeb(url, filename);
