@@ -18,13 +18,15 @@ afterEach(() => {
 it('loads active products', async () => {
   const products = [
     {
-      category: 'CLASSIC_BURGERS',
+      category: { id: 'food-id', name: 'Lanches' },
+      description: null,
       id: 'coffee-id',
       name: 'Café',
       priceCents: 600,
     },
     {
-      category: 'BEVERAGES',
+      category: { id: 'drinks-id', name: 'Bebidas' },
+      description: 'Sem gas',
       id: 'water-id',
       name: 'Água',
       priceCents: 500,

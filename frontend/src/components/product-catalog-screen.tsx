@@ -23,12 +23,11 @@ import {
 import { formatCentsAsBrl } from '../services/money';
 import {
   loadProducts,
-  PRODUCT_CATEGORY_OPTIONS,
   type Product,
-  type ProductCategory,
 } from '../services/products-api';
 import { themeColors } from '../theme/tokens';
 import { styles } from './product-catalog-screen.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 interface ProductCatalogScreenProps {
   addItemRequest?: typeof addComandaItem;
@@ -60,7 +59,7 @@ export function ProductCatalogScreen({
   const [lastError, setLastError] = useState<string>();
   const [mutatingProductId, setMutatingProductId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ProductCategory>();
+  const [selectedCategory, setSelectedCategory] = useState<string>();
   const [state, setState] = useState<ProductCatalogState>({ kind: 'loading' });
 
   const refresh = useCallback(() => {
@@ -148,16 +147,21 @@ export function ProductCatalogScreen({
   );
   const availableCategories =
     state.kind === 'success'
-      ? PRODUCT_CATEGORY_OPTIONS.filter(({ value }) =>
-          state.products.some((product) => product.category === value),
-        )
+      ? Array.from(
+          new Map(
+            state.products.map((product) => [
+              product.category.id,
+              product.category,
+            ]),
+          ).values(),
+        ).sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
       : [];
   const normalizedSearchQuery = normalizeSearchText(searchQuery.trim());
   const visibleProducts =
     state.kind === 'success'
       ? state.products.filter(
           (product) =>
-            (!selectedCategory || product.category === selectedCategory) &&
+            (!selectedCategory || product.category.id === selectedCategory) &&
             (!normalizedSearchQuery ||
               normalizeSearchText(product.name).includes(normalizedSearchQuery)),
         )
@@ -167,17 +171,7 @@ export function ProductCatalogScreen({
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.content}>
         <View style={styles.heading}>
-          <Pressable
-            accessibilityLabel="Voltar para comanda"
-            accessibilityRole="button"
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.pressedButton,
-            ]}
-          >
-            <Text style={styles.backButtonText}>‹</Text>
-          </Pressable>
+          <ScreenBackButton onPress={onBack} />
           <View style={styles.headingCopy}>
             <Text style={styles.eyebrow}>
               {state.kind === 'success'
@@ -208,7 +202,6 @@ export function ProductCatalogScreen({
           <View style={styles.actions}>
             <Message text="Não foi possível carregar o catálogo." />
             <ActionButton label="Tentar novamente" onPress={refresh} />
-            <ActionButton label="Voltar" onPress={onBack} tone="secondary" />
           </View>
         )}
 
@@ -248,11 +241,11 @@ export function ProductCatalogScreen({
                     />
                     {availableCategories.map((category) => (
                       <CategoryChip
-                        active={selectedCategory === category.value}
-                        key={category.value}
-                        label={category.label}
+                        active={selectedCategory === category.id}
+                        key={category.id}
+                        label={category.name}
                         onPress={() => {
-                          setSelectedCategory(category.value);
+                          setSelectedCategory(category.id);
                         }}
                       />
                     ))}

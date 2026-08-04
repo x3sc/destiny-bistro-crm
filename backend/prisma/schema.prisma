@@ -33,19 +33,6 @@ enum ComandaCancellationReason {
   OPENED_BY_MISTAKE
 }
 
-enum ProductCategory {
-  CLASSIC_BURGERS
-  ARTISAN_BURGERS
-  EXTRAS
-  BEVERAGES
-  COCKTAILS
-  BEERS
-  SIDES
-  SNACKS
-  COMBOS
-  OTHER
-}
-
 enum CreditOrderSource {
   MANUAL
   TABLE
@@ -56,6 +43,18 @@ enum CreditOrderStatus {
   OPEN
   SETTLED
   CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  DEBIT_CARD
+  CREDIT_CARD
+}
+
+enum PaymentOrigin {
+  TABLE_CHECKOUT
+  CREDIT_INSTALLMENT
 }
 
 enum IngredientUnit {
@@ -79,8 +78,10 @@ model Establishment {
   comandas           Comanda[]
   creditCustomers    CreditCustomer[]
   creditOrders       CreditOrder[]
-  creditSettlements  CreditSettlement[]
+  payments           Payment[]
+  paymentAllocations PaymentAllocation[]
   products           Product[]
+  menuCategories     MenuCategory[]
   comandaItems       ComandaItem[]
   comandaEvents      ComandaEvent[]
   ingredients        Ingredient[]
@@ -119,6 +120,7 @@ model Comanda {
   table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
   creditOrder        CreditOrder?
+  payments           Payment[]
   status             ComandaStatus              @default(OPEN)
   openedAt           DateTime                   @default(now())
   cancelledAt        DateTime?
@@ -143,7 +145,6 @@ model CreditCustomer {
   name            String             @db.VarChar(80)
   normalizedName  String             @db.VarChar(80)
   orders          CreditOrder[]
-  settlements     CreditSettlement[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -167,42 +168,81 @@ model CreditOrder {
   finalizedAt     DateTime?
   cancelledAt     DateTime?
   settledAt       DateTime?
-  settlementId    String?
-  settlement      CreditSettlement? @relation(fields: [settlementId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  payments        Payment[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   @@unique([comandaId, establishmentId])
+  @@unique([id, establishmentId])
   @@index([establishmentId, status])
   @@index([customerId, status])
-  @@index([settlementId])
   @@index([status, finalizedAt])
 }
 
-model CreditSettlement {
-  id              String         @id @default(cuid())
-  establishmentId String
-  establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  customerId      String
-  customer        CreditCustomer @relation(fields: [customerId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
-  amountCents     Int
-  paidAt          DateTime       @default(now())
-  orders          CreditOrder[]
-  createdAt       DateTime       @default(now())
+model Payment {
+  id               String              @id @default(cuid())
+  establishmentId  String
+  establishment    Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId         String
+  comanda           Comanda             @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  creditOrderId     String?
+  creditOrder       CreditOrder?        @relation(fields: [creditOrderId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  origin            PaymentOrigin
+  amountCents       Int
+  recordedByUserId  String?
+  recordedByUser    User?               @relation(fields: [recordedByUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  paidAt            DateTime            @default(now())
+  allocations       PaymentAllocation[]
+  createdAt         DateTime            @default(now())
 
   @@unique([id, establishmentId])
   @@index([establishmentId, paidAt])
-  @@index([customerId, paidAt])
+  @@index([comandaId, paidAt])
+  @@index([creditOrderId, paidAt])
+  @@index([recordedByUserId, paidAt])
   @@index([paidAt])
 }
 
-model Product {
-  id              String          @id @default(cuid())
+model PaymentAllocation {
+  id              String        @id @default(cuid())
   establishmentId String
-  establishment   Establishment   @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  paymentId       String
+  payment         Payment       @relation(fields: [paymentId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  method          PaymentMethod
+  amountCents     Int
+  createdAt       DateTime      @default(now())
+
+  @@unique([paymentId, method])
+  @@index([establishmentId, createdAt])
+  @@index([paymentId])
+}
+
+model MenuCategory {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  name            String        @db.VarChar(80)
+  normalizedName  String        @db.VarChar(80)
+  active          Boolean       @default(true)
+  products        Product[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([establishmentId, normalizedName])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, active, name])
+}
+
+model Product {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   code            String
-  category        ProductCategory @default(OTHER)
+  categoryId      String
+  category        MenuCategory  @relation(fields: [categoryId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   name            String
+  description     String?       @db.VarChar(255)
   priceCents      Int
   active          Boolean         @default(true)
   comandaItems    ComandaItem[]
@@ -212,6 +252,7 @@ model Product {
   @@unique([establishmentId, code])
   @@unique([id, establishmentId])
   @@index([establishmentId, active, name])
+  @@index([categoryId, active, name])
 }
 
 model ComandaItem {
@@ -273,6 +314,7 @@ model User {
   rolesAssigned      UserRole[]          @relation("RoleAssignedBy")
   auditLogs          AuditLog[]
   comandaEvents      ComandaEvent[]
+  payments           Payment[]
   inventoryMovements InventoryMovement[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt

@@ -11,10 +11,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
+import type { PaymentMethod } from '../services/comandas-api';
 import {
   cancelCreditOrder,
   loadCreditCustomer,
-  settleCreditOrder,
   type CreditCustomerDetails,
   type CreditOrder,
 } from '../services/credits-api';
@@ -22,6 +22,7 @@ import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 type State =
   | { kind: 'error' }
@@ -35,6 +36,13 @@ const statusLabels: Record<CreditOrder['status'], string> = {
   SETTLED: 'Quitado',
 };
 
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  CASH: 'Dinheiro',
+  CREDIT_CARD: 'Cartão de crédito',
+  DEBIT_CARD: 'Cartão de débito',
+  PIX: 'Pix',
+};
+
 export function CreditCustomerDetailsScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
   cancelRequest = cancelCreditOrder,
@@ -43,7 +51,7 @@ export function CreditCustomerDetailsScreen({
   onBack,
   onNewCredit,
   onViewOrder,
-  settleRequest = settleCreditOrder,
+  onPayOrder,
 }: {
   apiBaseUrl?: string;
   cancelRequest?: typeof cancelCreditOrder;
@@ -51,8 +59,8 @@ export function CreditCustomerDetailsScreen({
   loadRequest?: typeof loadCreditCustomer;
   onBack: () => void;
   onNewCredit: (customerId: string) => void;
+  onPayOrder?: (order: CreditOrder) => void;
   onViewOrder: (order: CreditOrder) => void;
-  settleRequest?: typeof settleCreditOrder;
 }) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [isMutating, setIsMutating] = useState(false);
@@ -106,24 +114,6 @@ export function CreditCustomerDetailsScreen({
     }
   };
 
-  const settleOrder = async (order: CreditOrder) => {
-    if (!normalizedApiBaseUrl) {
-      return;
-    }
-
-    setIsMutating(true);
-    setMutationError(false);
-
-    try {
-      await settleRequest(normalizedApiBaseUrl, order.id);
-      await reloadCustomer();
-    } catch {
-      setMutationError(true);
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
   const visibleOrders =
     state.kind === 'success'
       ? state.customer.orders.filter((order) =>
@@ -136,6 +126,8 @@ export function CreditCustomerDetailsScreen({
   return (
     <SafeAreaView style={creditStyles.safeArea}>
       <ScrollView contentContainerStyle={creditStyles.content}>
+        <ScreenBackButton onPress={onBack} />
+
         <View style={creditStyles.heading}>
           <Text style={creditStyles.eyebrow}>Destiny Bistro CRM</Text>
           <Text style={creditStyles.title}>Detalhes do fiado</Text>
@@ -153,7 +145,6 @@ export function CreditCustomerDetailsScreen({
               Não foi possível carregar este fiado.
             </Text>
             <CreditButton label="Tentar novamente" onPress={refresh} />
-            <CreditButton label="Voltar" onPress={onBack} tone="secondary" />
           </View>
         )}
 
@@ -233,9 +224,34 @@ export function CreditCustomerDetailsScreen({
                   <Text style={creditStyles.orderMeta}>
                     {formatDateTime(order.orderedAt)}
                   </Text>
-                  <Text style={creditStyles.balance}>
-                    {formatCentsAsBrl(order.totalCents)}
+                  <Text style={creditStyles.balance}>Restante {formatCentsAsBrl(order.balanceCents)}</Text>
+                  <Text style={creditStyles.orderMeta}>
+                    Total {formatCentsAsBrl(order.totalCents)} · Pago{' '}
+                    {formatCentsAsBrl(order.paidCents)}
                   </Text>
+                  {order.payments.map((payment) => (
+                    <View key={payment.id} style={creditStyles.card}>
+                      <Text style={creditStyles.cardTitle}>
+                        Recebimento {formatCentsAsBrl(payment.amountCents)}
+                      </Text>
+                      {payment.allocations.length === 0 ? (
+                        <Text style={creditStyles.orderMeta}>
+                          Forma de pagamento não informada
+                        </Text>
+                      ) : (
+                        payment.allocations.map((allocation) => (
+                          <Text key={allocation.id} style={creditStyles.orderMeta}>
+                            {paymentMethodLabels[allocation.method]} ·{' '}
+                            {formatCentsAsBrl(allocation.amountCents)}
+                          </Text>
+                        ))
+                      )}
+                      <Text style={creditStyles.orderMeta}>
+                        {formatDateTime(payment.paidAt)} ·{' '}
+                        {payment.recordedBy?.name ?? 'Operador não informado'}
+                      </Text>
+                    </View>
+                  ))}
 
                   <View style={creditStyles.actions}>
                     <CreditButton
@@ -277,15 +293,9 @@ export function CreditCustomerDetailsScreen({
                         )}
                         <CreditButton
                           disabled={isMutating || order.hasPendingItems}
-                          label={`Quitar este fiado (${formatCentsAsBrl(order.totalCents)})`}
+                          label={`Registrar pagamento (${formatCentsAsBrl(order.balanceCents)})`}
                           onPress={() => {
-                            confirmAction(
-                              'Quitar fiado',
-                              `Deseja quitar esta comanda no valor de ${formatCentsAsBrl(order.totalCents)}?`,
-                              () => {
-                                void settleOrder(order);
-                              },
-                            );
+                            onPayOrder?.(order);
                           }}
                         />
                       </>
@@ -295,7 +305,6 @@ export function CreditCustomerDetailsScreen({
               ))}
             </View>
 
-            <CreditButton label="Voltar" onPress={onBack} tone="secondary" />
           </>
         )}
       </ScrollView>

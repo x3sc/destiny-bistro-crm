@@ -33,9 +33,15 @@ export function createStatementRepository(
                       name: true,
                     },
                   },
-                  settlement: {
+                  payments: {
                     select: {
+                      allocations: {
+                        select: { amountCents: true, method: true },
+                      },
                       amountCents: true,
+                      id: true,
+                      origin: true,
+                      paidAt: true,
                     },
                   },
                   source: true,
@@ -46,12 +52,25 @@ export function createStatementRepository(
               items: {
                 select: {
                   confirmedQuantity: true,
+                  productId: true,
+                  productName: true,
                   quantity: true,
                   unitPriceCents: true,
                 },
               },
               name: true,
               number: true,
+              payments: {
+                select: {
+                  allocations: {
+                    select: { amountCents: true, method: true },
+                  },
+                  amountCents: true,
+                  id: true,
+                  origin: true,
+                  paidAt: true,
+                },
+              },
               status: true,
               table: {
                 select: {
@@ -85,6 +104,15 @@ export function createStatementRepository(
                 },
               },
               id: true,
+              items: {
+                select: {
+                  confirmedQuantity: true,
+                  productId: true,
+                  productName: true,
+                  quantity: true,
+                  unitPriceCents: true,
+                },
+              },
               name: true,
               number: true,
               status: true,
@@ -110,6 +138,7 @@ export function createStatementRepository(
             select: {
               comanda: {
                 select: {
+                  closedAt: true,
                   events: {
                     orderBy: {
                       createdAt: "asc",
@@ -118,6 +147,8 @@ export function createStatementRepository(
                       createdAt: true,
                       newQuantity: true,
                       previousQuantity: true,
+                      productId: true,
+                      productName: true,
                       unitPriceCents: true,
                     },
                     where: {
@@ -141,6 +172,18 @@ export function createStatementRepository(
                 },
               },
               finalizedAt: true,
+              payments: {
+                orderBy: { paidAt: "asc" },
+                select: {
+                  allocations: {
+                    select: { amountCents: true, method: true },
+                  },
+                  amountCents: true,
+                  id: true,
+                  origin: true,
+                  paidAt: true,
+                },
+              },
               source: true,
             },
             where: {
@@ -173,6 +216,16 @@ export function createStatementRepository(
                     },
                   },
                 },
+                {
+                  payments: {
+                    some: {
+                      paidAt: {
+                        gte: period.startAt,
+                        lt: period.endAt,
+                      },
+                    },
+                  },
+                },
               ],
             },
           }),
@@ -191,6 +244,7 @@ export function createStatementRepository(
                       }
                     : null,
                   id: comanda.id,
+                  items: comanda.items,
                   name: comanda.name,
                   number: comanda.number,
                   status: comanda.status,
@@ -208,8 +262,10 @@ export function createStatementRepository(
                     ? {
                         customerName: comanda.creditOrder.customer.name,
                         settlementAmountCents:
-                          comanda.creditOrder.settlement?.amountCents ??
-                          comanda.creditOrder.totalCents,
+                          comanda.creditOrder.payments.reduce(
+                            (total, payment) => total + payment.amountCents,
+                            0,
+                          ),
                         source: comanda.creditOrder.source,
                       }
                     : null,
@@ -217,6 +273,7 @@ export function createStatementRepository(
                   items: comanda.items,
                   name: comanda.name,
                   number: comanda.number,
+                  payments: comanda.payments,
                   status: comanda.status,
                   tableNumber: comanda.table?.number ?? null,
                 },
@@ -231,6 +288,8 @@ export function createStatementRepository(
           const events = order.comanda.events.flatMap((event) =>
             event.newQuantity === null ||
             event.previousQuantity === null ||
+            event.productId === null ||
+            event.productName === null ||
             event.unitPriceCents === null
               ? []
               : [
@@ -238,6 +297,8 @@ export function createStatementRepository(
                     createdAt: event.createdAt,
                     newQuantity: event.newQuantity,
                     previousQuantity: event.previousQuantity,
+                    productId: event.productId,
+                    productName: event.productName,
                     unitPriceCents: event.unitPriceCents,
                   },
                 ],
@@ -246,6 +307,7 @@ export function createStatementRepository(
           return [
             {
               comanda: {
+                closedAt: order.comanda.closedAt,
                 events,
                 id: order.comanda.id,
                 name: order.comanda.name,
@@ -255,6 +317,7 @@ export function createStatementRepository(
               },
               customerName: order.customer.name,
               finalizedAt: order.finalizedAt,
+              payments: order.payments,
               source: order.source,
             },
           ];

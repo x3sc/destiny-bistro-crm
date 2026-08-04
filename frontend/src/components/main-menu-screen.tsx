@@ -4,23 +4,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { themeColors } from '../theme/tokens';
 
 export function MainMenuScreen({
+  canAccessAdmin = true,
   canAccessCredits = true,
-  canAccessStatements = true,
   canAccessTables = true,
   establishmentName,
+  onAdmin,
   onCredits,
   onLogout,
-  onStatements,
   onTables,
   userName,
 }: {
+  canAccessAdmin?: boolean;
   canAccessCredits?: boolean;
-  canAccessStatements?: boolean;
   canAccessTables?: boolean;
   establishmentName?: string;
+  onAdmin: () => void;
   onCredits: () => void;
   onLogout?: () => void;
-  onStatements: () => void;
   onTables: () => void;
   userName?: string;
 }) {
@@ -63,11 +63,11 @@ export function MainMenuScreen({
               onPress={onCredits}
             />
           )}
-          {canAccessStatements && (
+          {canAccessAdmin && (
             <MenuCard
-              description="Consulte vendas, recebimentos e comandas por período."
-              label="Extratos"
-              onPress={onStatements}
+              description="Consulte o extrato do dia e gerencie categorias, itens e valores."
+              label="Administrativo"
+              onPress={onAdmin}
             />
           )}
         </View>

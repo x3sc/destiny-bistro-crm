@@ -10,6 +10,13 @@ export const statusLabels: Record<Comanda['status'], string> = {
   OPEN: 'Aberta',
 };
 
+const paymentMethodLabels = {
+  CASH: 'Dinheiro',
+  CREDIT_CARD: 'Cartão de crédito',
+  DEBIT_CARD: 'Cartão de débito',
+  PIX: 'Pix',
+} as const;
+
 export function Message({
   text,
   tone = 'error',
@@ -150,6 +157,44 @@ export function ComandaItems({
           {formatCentsAsBrl(comanda.totalCents)}
         </Text>
       </View>
+      {(comanda.payments.length > 0 || comanda.credit || comanda.status === 'CLOSED') && (
+        <View style={styles.confirmedItemsSection}>
+          <View style={styles.sectionHeading}>
+            <Text style={styles.sectionTitle}>Pagamentos</Text>
+            {comanda.credit && (
+              <Text style={styles.sectionDescription}>
+                Total {formatCentsAsBrl(comanda.credit.totalCents)} · Pago{' '}
+                {formatCentsAsBrl(comanda.credit.paidCents)} · Restante{' '}
+                {formatCentsAsBrl(comanda.credit.balanceCents)}
+              </Text>
+            )}
+          </View>
+          {comanda.payments.length === 0 ? (
+            <Text style={styles.emptySectionText}>
+              {comanda.credit ? 'Nenhum pagamento registrado.' : 'Forma de pagamento não informada.'}
+            </Text>
+          ) : (
+            comanda.payments.map((payment) => (
+              <View key={payment.id} style={styles.itemRow}>
+                <Text style={styles.itemName}>{formatCentsAsBrl(payment.amountCents)}</Text>
+                {payment.allocations.map((allocation) => (
+                  <Text key={allocation.id} style={styles.description}>
+                    {paymentMethodLabels[allocation.method]} ·{' '}
+                    {formatCentsAsBrl(allocation.amountCents)}
+                  </Text>
+                ))}
+                {payment.allocations.length === 0 && (
+                  <Text style={styles.description}>Forma de pagamento não informada</Text>
+                )}
+                <Text style={styles.itemTimestamp}>
+                  {formatItemDateTime(payment.paidAt)} ·{' '}
+                  {payment.recordedBy?.name ?? 'Operador não informado'}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -169,7 +214,6 @@ export function ComandaActions({
   onCancel,
   onCancelCredit,
   onClose,
-  onCloseAsCredit,
   onFinalizeCredit,
   readOnly,
   status,
@@ -184,7 +228,6 @@ export function ComandaActions({
   onCancel: () => void;
   onCancelCredit: () => void;
   onClose: () => void;
-  onCloseAsCredit: () => void;
   onFinalizeCredit: () => void;
   readOnly: boolean;
   status: Comanda['status'];
@@ -265,26 +308,11 @@ export function ComandaActions({
           <ActionButton
             disabled={disabled || !canClose}
             label={isClosing ? 'Fechando...' : 'Fechar mesa'}
-            onPress={() => {
-              confirmDestructiveAction({
-                message:
-                  'Deseja fechar esta mesa? Os itens confirmados serão preservados no histórico.',
-                onConfirm: onClose,
-                title: 'Fechar mesa',
-              });
-            }}
+            onPress={onClose}
             tone="secondary"
           />
         </View>
       </View>
-      {canCreateCredit && (
-        <ActionButton
-          disabled={disabled}
-          label="Fechar como fiado"
-          onPress={onCloseAsCredit}
-          tone="tertiary"
-        />
-      )}
       {canCancel && (
         <ActionButton
           disabled={disabled}

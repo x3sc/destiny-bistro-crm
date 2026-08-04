@@ -13,13 +13,34 @@ export type ComandaEventType =
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
 export type CreditOrderSource = 'MANUAL' | 'TABLE';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
+export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
+export type PaymentOrigin = 'TABLE_CHECKOUT' | 'CREDIT_INSTALLMENT';
+
+export interface PaymentAllocationInput {
+  amountCents: number;
+  method: PaymentMethod;
+}
+
+export interface Payment {
+  allocations: (PaymentAllocationInput & { id: string })[];
+  amountCents: number;
+  comandaId: string;
+  creditOrderId: string | null;
+  id: string;
+  origin: PaymentOrigin;
+  paidAt: string;
+  recordedBy: { id: string; name: string } | null;
+}
 
 export interface ComandaCreditSummary {
+  balanceCents: number;
   customerId: string;
   customerName: string;
   orderId: string;
+  paidCents: number;
   source: CreditOrderSource;
   status: CreditOrderStatus;
+  totalCents: number;
 }
 
 export interface ComandaItem {
@@ -58,6 +79,7 @@ export interface Comanda {
   name: string | null;
   number: number;
   openedAt: string;
+  payments: Payment[];
   status: ComandaStatus;
   table: {
     id: number;
@@ -126,14 +148,52 @@ function isComandaCredit(value: unknown): value is ComandaCreditSummary {
   const credit = value as Partial<ComandaCreditSummary>;
 
   return (
+    Number.isInteger(credit.balanceCents) &&
     typeof credit.customerId === 'string' &&
     typeof credit.customerName === 'string' &&
     typeof credit.orderId === 'string' &&
+    Number.isInteger(credit.paidCents) &&
     (credit.source === 'MANUAL' || credit.source === 'TABLE') &&
     (credit.status === 'DRAFT' ||
       credit.status === 'OPEN' ||
       credit.status === 'SETTLED' ||
-      credit.status === 'CANCELLED')
+      credit.status === 'CANCELLED') &&
+    Number.isInteger(credit.totalCents)
+  );
+}
+
+function isPayment(value: unknown): value is Payment {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const payment = value as Partial<Payment>;
+  return (
+    Array.isArray(payment.allocations) &&
+    payment.allocations.every(
+      (allocation) =>
+        typeof allocation.id === 'string' &&
+        Number.isInteger(allocation.amountCents) &&
+        allocation.amountCents > 0 &&
+        isPaymentMethod(allocation.method),
+    ) &&
+    Number.isInteger(payment.amountCents) &&
+    typeof payment.comandaId === 'string' &&
+    (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
+    typeof payment.id === 'string' &&
+    (payment.origin === 'TABLE_CHECKOUT' || payment.origin === 'CREDIT_INSTALLMENT') &&
+    typeof payment.paidAt === 'string' &&
+    (payment.recordedBy === null ||
+      (typeof payment.recordedBy?.id === 'string' &&
+        typeof payment.recordedBy?.name === 'string'))
+  );
+}
+
+function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return (
+    value === 'CASH' ||
+    value === 'PIX' ||
+    value === 'DEBIT_CARD' ||
+    value === 'CREDIT_CARD'
   );
 }
 
@@ -149,6 +209,8 @@ function isComanda(value: unknown): value is Comanda {
     (comanda.name === null || typeof comanda.name === 'string') &&
     Number.isInteger(comanda.number) &&
     typeof comanda.openedAt === 'string' &&
+    Array.isArray(comanda.payments) &&
+    comanda.payments.every(isPayment) &&
     (comanda.cancelledAt === null || typeof comanda.cancelledAt === 'string') &&
     (comanda.closedAt === null || typeof comanda.closedAt === 'string') &&
     (comanda.cancellationReason === null ||
@@ -236,11 +298,19 @@ export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
   );
 }
 
-export async function closeComanda(apiBaseUrl: string, comandaId: string) {
+export async function closeComanda(
+  apiBaseUrl: string,
+  comandaId: string,
+  payments: PaymentAllocationInput[],
+  customerId?: string,
+) {
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/close`,
-      jsonMutationInit('POST'),
+      jsonMutationInit('POST', {
+        payments,
+        ...(customerId ? { customerId } : {}),
+      }),
     ),
   );
 }

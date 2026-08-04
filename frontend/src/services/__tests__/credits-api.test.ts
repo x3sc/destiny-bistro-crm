@@ -19,6 +19,7 @@ const customer = {
   openOrderCount: 2,
 };
 const order = {
+  balanceCents: 0,
   cancelledAt: null,
   comandaId: 'comanda/id',
   comandaName: 'Maria',
@@ -29,17 +30,23 @@ const order = {
   hasPendingItems: false,
   id: 'order/id',
   orderedAt: '2026-07-28T18:00:00.000Z',
+  paidCents: 0,
+  payments: [],
   settledAt: null,
   source: 'MANUAL',
   status: 'DRAFT',
   tableNumber: null,
   totalCents: 0,
 };
-const settlement = {
+const payment = {
+  allocations: [{ amountCents: 2198, id: 'allocation/id', method: 'PIX' }],
   amountCents: 2198,
-  id: 'settlement/id',
-  orderId: 'order/id',
+  comandaId: 'comanda-id',
+  creditOrderId: 'order/id',
+  id: 'payment/id',
+  origin: 'CREDIT_INSTALLMENT',
   paidAt: '2026-07-28T19:00:00.000Z',
+  recordedBy: { id: 'user/id', name: 'Operador' },
 };
 
 beforeAll(() => {
@@ -105,7 +112,6 @@ it('loads customer details and settles the total balance', async () => {
   const details = {
     ...customer,
     orders: [order],
-    settlements: [],
   };
   mockFetch
     .mockResolvedValueOnce({
@@ -113,7 +119,7 @@ it('loads customer details and settles the total balance', async () => {
       ok: true,
     })
     .mockResolvedValueOnce({
-      json: () => Promise.resolve({ settlement }),
+      json: () => Promise.resolve({ order, payment }),
       ok: true,
     });
 
@@ -121,11 +127,20 @@ it('loads customer details and settles the total balance', async () => {
     loadCreditCustomer('http://localhost:3333', 'customer/id'),
   ).resolves.toEqual(details);
   await expect(
-    settleCreditOrder('http://localhost:3333', 'order/id'),
-  ).resolves.toEqual(settlement);
+    settleCreditOrder(
+      'http://localhost:3333',
+      'order/id',
+      [{ amountCents: 2198, method: 'PIX' }],
+    ),
+  ).resolves.toEqual({ order, payment });
   expect(mockFetch).toHaveBeenLastCalledWith(
     'http://localhost:3333/credit-orders/order%2Fid/settle',
-    expect.objectContaining({ method: 'POST' }),
+    expect.objectContaining({
+      body: JSON.stringify({
+        payments: [{ amountCents: 2198, method: 'PIX' }],
+      }),
+      method: 'POST',
+    }),
   );
 });
 

@@ -8,6 +8,8 @@ it('downloads the authenticated PDF on web', async () => {
     'http://localhost:3333',
     '2026-07-28',
     '2026-07-30',
+    'summary',
+    { movementType: 'ALL', origin: 'ALL' },
     {
       downloadAndShare,
       downloadWeb,
@@ -16,8 +18,8 @@ it('downloads the authenticated PDF on web', async () => {
   );
 
   expect(downloadWeb).toHaveBeenCalledWith(
-    'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30',
-    'extrato-2026-07-28-a-2026-07-30.pdf',
+    'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30&view=summary',
+    'extrato-resumido-2026-07-28-a-2026-07-30.pdf',
   );
   expect(downloadAndShare).not.toHaveBeenCalled();
 });
@@ -30,6 +32,8 @@ it('downloads and shares the PDF on native platforms', async () => {
     'http://localhost:3333',
     '2026-07-28',
     '2026-07-30',
+    'detailed',
+    { movementType: 'RECEIPTS', origin: 'CREDIT_MANUAL' },
     {
       downloadAndShare,
       downloadWeb,
@@ -38,8 +42,8 @@ it('downloads and shares the PDF on native platforms', async () => {
   );
 
   expect(downloadAndShare).toHaveBeenCalledWith(
-    'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30',
-    'extrato-2026-07-28-a-2026-07-30.pdf',
+    'http://localhost:3333/statements/export.pdf?from=2026-07-28&to=2026-07-30&view=detailed&movementType=RECEIPTS&origin=CREDIT_MANUAL',
+    'extrato-detalhado-2026-07-28-a-2026-07-30.pdf',
     null,
   );
   expect(downloadWeb).not.toHaveBeenCalled();

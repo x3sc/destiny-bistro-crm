@@ -18,6 +18,7 @@ import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
+import { ScreenBackButton } from './screen-back-button';
 
 type State =
   | { kind: 'error' }
@@ -62,6 +63,7 @@ export function CreditCustomersScreen({
   return (
     <SafeAreaView style={creditStyles.safeArea}>
       <ScrollView contentContainerStyle={creditStyles.content}>
+        <ScreenBackButton onPress={onBack} />
         <View style={creditStyles.heading}>
           <Text style={creditStyles.eyebrow}>Destiny Bistro CRM</Text>
           <Text style={creditStyles.title}>Fiados</Text>
@@ -72,7 +74,6 @@ export function CreditCustomersScreen({
 
         <View style={creditStyles.actions}>
           <CreditButton label="Novo fiado" onPress={onNewCredit} />
-          <CreditButton label="Voltar ao menu" onPress={onBack} tone="secondary" />
         </View>
 
         {state.kind === 'loading' && (
