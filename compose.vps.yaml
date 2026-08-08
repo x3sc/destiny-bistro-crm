@@ -46,7 +46,7 @@ services:
       [
         "sh",
         "-c",
-        "npm run prisma:migrate:deploy && npm run prisma:seed && npm start",
+        "npm run prisma:migrate:deploy && npm start",
       ]
     depends_on:
       mysql:
