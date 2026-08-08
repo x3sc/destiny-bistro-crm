@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
@@ -24,7 +24,8 @@ import {
   tableStatusBadgeStyles,
   tableStatusCardStyles,
 } from './table-grid-screen.styles';
-import { ScreenBackButton } from './screen-back-button';
+import { BrandedScreenHeader } from './branded-screen-header';
+import { AppIcon } from './app-icon';
 
 type TableGridState =
   | { apiBaseUrl: string; kind: 'error' }
@@ -35,6 +36,7 @@ type TableFilter = 'ALL' | 'AWAITING_CHECK' | 'FREE' | 'OPEN';
 
 interface TableGridScreenProps {
   apiBaseUrl?: string;
+  bottomNavigation?: ReactNode;
   loadTablesRequest?: typeof loadTables;
   onBack?: () => void;
   onSelectTable?: (table: RestaurantTable) => void;
@@ -80,6 +82,7 @@ export function getTableGridMetrics(windowWidth: number) {
 
 export function TableGridScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
+  bottomNavigation,
   loadTablesRequest = loadTables,
   onBack,
   onSelectTable,
@@ -154,17 +157,8 @@ export function TableGridScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <BrandedScreenHeader onBack={onBack} title="Mesas" />
       <View style={styles.content}>
-        <View style={styles.heading}>
-          {onBack && (
-            <ScreenBackButton onPress={onBack} />
-          )}
-          <View style={styles.headingCopy}>
-            <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-            <Text style={styles.title}>Mesas</Text>
-          </View>
-        </View>
-
         {!normalizedApiBaseUrl && (
           <MessageCard
             message="Configure EXPO_PUBLIC_API_URL antes de iniciar o aplicativo."
@@ -214,7 +208,11 @@ export function TableGridScreen({
             </View>
 
             <View style={styles.searchField}>
-              <Text style={styles.searchIcon}>⌕</Text>
+              <AppIcon
+                color={themeColors.icon}
+                name="search"
+                size={25}
+              />
               <TextInput
                 accessibilityLabel="Buscar mesa, nome ou comanda"
                 accessibilityRole="search"
@@ -271,6 +269,7 @@ export function TableGridScreen({
           </>
         )}
       </View>
+      {bottomNavigation}
     </SafeAreaView>
   );
 }

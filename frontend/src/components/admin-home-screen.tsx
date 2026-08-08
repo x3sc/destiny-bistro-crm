@@ -1,16 +1,20 @@
+import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { themeColors } from '../theme/tokens';
-import { ScreenBackButton } from './screen-back-button';
+import { AppIcon } from './app-icon';
+import { BrandedScreenHeader } from './branded-screen-header';
 
 export function AdminHomeScreen({
+  bottomNavigation,
   canManageMenu,
   canReadStatements,
   onBack,
   onMenu,
   onStatement,
 }: {
+  bottomNavigation?: ReactNode;
   canManageMenu: boolean;
   canReadStatements: boolean;
   onBack: () => void;
@@ -19,14 +23,12 @@ export function AdminHomeScreen({
 }) {
   return (
     <SafeAreaView style={styles.safeArea}>
+      <BrandedScreenHeader
+        description="Consulte o movimento de hoje e mantenha o cardápio atualizado"
+        onBack={onBack}
+        title="Administrativo"
+      />
       <View style={styles.content}>
-        <ScreenBackButton onPress={onBack} />
-        <Text style={styles.eyebrow}>Gestão do estabelecimento</Text>
-        <Text style={styles.title}>Administrativo</Text>
-        <Text style={styles.description}>
-          Consulte o movimento de hoje e mantenha o cardápio atualizado.
-        </Text>
-
         <View style={styles.cards}>
           {canReadStatements && (
             <AdminCard
@@ -44,6 +46,7 @@ export function AdminHomeScreen({
           )}
         </View>
       </View>
+      {bottomNavigation}
     </SafeAreaView>
   );
 }
@@ -59,11 +62,26 @@ function AdminCard({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
-      <Text style={styles.cardTitle}>{label}</Text>
+      <View style={styles.cardHeading}>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          numberOfLines={1}
+          style={styles.cardTitle}
+        >
+          {label}
+        </Text>
+        <AppIcon
+          color={themeColors.accent}
+          name="external"
+          size={22}
+        />
+      </View>
       <Text style={styles.cardDescription}>{description}</Text>
     </Pressable>
   );
@@ -72,50 +90,39 @@ function AdminCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surface,
-    borderColor: themeColors.border,
-    borderRadius: 18,
+    borderColor: themeColors.primary,
+    borderRadius: 22,
     borderWidth: 1,
-    gap: 8,
+    gap: 12,
+    minHeight: 134,
     padding: 20,
   },
   cardDescription: {
     color: themeColors.foregroundMuted,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 22,
   },
   cardTitle: {
-    color: themeColors.foreground,
-    fontSize: 21,
+    color: themeColors.primary,
+    flex: 1,
+    fontSize: 30,
     fontWeight: '800',
+    letterSpacing: -1,
   },
-  cards: { gap: 14, marginTop: 28 },
+  cardHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cards: { gap: 16, marginTop: 40 },
   content: {
     alignSelf: 'center',
+    backgroundColor: themeColors.background,
     flex: 1,
-    maxWidth: 680,
-    padding: 22,
+    maxWidth: 760,
+    paddingHorizontal: 25,
     width: '100%',
   },
-  description: {
-    color: themeColors.foregroundMuted,
-    fontSize: 16,
-    lineHeight: 23,
-    marginTop: 8,
-  },
-  eyebrow: {
-    color: themeColors.primary,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginTop: 8,
-    textTransform: 'uppercase',
-  },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
-  safeArea: { backgroundColor: themeColors.background, flex: 1 },
-  title: {
-    color: themeColors.foreground,
-    fontSize: 32,
-    fontWeight: '800',
-    marginTop: 10,
-  },
+  safeArea: { backgroundColor: themeColors.primary, flex: 1 },
 });

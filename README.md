@@ -233,6 +233,8 @@ que a resolucao automatica de dependencias do npm selecione uma versao de
 `react-native-worklets` incompatível com o `jest-expo`.
 
 `react-native-calendars` fornece a selecao visual do periodo.
+`@expo/vector-icons` renderiza no Android, iOS e web os mesmos glifos Font
+Awesome usados no design do Figma, sem depender de imagens remotas temporarias.
 `expo-file-system` e `expo-sharing` permitem baixar e compartilhar o PDF no
 dispositivo. `expo-secure-store` preserva o token de sessão no armazenamento
 protegido do Android/iOS. No backend, `pdfkit` gera o documento diretamente em

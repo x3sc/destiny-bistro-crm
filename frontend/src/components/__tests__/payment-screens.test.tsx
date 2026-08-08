@@ -94,11 +94,11 @@ it('closes a table with mixed partial payment and a selected customer', async ()
       loadCustomersRequest={() =>
         Promise.resolve([
           {
-            balanceCents: 0,
+            balanceCents: 1500,
             draftOrderCount: 0,
             id: 'customer-id',
             name: 'Maria',
-            openOrderCount: 0,
+            openOrderCount: 1,
           },
         ])
       }
@@ -117,6 +117,9 @@ it('closes a table with mixed partial payment and a selected customer', async ()
   );
   expect(screen.getByText('Selecionar fiado')).toBeTruthy();
   expect(screen.getByText('Fechar mesa')).toBeTruthy();
+  expect(screen.queryByText('Maria')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Buscar cadastrados' }));
+  fireEvent.changeText(screen.getByLabelText('Buscar pessoa cadastrada'), 'mari');
   fireEvent.press(screen.getByText('Maria'));
   fireEvent.press(screen.getByRole('button', { name: 'Confirmar fiado' }));
 
@@ -174,15 +177,21 @@ it('creates and selects a new credit without leaving checkout', async () => {
   );
 
   fireEvent.press(await screen.findByRole('button', { name: 'Fechar como fiado' }));
-  expect(screen.getByText('Nenhum fiado cadastrado.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Buscar cadastrados' })).toBeTruthy();
+  expect(screen.queryByLabelText('Buscar pessoa cadastrada')).toBeNull();
   fireEvent.changeText(screen.getByLabelText('Nome da pessoa'), 'Joana');
   fireEvent.press(screen.getByRole('button', { name: 'Cadastrar novo fiado' }));
 
-  expect(await screen.findByText('Joana')).toBeTruthy();
-  expect(createCustomerRequest).toHaveBeenCalledWith(
-    'http://localhost:3333',
-    'Joana',
-  );
+  await waitFor(() => {
+    expect(createCustomerRequest).toHaveBeenCalledWith(
+      'http://localhost:3333',
+      'Joana',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Confirmar fiado' }).props
+        .accessibilityState,
+    ).toEqual(expect.objectContaining({ disabled: false }));
+  });
   fireEvent.press(screen.getByRole('button', { name: 'Confirmar fiado' }));
 
   await waitFor(() => {
@@ -193,6 +202,58 @@ it('creates and selects a new credit without leaving checkout', async () => {
       'new-customer-id',
     );
   });
+});
+
+it('searches only customers who already have an open credit', async () => {
+  render(
+    <ComandaCheckoutScreen
+      apiBaseUrl="http://localhost:3333"
+      comandaId="comanda-id"
+      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadCustomersRequest={() =>
+        Promise.resolve([
+          {
+            balanceCents: 1199,
+            draftOrderCount: 0,
+            id: 'far-id',
+            name: 'FAR',
+            openOrderCount: 1,
+          },
+          {
+            balanceCents: 0,
+            draftOrderCount: 1,
+            id: 'gustavo-id',
+            name: 'Gustavo',
+            openOrderCount: 1,
+          },
+          {
+            balanceCents: 300,
+            draftOrderCount: 0,
+            id: 'maria-id',
+            name: 'Maria',
+            openOrderCount: 1,
+          },
+        ])
+      }
+      onBack={jest.fn()}
+      onFinished={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Fechar como fiado' }));
+
+  expect(screen.queryByText('FAR')).toBeNull();
+  expect(screen.queryByText('Gustavo')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Buscar cadastrados' }));
+
+  expect(screen.getByText('FAR')).toBeTruthy();
+  expect(screen.getByText('Maria')).toBeTruthy();
+  expect(screen.queryByText('Gustavo')).toBeNull();
+
+  fireEvent.changeText(screen.getByLabelText('Buscar pessoa cadastrada'), 'mari');
+
+  expect(screen.queryByText('FAR')).toBeNull();
+  expect(screen.getByText('Maria')).toBeTruthy();
 });
 
 it('allows a full table payment when credit customers are unavailable', async () => {

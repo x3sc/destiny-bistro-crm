@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { type Href, useRouter } from 'expo-router';
 
 import { TableGridScreen } from '@/components/table-grid-screen';
+import { AppBottomNavigation } from '@/components/app-bottom-navigation';
 import { hasPermission, useAuth } from '@/auth/auth-context';
 import type { RestaurantTable } from '@/services/tables-api';
 
@@ -25,6 +26,7 @@ export default function TablesScreen() {
     <>
       <StatusBar style="dark" />
       <TableGridScreen
+        bottomNavigation={<AppBottomNavigation activeItem="tables" />}
         onBack={() => {
           router.replace('/');
         }}

@@ -53,6 +53,8 @@ export function ComandaCheckoutScreen({
   const [paymentsValid, setPaymentsValid] = useState(true);
   const [customerId, setCustomerId] = useState<string>();
   const [creditModalVisible, setCreditModalVisible] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerSearchVisible, setCustomerSearchVisible] = useState(false);
   const [newName, setNewName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
@@ -99,6 +101,15 @@ export function ComandaCheckoutScreen({
       setSubmitting(false);
     }
   };
+
+  const openCreditCustomers =
+    state.kind === 'success'
+      ? state.customers.filter(customerHasOpenCredit)
+      : [];
+  const normalizedCustomerSearch = normalizeCustomerSearch(customerSearchQuery);
+  const filteredCreditCustomers = openCreditCustomers.filter((customer) =>
+    normalizeCustomerSearch(customer.name).includes(normalizedCustomerSearch),
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -147,6 +158,8 @@ export function ComandaCheckoutScreen({
               onPress={() => {
                 if (paidCents < state.comanda.totalCents) {
                   setSubmitError(false);
+                  setCustomerSearchQuery('');
+                  setCustomerSearchVisible(false);
                   setCreditModalVisible(true);
                 } else {
                   void submit();
@@ -175,71 +188,113 @@ export function ComandaCheckoutScreen({
                 aberto para a pessoa escolhida.
               </Text>
 
-              <ScrollView
-                contentContainerStyle={modalStyles.listContent}
-                style={modalStyles.list}
-              >
-                {state.customers.length === 0 && (
-                  <Text style={styles.empty}>Nenhum fiado cadastrado.</Text>
-                )}
-                {state.customers.map((customer) => (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: customerId === customer.id }}
-                    key={customer.id}
-                    onPress={() => setCustomerId(customer.id)}
-                    style={({ pressed }) => [
-                      styles.card,
-                      customerId === customer.id && modalStyles.selectedCustomer,
-                      pressed && styles.cardPressed,
-                    ]}
-                  >
-                    <Text style={styles.cardTitle}>{customer.name}</Text>
-                    <Text style={styles.orderMeta}>
-                      Saldo atual {formatCentsAsBrl(customer.balanceCents)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <CreditButton
+                label={
+                  customerSearchVisible
+                    ? 'Criar novo fiado'
+                    : 'Buscar cadastrados'
+                }
+                onPress={() => {
+                  setCustomerSearchQuery('');
+                  setCustomerSearchVisible((visible) => !visible);
+                }}
+                tone="secondary"
+              />
 
-              <View style={modalStyles.newCredit}>
-                <Text style={styles.cardTitle}>Criar novo fiado</Text>
-                <TextInput
-                  accessibilityLabel="Nome da pessoa"
-                  editable={!submitting}
-                  onChangeText={setNewName}
-                  placeholder="Nome"
-                  style={styles.field}
-                  value={newName}
-                />
-                <CreditButton
-                  disabled={submitting || !newName.trim()}
-                  label={submitting ? 'Cadastrando...' : 'Cadastrar novo fiado'}
-                  onPress={() => {
-                    if (!normalizedApiBaseUrl) return;
-                    setSubmitting(true);
-                    setSubmitError(false);
-                    void createCustomerRequest(normalizedApiBaseUrl, newName).then(
-                      (customer) => {
-                        setCustomerId(customer.id);
-                        setState((current) =>
-                          current.kind === 'success'
-                            ? {
-                                ...current,
-                                customers: [...current.customers, customer],
-                              }
-                            : current,
-                        );
-                        setSubmitting(false);
-                      },
-                      () => {
-                        setSubmitError(true);
-                        setSubmitting(false);
-                      },
-                    );
-                  }}
-                />
-              </View>
+              {customerSearchVisible ? (
+                <View style={modalStyles.searchSection}>
+                  <TextInput
+                    accessibilityLabel="Buscar pessoa cadastrada"
+                    autoCapitalize="words"
+                    onChangeText={setCustomerSearchQuery}
+                    placeholder="Digite o nome"
+                    style={styles.field}
+                    value={customerSearchQuery}
+                  />
+                  <ScrollView
+                    contentContainerStyle={modalStyles.listContent}
+                    keyboardShouldPersistTaps="handled"
+                    style={modalStyles.list}
+                  >
+                    {openCreditCustomers.length === 0 && (
+                      <Text style={styles.empty}>
+                        Nenhum cadastro com fiado em aberto.
+                      </Text>
+                    )}
+                    {openCreditCustomers.length > 0 &&
+                      filteredCreditCustomers.length === 0 && (
+                        <Text style={styles.empty}>
+                          Nenhuma pessoa encontrada.
+                        </Text>
+                      )}
+                    {filteredCreditCustomers.map((customer) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          selected: customerId === customer.id,
+                        }}
+                        key={customer.id}
+                        onPress={() => setCustomerId(customer.id)}
+                        style={({ pressed }) => [
+                          styles.card,
+                          customerId === customer.id &&
+                            modalStyles.selectedCustomer,
+                          pressed && styles.cardPressed,
+                        ]}
+                      >
+                        <Text style={styles.cardTitle}>{customer.name}</Text>
+                        <Text style={styles.orderMeta}>
+                          Saldo atual {formatCentsAsBrl(customer.balanceCents)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : (
+                <View style={modalStyles.newCredit}>
+                  <Text style={styles.cardTitle}>Criar novo fiado</Text>
+                  <TextInput
+                    accessibilityLabel="Nome da pessoa"
+                    editable={!submitting}
+                    onChangeText={setNewName}
+                    placeholder="Nome"
+                    style={styles.field}
+                    value={newName}
+                  />
+                  <CreditButton
+                    disabled={submitting || !newName.trim()}
+                    label={
+                      submitting ? 'Cadastrando...' : 'Cadastrar novo fiado'
+                    }
+                    onPress={() => {
+                      if (!normalizedApiBaseUrl) return;
+                      setSubmitting(true);
+                      setSubmitError(false);
+                      void createCustomerRequest(
+                        normalizedApiBaseUrl,
+                        newName,
+                      ).then(
+                        (customer) => {
+                          setCustomerId(customer.id);
+                          setState((current) =>
+                            current.kind === 'success'
+                              ? {
+                                  ...current,
+                                  customers: [...current.customers, customer],
+                                }
+                              : current,
+                          );
+                          setSubmitting(false);
+                        },
+                        () => {
+                          setSubmitError(true);
+                          setSubmitting(false);
+                        },
+                      );
+                    }}
+                  />
+                </View>
+              )}
 
               {submitError && (
                 <Text style={styles.error}>
@@ -290,6 +345,7 @@ const modalStyles = StyleSheet.create({
     borderColor: themeColors.primary,
     borderWidth: 2,
   },
+  searchSection: { gap: 10 },
   sheet: {
     backgroundColor: themeColors.background,
     borderRadius: 18,
@@ -299,3 +355,15 @@ const modalStyles = StyleSheet.create({
     width: '100%',
   },
 });
+
+function customerHasOpenCredit(customer: CreditCustomerSummary) {
+  return customer.balanceCents > 0;
+}
+
+function normalizeCustomerSearch(value: string) {
+  return value
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toLocaleLowerCase('pt-BR');
+}
