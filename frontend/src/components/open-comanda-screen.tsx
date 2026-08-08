@@ -132,8 +132,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    gap: 20,
-    padding: 24,
+    gap: 16,
+    padding: 20,
   },
   eyebrow: {
     color: themeColors.primary,
@@ -144,24 +144,24 @@ const styles = StyleSheet.create({
   },
   title: {
     color: themeColors.foreground,
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
   },
   card: {
     backgroundColor: themeColors.surface,
     borderRadius: 12,
     gap: 8,
-    padding: 20,
+    padding: 16,
   },
   table: {
     color: themeColors.foreground,
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '700',
   },
   description: {
     color: themeColors.foregroundMuted,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 20,
   },
   inputLabel: {
     color: themeColors.foreground,
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     color: themeColors.foreground,
-    fontSize: 16,
+    fontSize: 15,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
 });

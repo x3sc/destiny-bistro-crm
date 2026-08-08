@@ -50,7 +50,7 @@ export const statementStyles = StyleSheet.create({
     padding: 14,
   },
   cardLabel: { color: themeColors.foregroundMuted, fontSize: 13, lineHeight: 18 },
-  cardValue: { color: themeColors.foreground, fontSize: 21, fontWeight: '800' },
+  cardValue: { color: themeColors.foreground, fontSize: 19, fontWeight: '800' },
   clearFilters: { alignSelf: 'flex-start', paddingVertical: 4 },
   clearFiltersText: {
     color: themeColors.primary,
@@ -67,7 +67,7 @@ export const statementStyles = StyleSheet.create({
   },
   commandHeader: { gap: 4 },
   commandName: { color: themeColors.primaryText, fontSize: 15, fontWeight: '700' },
-  commandTitle: { color: themeColors.foreground, fontSize: 19, fontWeight: '800' },
+  commandTitle: { color: themeColors.foreground, fontSize: 17, fontWeight: '800' },
   content: {
     alignSelf: 'center',
     flexGrow: 1,
@@ -84,11 +84,11 @@ export const statementStyles = StyleSheet.create({
     gap: 7,
     padding: 16,
   },
-  dailyDate: { color: themeColors.foreground, fontSize: 17, fontWeight: '800' },
+  dailyDate: { color: themeColors.foreground, fontSize: 16, fontWeight: '800' },
   dailyMeta: { color: themeColors.foregroundMuted, fontSize: 14, lineHeight: 20 },
   dayGroup: { gap: 10 },
-  dayGroupTitle: { color: themeColors.primaryText, fontSize: 17, fontWeight: '800' },
-  description: { color: themeColors.foregroundMuted, fontSize: 15, lineHeight: 21 },
+  dayGroupTitle: { color: themeColors.primaryText, fontSize: 16, fontWeight: '800' },
+  description: { color: themeColors.foregroundMuted, fontSize: 14, lineHeight: 20 },
   error: {
     backgroundColor: themeColors.dangerSurface,
     borderRadius: 12,
@@ -122,7 +122,7 @@ export const statementStyles = StyleSheet.create({
   },
   entryHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
   entryHeaderCopy: { flex: 1, gap: 4 },
-  entryTitle: { color: themeColors.foreground, fontSize: 17, fontWeight: '800' },
+  entryTitle: { color: themeColors.foreground, fontSize: 16, fontWeight: '800' },
   filterCard: {
     backgroundColor: themeColors.surfaceAccent,
     borderRadius: 16,
@@ -168,8 +168,8 @@ export const statementStyles = StyleSheet.create({
   resultCount: { color: themeColors.foregroundMuted, fontSize: 14, fontWeight: '700' },
   safeArea: { backgroundColor: themeColors.background, flex: 1 },
   section: { gap: 12 },
-  sectionTitle: { color: themeColors.foreground, fontSize: 20, fontWeight: '800' },
-  chevron: { color: themeColors.primary, fontSize: 24, fontWeight: '800' },
+  sectionTitle: { color: themeColors.foreground, fontSize: 18, fontWeight: '800' },
+  chevron: { color: themeColors.primary, fontSize: 20, fontWeight: '800' },
   tab: {
     alignItems: 'center',
     borderRadius: 12,
@@ -179,7 +179,7 @@ export const statementStyles = StyleSheet.create({
     paddingVertical: 12,
   },
   tabSelected: { backgroundColor: themeColors.primary },
-  tabText: { color: themeColors.primaryText, fontSize: 15, fontWeight: '800' },
+  tabText: { color: themeColors.primaryText, fontSize: 14, fontWeight: '800' },
   tabTextSelected: { color: themeColors.foregroundOnPrimary },
   tabs: {
     backgroundColor: themeColors.surfaceAccent,
@@ -205,5 +205,5 @@ export const statementStyles = StyleSheet.create({
   },
   timelineRail: { alignItems: 'center', width: 20 },
   timelineRow: { flexDirection: 'row', gap: 8, paddingBottom: 10 },
-  title: { color: themeColors.foreground, fontSize: 30, fontWeight: '800' },
+  title: { color: themeColors.foreground, fontSize: 26, fontWeight: '800' },
 });

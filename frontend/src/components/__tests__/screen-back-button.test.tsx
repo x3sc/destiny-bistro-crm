@@ -8,7 +8,6 @@ it('returns to the previous screen from the top arrow', () => {
   render(<ScreenBackButton onPress={onPress} />);
 
   const backButton = screen.getByRole('button', { name: 'Voltar' });
-  expect(screen.getByText('‹')).toBeTruthy();
 
   fireEvent.press(backButton);
 

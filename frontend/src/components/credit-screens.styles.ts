@@ -8,7 +8,7 @@ export const creditStyles = StyleSheet.create({
   },
   balance: {
     color: themeColors.foreground,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
   },
   badge: {
@@ -24,8 +24,8 @@ export const creditStyles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: themeColors.primary,
-    borderRadius: 14,
+    backgroundColor: themeColors.accent,
+    borderRadius: 23,
     minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -38,7 +38,7 @@ export const creditStyles = StyleSheet.create({
     opacity: 0.45,
   },
   buttonPressed: {
-    opacity: 0.76,
+    backgroundColor: themeColors.accentPressed,
   },
   buttonSecondary: {
     backgroundColor: themeColors.surfaceAccent,
@@ -48,32 +48,37 @@ export const creditStyles = StyleSheet.create({
   },
   buttonText: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     textAlign: 'center',
   },
   card: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 16,
+    borderRadius: 22,
     borderWidth: 1,
     gap: 8,
-    padding: 16,
+    minHeight: 82,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   cardPressed: {
     opacity: 0.76,
   },
   cardTitle: {
     color: themeColors.foreground,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
   },
   content: {
     alignSelf: 'center',
+    backgroundColor: themeColors.background,
     flexGrow: 1,
-    gap: 18,
+    gap: 16,
     maxWidth: 760,
-    padding: 22,
+    paddingBottom: 36,
+    paddingHorizontal: 25,
+    paddingTop: 22,
     width: '100%',
   },
   description: {
@@ -104,12 +109,12 @@ export const creditStyles = StyleSheet.create({
   },
   field: {
     backgroundColor: themeColors.surface,
-    borderColor: themeColors.borderStrong,
-    borderRadius: 12,
+    borderColor: themeColors.primary,
+    borderRadius: 22,
     borderWidth: 1,
     color: themeColors.foreground,
-    fontSize: 16,
-    minHeight: 50,
+    fontSize: 15,
+    minHeight: 48,
     paddingHorizontal: 14,
   },
   filterOption: {
@@ -149,17 +154,54 @@ export const creditStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   safeArea: {
+    backgroundColor: themeColors.primary,
+    flex: 1,
+  },
+  scroll: {
     backgroundColor: themeColors.background,
     flex: 1,
   },
   sectionTitle: {
-    color: themeColors.foreground,
-    fontSize: 20,
+    color: themeColors.primary,
+    fontSize: 18,
     fontWeight: '800',
   },
   title: {
     color: themeColors.foreground,
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: '800',
+  },
+  formCard: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.primary,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+  },
+  summaryCard: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.primary,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  summaryCount: {
+    color: themeColors.foreground,
+    fontSize: 18,
+    fontWeight: '300',
+  },
+  summaryLabel: {
+    color: themeColors.foreground,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  summaryValue: {
+    color: themeColors.primary,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -1,
   },
 });
