@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
@@ -19,7 +19,7 @@ import {
 import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
-import { ScreenBackButton } from './screen-back-button';
+import { BrandedScreenHeader } from './branded-screen-header';
 
 type State =
   | { kind: 'error' }
@@ -29,6 +29,7 @@ type State =
 export function CreditCustomerPickerScreen({
   actionLabel,
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
+  bottomNavigation,
   createRequest = createCreditCustomer,
   initialName = '',
   loadRequest = loadCreditCustomers,
@@ -38,6 +39,7 @@ export function CreditCustomerPickerScreen({
 }: {
   actionLabel: string;
   apiBaseUrl?: string;
+  bottomNavigation?: ReactNode;
   createRequest?: typeof createCreditCustomer;
   initialName?: string;
   loadRequest?: typeof loadCreditCustomers;
@@ -104,17 +106,16 @@ export function CreditCustomerPickerScreen({
 
   return (
     <SafeAreaView style={creditStyles.safeArea}>
-      <ScrollView contentContainerStyle={creditStyles.content}>
-        <ScreenBackButton onPress={onBack} />
-        <View style={creditStyles.heading}>
-          <Text style={creditStyles.eyebrow}>Destiny Bistro CRM</Text>
-          <Text style={creditStyles.title}>{title}</Text>
-          <Text style={creditStyles.description}>
-            Selecione uma pessoa existente ou cadastre um novo nome.
-          </Text>
-        </View>
-
-        <View style={creditStyles.card}>
+      <BrandedScreenHeader
+        description="Selecione uma pessoa existente ou cadastre um novo nome"
+        onBack={onBack}
+        title={title}
+      />
+      <ScrollView
+        contentContainerStyle={creditStyles.content}
+        style={creditStyles.scroll}
+      >
+        <View style={creditStyles.formCard}>
           <Text style={creditStyles.sectionTitle}>Cadastrar pessoa</Text>
           <TextInput
             accessibilityLabel="Nome da pessoa"
@@ -183,6 +184,7 @@ export function CreditCustomerPickerScreen({
           </View>
         )}
       </ScrollView>
+      {bottomNavigation}
     </SafeAreaView>
   );
 }

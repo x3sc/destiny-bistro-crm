@@ -37,7 +37,9 @@ it('shows grouped balance and opens the selected customer', async () => {
   );
 
   expect(await screen.findByText('Maria')).toBeTruthy();
-  expect(screen.getByText('R$ 32,97')).toBeTruthy();
+  expect(screen.getByText('Total em aberto')).toBeTruthy();
+  expect(screen.getAllByText('R$ 32,97')).toHaveLength(2);
+  expect(screen.getByText('1 cliente')).toBeTruthy();
   expect(screen.getByText('2 pedidos abertos')).toBeTruthy();
   expect(screen.getByText('1 rascunho')).toBeTruthy();
 
@@ -61,6 +63,8 @@ it('starts a new credit from the empty state', async () => {
   expect(
     await screen.findByText('Nenhum saldo ou rascunho de fiado no momento.'),
   ).toBeTruthy();
-  fireEvent.press(screen.getByRole('button', { name: 'Novo fiado' }));
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Adicionar um novo fiado' }),
+  );
   expect(onNewCredit).toHaveBeenCalledTimes(1);
 });

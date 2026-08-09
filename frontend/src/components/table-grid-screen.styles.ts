@@ -11,54 +11,59 @@ const titleFont = Platform.select({
 
 export const tableStatusBadgeStyles = StyleSheet.create({
   AWAITING_CHECK: {
-    backgroundColor: themeColors.statusAwaitingBadge,
+    backgroundColor: 'transparent',
+    borderColor: '#ff9d00',
     color: themeColors.statusAwaitingText,
   },
   FREE: {
-    backgroundColor: themeColors.statusFreeBadge,
+    backgroundColor: 'transparent',
+    borderColor: '#33ff00',
     color: themeColors.statusFreeText,
   },
   OPEN: {
-    backgroundColor: themeColors.statusOpenBadge,
+    backgroundColor: 'transparent',
+    borderColor: '#ff0000',
     color: themeColors.statusOpenText,
   },
 });
 
 export const tableStatusCardStyles = StyleSheet.create({
   AWAITING_CHECK: {
-    backgroundColor: themeColors.statusAwaitingSurface,
-    borderColor: themeColors.statusAwaitingBorder,
+    backgroundColor: themeColors.surface,
+    borderColor: '#e7e3de',
   },
   FREE: {
-    backgroundColor: themeColors.statusFreeSurface,
-    borderColor: themeColors.statusFreeBorder,
+    backgroundColor: themeColors.surface,
+    borderColor: '#e7e3de',
   },
   OPEN: {
-    backgroundColor: themeColors.statusOpenSurface,
-    borderColor: themeColors.statusOpenBorder,
+    backgroundColor: themeColors.surface,
+    borderColor: '#e7e3de',
   },
 });
 
 export const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: themeColors.background,
+    backgroundColor: themeColors.primary,
     flex: 1,
   },
   content: {
     alignSelf: 'center',
     flex: 1,
-    gap: 12,
+    backgroundColor: themeColors.background,
+    gap: 10,
     maxWidth: 1180,
     paddingBottom: 16,
     paddingHorizontal: 16,
+    paddingTop: 14,
     width: '100%',
   },
   heading: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
-    minHeight: 62,
-    paddingVertical: 8,
+    minHeight: 56,
+    paddingVertical: 6,
   },
   headingCopy: {
     flex: 1,
@@ -72,7 +77,7 @@ export const styles = StyleSheet.create({
   title: {
     color: themeColors.foreground,
     fontFamily: titleFont,
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: '700',
   },
   summaryRow: {
@@ -82,45 +87,41 @@ export const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     flex: 1,
     gap: 3,
-    minHeight: 70,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
+    minHeight: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
   summaryLabel: {
     color: themeColors.foregroundSoft,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   summaryValue: {
-    color: themeColors.foreground,
+    color: themeColors.primary,
     fontFamily: titleFont,
-    fontSize: 21,
+    fontSize: 18,
     fontWeight: '700',
   },
   searchField: {
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 13,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,
-    minHeight: 48,
+    minHeight: 46,
     paddingHorizontal: 13,
-  },
-  searchIcon: {
-    color: themeColors.icon,
-    fontSize: 23,
   },
   searchInput: {
     color: themeColors.foregroundBody,
     flex: 1,
-    fontSize: 15,
-    paddingVertical: 10,
+    fontSize: 14,
+    paddingVertical: 9,
   },
   filterChips: {
     alignItems: 'center',
@@ -150,12 +151,12 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   activeFilterChip: {
-    backgroundColor: themeColors.primary,
-    borderColor: themeColors.primary,
+    backgroundColor: themeColors.accent,
+    borderColor: themeColors.accent,
   },
   filterChipText: {
     color: themeColors.primaryText,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   activeFilterChipText: {
@@ -172,7 +173,7 @@ export const styles = StyleSheet.create({
   },
   message: {
     color: themeColors.message,
-    fontSize: 15,
+    fontSize: 14,
   },
   messageCard: {
     backgroundColor: themeColors.surface,
@@ -188,7 +189,7 @@ export const styles = StyleSheet.create({
     color: themeColors.dangerText,
   },
   tableGrid: {
-    gap: 12,
+    gap: 9,
     paddingBottom: 4,
     paddingTop: 4,
   },
@@ -197,18 +198,19 @@ export const styles = StyleSheet.create({
     minHeight: 0,
   },
   tableRow: {
-    gap: 12,
+    gap: 9,
   },
   tableCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     flexGrow: 0,
     flexShrink: 0,
-    gap: 9,
-    minHeight: 142,
-    padding: 15,
+    gap: 6,
+    minHeight: 90,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   tableCardHeading: {
     alignItems: 'flex-start',
@@ -220,33 +222,34 @@ export const styles = StyleSheet.create({
     color: themeColors.foreground,
     flex: 1,
     fontFamily: titleFont,
-    fontSize: 19,
+    fontSize: 23,
     fontWeight: '700',
   },
   tableStatus: {
     borderRadius: 999,
-    fontSize: 10,
+    borderWidth: 1,
+    fontSize: 12,
     fontWeight: '700',
     maxWidth: '62%',
     overflow: 'hidden',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 3,
   },
   comandaName: {
     color: themeColors.foregroundBody,
-    fontSize: 13,
+    fontSize: 12,
   },
   comandaNumber: {
     borderTopColor: themeColors.divider,
     borderTopWidth: 1,
     color: themeColors.foregroundBody,
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 'auto',
-    paddingTop: 9,
+    paddingTop: 7,
   },
   openComandaAction: {
     color: themeColors.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     marginTop: 'auto',
   },
@@ -287,7 +290,7 @@ export const styles = StyleSheet.create({
   },
   buttonText: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   secondaryButtonText: {

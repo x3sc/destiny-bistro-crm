@@ -46,6 +46,9 @@ it('shows only permitted areas and logs out the identified user', () => {
   expect(screen.getByText('Mesas')).toBeTruthy();
   expect(screen.queryByText('Fiados')).toBeNull();
   expect(screen.queryByText('Administrativo')).toBeNull();
+  expect(
+    screen.getByText('Olá, bem-vindo(a), Cozinha, ao seu menu principal'),
+  ).toBeTruthy();
   expect(screen.getByText('Conectado como Cozinha')).toBeTruthy();
   expect(screen.getByText('Destiny Centro')).toBeTruthy();
   fireEvent.press(screen.getByText('Sair'));

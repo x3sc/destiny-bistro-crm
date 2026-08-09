@@ -42,7 +42,7 @@ export const styles = StyleSheet.create({
   title: {
     color: themeColors.foreground,
     fontFamily: titleFont,
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: '700',
   },
   description: {
@@ -63,12 +63,12 @@ export const styles = StyleSheet.create({
   },
   searchIcon: {
     color: themeColors.icon,
-    fontSize: 24,
+    fontSize: 22,
   },
   searchInput: {
     color: themeColors.foregroundBody,
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     paddingVertical: 11,
   },
   categoryChips: {
@@ -137,7 +137,7 @@ export const styles = StyleSheet.create({
   },
   productName: {
     color: themeColors.foreground,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   quantityText: {
@@ -163,7 +163,7 @@ export const styles = StyleSheet.create({
   },
   quantityControlButtonText: {
     color: themeColors.primary,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
   },
   quantityControlValue: {

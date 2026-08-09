@@ -79,7 +79,7 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
 });
 
-it('uses semantic backgrounds for each table status', async () => {
+it('uses white cards and semantic outlined badges for each table status', async () => {
   render(
     <TableGridScreen
       apiBaseUrl="http://192.168.0.10:3333"
@@ -88,16 +88,21 @@ it('uses semantic backgrounds for each table status', async () => {
   );
 
   expect(await screen.findByRole('button', { name: 'Mesa 1 Livre' })).toHaveStyle({
-    backgroundColor: themeColors.statusFreeSurface,
+    backgroundColor: themeColors.surface,
   });
   expect(
     screen.getByRole('button', {
       name: 'Mesa 2 Ocupada João Comanda #42',
     }),
-  ).toHaveStyle({ backgroundColor: themeColors.statusOpenSurface });
+  ).toHaveStyle({ backgroundColor: themeColors.surface });
   expect(
     screen.getByRole('button', { name: 'Mesa 3 Aguardando pagamento' }),
-  ).toHaveStyle({ backgroundColor: themeColors.statusAwaitingSurface });
+  ).toHaveStyle({ backgroundColor: themeColors.surface });
+  expect(screen.getByText('• Livre')).toHaveStyle({ borderColor: '#33ff00' });
+  expect(screen.getByText('• Ocupada')).toHaveStyle({ borderColor: '#ff0000' });
+  expect(screen.getByText('• Aguardando pagamento')).toHaveStyle({
+    borderColor: '#ff9d00',
+  });
 });
 
 it('filters restaurant tables by operational status', async () => {
@@ -140,6 +145,23 @@ it('keeps the table filter buttons at a stable touch size', async () => {
     flexShrink: 0,
     height: 44,
     minWidth: 88,
+  });
+});
+
+it('uses compact cards for the restaurant tables', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve(tables)}
+    />,
+  );
+
+  const tableCard = await screen.findByRole('button', { name: /Mesa 1 Livre/ });
+
+  expect(tableCard).toHaveStyle({
+    minHeight: 90,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   });
 });
 

@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { themeColors } from '../theme/tokens';
+import { AppIcon } from './app-icon';
 
 export function MainMenuScreen({
   canAccessAdmin = true,
@@ -26,32 +28,50 @@ export function MainMenuScreen({
 }) {
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
-        <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-        <Text style={styles.title}>Menu principal</Text>
-        {establishmentName && (
-          <Text style={styles.establishmentName}>{establishmentName}</Text>
-        )}
-        {userName && (
-          <View style={styles.session}>
-            <Text style={styles.sessionText}>Conectado como {userName}</Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={onLogout}
-              style={styles.logoutButton}
-            >
-              <Text style={styles.logout}>Sair</Text>
-            </Pressable>
+      <StatusBar style="light" />
+      <View style={styles.hero}>
+        <View style={styles.heroContent}>
+          <View style={styles.brandRow}>
+            <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
+            {userName ? (
+              <AppIcon
+                color={themeColors.foregroundOnPrimary}
+                name="user"
+                size={58}
+              />
+            ) : null}
           </View>
-        )}
-        <Text style={styles.description}>
-          Escolha a área que deseja acessar.
-        </Text>
+          <Text style={styles.title}>
+            {userName
+              ? `Olá, bem-vindo(a), ${userName}, ao seu menu principal`
+              : 'Olá, bem-vindo(a) ao seu menu principal'}
+          </Text>
+          {establishmentName ? (
+            <Text style={styles.establishmentName}>{establishmentName}</Text>
+          ) : null}
+          {userName ? (
+            <View style={styles.session}>
+              <Text style={styles.sessionText}>Conectado como {userName}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={onLogout}
+                style={styles.logoutButton}
+              >
+                <Text style={styles.logout}>Sair</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.description}>Escolha a área que deseja acessar</Text>
 
         <View style={styles.cards}>
           {canAccessTables && (
             <MenuCard
               description="Abra e acompanhe as comandas do salão."
+              icon="tables"
               label="Mesas"
               onPress={onTables}
             />
@@ -59,6 +79,7 @@ export function MainMenuScreen({
           {canAccessCredits && (
             <MenuCard
               description="Registre pedidos e acompanhe valores a receber."
+              icon="credits"
               label="Fiados"
               onPress={onCredits}
             />
@@ -66,12 +87,13 @@ export function MainMenuScreen({
           {canAccessAdmin && (
             <MenuCard
               description="Consulte o extrato do dia e gerencie categorias, itens e valores."
+              icon="admin"
               label="Administrativo"
               onPress={onAdmin}
             />
           )}
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -79,16 +101,19 @@ export function MainMenuScreen({
 function MenuCard({
   description,
   disabled = false,
+  icon,
   label,
   onPress,
 }: {
   description: string;
   disabled?: boolean;
+  icon: 'admin' | 'credits' | 'tables';
   label: string;
   onPress?: () => void;
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
@@ -99,7 +124,15 @@ function MenuCard({
       ]}
     >
       <View style={styles.cardHeading}>
-        <Text style={styles.cardTitle}>{label}</Text>
+        <AppIcon color={themeColors.accent} name={icon} size={22} />
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          numberOfLines={1}
+          style={styles.cardTitle}
+        >
+          {label}
+        </Text>
         {disabled && <Text style={styles.badge}>Em breve</Text>}
       </View>
       <Text style={styles.cardDescription}>{description}</Text>
@@ -121,75 +154,80 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
-    gap: 8,
+    gap: 10,
+    minHeight: 144,
     padding: 20,
   },
   cardDescription: {
-    color: themeColors.foregroundMuted,
+    color: themeColors.foreground,
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 20,
   },
   cardHeading: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   cardTitle: {
-    color: themeColors.foreground,
-    fontSize: 22,
+    color: themeColors.primary,
+    fontSize: 32,
     fontWeight: '800',
+    letterSpacing: -1,
   },
   cards: {
-    gap: 14,
-    marginTop: 24,
+    gap: 16,
+    marginTop: 14,
   },
   content: {
     alignSelf: 'center',
-    flex: 1,
-    maxWidth: 680,
-    padding: 22,
+    flexGrow: 1,
+    maxWidth: 760,
+    paddingBottom: 40,
+    paddingHorizontal: 25,
+    paddingTop: 26,
     width: '100%',
   },
   description: {
-    color: themeColors.foregroundMuted,
-    fontSize: 16,
-    marginTop: 8,
+    color: themeColors.primary,
+    fontSize: 17,
+    paddingHorizontal: 25,
   },
   disabledCard: {
     opacity: 0.65,
   },
   eyebrow: {
-    color: themeColors.primary,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    color: themeColors.foregroundOnPrimary,
+    fontSize: 16,
+    fontWeight: '300',
   },
   establishmentName: {
-    color: themeColors.primary,
-    fontSize: 16,
+    color: themeColors.foregroundOnPrimary,
+    fontSize: 14,
     fontWeight: '700',
     marginTop: 6,
   },
   logout: {
-    color: themeColors.primary,
+    color: themeColors.foregroundOnPrimary,
     fontSize: 14,
     fontWeight: '800',
   },
   logoutButton: {
     alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 999,
+    borderWidth: 1,
     justifyContent: 'center',
     minHeight: 44,
     minWidth: 44,
+    paddingHorizontal: 16,
   },
   pressedCard: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
   },
   safeArea: {
-    backgroundColor: themeColors.background,
+    backgroundColor: themeColors.primary,
     flex: 1,
   },
   session: {
@@ -199,13 +237,33 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   sessionText: {
-    color: themeColors.foregroundMuted,
+    color: themeColors.foregroundOnPrimary,
     fontSize: 14,
   },
   title: {
-    color: themeColors.foreground,
-    fontSize: 32,
+    color: themeColors.foregroundOnPrimary,
+    fontSize: 27,
     fontWeight: '800',
-    marginTop: 12,
+    lineHeight: 34,
+    maxWidth: 520,
+  },
+  brandRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  hero: {
+    backgroundColor: themeColors.primary,
+    borderBottomLeftRadius: 46,
+    borderBottomRightRadius: 46,
+  },
+  heroContent: {
+    alignSelf: 'center',
+    gap: 10,
+    maxWidth: 760,
+    paddingBottom: 22,
+    paddingHorizontal: 26,
+    paddingTop: 18,
+    width: '100%',
   },
 });

@@ -1,6 +1,7 @@
 import { type Href, useRouter } from 'expo-router';
 
 import { CreditCustomerPickerScreen } from '@/components/credit-customer-picker-screen';
+import { AppBottomNavigation } from '@/components/app-bottom-navigation';
 import { createCreditOrder } from '@/services/credits-api';
 
 export default function NewCreditRoute() {
@@ -9,6 +10,7 @@ export default function NewCreditRoute() {
   return (
     <CreditCustomerPickerScreen
       actionLabel="Cadastrar e criar fiado"
+      bottomNavigation={<AppBottomNavigation activeItem="credits" />}
       onBack={() => {
         router.back();
       }}

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { Text } from 'react-native';
 
 import { AdminHomeScreen } from '../admin-home-screen';
 
@@ -9,6 +10,7 @@ it('opens the daily statement and menu management', () => {
 
   render(
     <AdminHomeScreen
+      bottomNavigation={<Text>Navbar administrativa</Text>}
       canManageMenu
       canReadStatements
       onBack={onBack}
@@ -17,6 +19,8 @@ it('opens the daily statement and menu management', () => {
     />,
   );
 
+  expect(screen.getByText('Destiny Bistro CRM')).toBeTruthy();
+  expect(screen.getByText('Navbar administrativa')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Extrato do dia' }));
   fireEvent.press(screen.getByRole('button', { name: 'Cardápio' }));
 
