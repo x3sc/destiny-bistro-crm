@@ -25,6 +25,8 @@ const statement = {
       creditPaidBeforeCents: 0,
       creditTotalCents: 500,
       customerName: 'Maria',
+      deliveryAddress: null,
+      deliveryFeeCents: null,
       event: 'CREDIT_FINALIZED',
       id: 'entry-id',
       items: [

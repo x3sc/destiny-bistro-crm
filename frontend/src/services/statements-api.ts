@@ -1,7 +1,11 @@
 import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
 
-export type StatementOrigin = 'TABLE' | 'CREDIT_MANUAL' | 'CREDIT_TABLE';
+export type StatementOrigin =
+  | 'TABLE'
+  | 'CREDIT_MANUAL'
+  | 'CREDIT_TABLE'
+  | 'DELIVERY';
 export type StatementView = 'detailed' | 'summary';
 export type StatementMovementType =
   | 'ALL'
@@ -23,14 +27,18 @@ export type StatementPaymentSummaryMethod =
   | 'DEBIT_CARD'
   | 'CREDIT_CARD'
   | 'UNSPECIFIED';
-export type StatementPaymentOrigin = 'TABLE_CHECKOUT' | 'CREDIT_INSTALLMENT';
+export type StatementPaymentOrigin =
+  | 'TABLE_CHECKOUT'
+  | 'CREDIT_INSTALLMENT'
+  | 'DELIVERY_PAYMENT';
 export type StatementEvent =
   | 'TABLE_CLOSED'
   | 'CREDIT_FINALIZED'
   | 'CREDIT_ADDITION'
   | 'CREDIT_PAYMENT'
   | 'CREDIT_SETTLED'
-  | 'COMANDA_CANCELLED';
+  | 'COMANDA_CANCELLED'
+  | 'DELIVERY_RECORDED';
 
 export interface StatementSummary {
   cancelledCommandCount: number;
@@ -49,12 +57,14 @@ export interface StatementDay extends StatementSummary {
 export interface StatementEntry {
   comandaId: string;
   comandaName: string | null;
-  comandaNumber: number;
+  comandaNumber: number | null;
   creditBalanceAfterCents: number | null;
   creditPaidAfterCents: number | null;
   creditPaidBeforeCents: number | null;
   creditTotalCents: number | null;
   customerName: string | null;
+  deliveryAddress: string | null;
+  deliveryFeeCents: number | null;
   event: StatementEvent;
   id: string;
   items: StatementEntryItem[];
@@ -226,7 +236,8 @@ function isEntry(value: unknown): value is StatementEntry {
   return (
     typeof entry.comandaId === 'string' &&
     (entry.comandaName === null || typeof entry.comandaName === 'string') &&
-    isNonNegativeInteger(entry.comandaNumber) &&
+    (entry.comandaNumber === null ||
+      isNonNegativeInteger(entry.comandaNumber)) &&
     (entry.creditBalanceAfterCents === null ||
       isNonNegativeInteger(entry.creditBalanceAfterCents)) &&
     (entry.creditPaidAfterCents === null ||
@@ -236,6 +247,10 @@ function isEntry(value: unknown): value is StatementEntry {
     (entry.creditTotalCents === null ||
       isNonNegativeInteger(entry.creditTotalCents)) &&
     (entry.customerName === null || typeof entry.customerName === 'string') &&
+    (entry.deliveryAddress === null ||
+      typeof entry.deliveryAddress === 'string') &&
+    (entry.deliveryFeeCents === null ||
+      isNonNegativeInteger(entry.deliveryFeeCents)) &&
     isStatementEvent(entry.event) &&
     typeof entry.id === 'string' &&
     Array.isArray(entry.items) &&
@@ -253,7 +268,8 @@ function isEntry(value: unknown): value is StatementEntry {
     ) &&
     (entry.paymentOrigin === null ||
       entry.paymentOrigin === 'TABLE_CHECKOUT' ||
-      entry.paymentOrigin === 'CREDIT_INSTALLMENT') &&
+      entry.paymentOrigin === 'CREDIT_INSTALLMENT' ||
+      entry.paymentOrigin === 'DELIVERY_PAYMENT') &&
     isNonNegativeInteger(entry.receivedCents) &&
     isNonNegativeInteger(entry.receivedItemCount) &&
     isNonNegativeInteger(entry.soldCents) &&
@@ -356,7 +372,8 @@ function isStatementEvent(value: unknown): value is StatementEvent {
     value === 'CREDIT_ADDITION' ||
     value === 'CREDIT_PAYMENT' ||
     value === 'CREDIT_SETTLED' ||
-    value === 'COMANDA_CANCELLED'
+    value === 'COMANDA_CANCELLED' ||
+    value === 'DELIVERY_RECORDED'
   );
 }
 
@@ -364,7 +381,8 @@ function isStatementOrigin(value: unknown): value is StatementOrigin {
   return (
     value === 'TABLE' ||
     value === 'CREDIT_MANUAL' ||
-    value === 'CREDIT_TABLE'
+    value === 'CREDIT_TABLE' ||
+    value === 'DELIVERY'
   );
 }
 

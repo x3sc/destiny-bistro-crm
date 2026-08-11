@@ -31,6 +31,13 @@ import {
 import type { Payment } from "../../src/payment-types.js";
 import type { Database } from "../../src/database.js";
 import {
+  DeliveryCourierConflictError,
+  DeliveryDayConflictError,
+  type DeliveryCourierDetails,
+  type DeliveryDayDetails,
+  type DeliveryRepository,
+} from "../../src/delivery-repository.js";
+import {
   InventoryBalanceError,
   InventoryStockNotFoundError,
   type InventoryItem,
@@ -62,6 +69,8 @@ const authenticatedUser: AuthUser = {
     "comandas.write",
     "credits.read",
     "credits.write",
+    "deliveries.read",
+    "deliveries.write",
     "inventory.read",
     "inventory.write",
     "products.read",
@@ -175,6 +184,34 @@ const inventoryMovement: InventoryMovement = {
   type: "ENTRY",
 };
 
+const deliveryDay: DeliveryDayDetails = {
+  closedAt: null,
+  courierId: "courier-id",
+  courierName: "Entregador",
+  dailyRateCents: 8000,
+  deliveries: [],
+  deliveryCount: 0,
+  expenses: [],
+  expensesTotalCents: 0,
+  feesTotalCents: 0,
+  id: "day-id",
+  openedAt,
+  payoutCents: 8000,
+  salesTotalCents: 0,
+  settlementPaidCents: null,
+  status: "OPEN",
+};
+
+const deliveryCourier: DeliveryCourierDetails = {
+  activeDayId: "day-id",
+  days: [],
+  id: "courier-id",
+  name: "Entregador",
+  periodPayoutCents: 0,
+  periodSettledCents: 0,
+  settledTotalCents: 0,
+};
+
 const menuCategory: MenuCategory = {
   active: true,
   id: "category-id",
@@ -218,6 +255,8 @@ const statementReport: StatementReport = {
       creditPaidBeforeCents: null,
       creditTotalCents: null,
       customerName: null,
+      deliveryAddress: null,
+      deliveryFeeCents: null,
       event: "TABLE_CLOSED",
       id: "entry-id",
       items: [
@@ -415,6 +454,36 @@ function createInventory(
   };
 }
 
+function createDeliveries(
+  overrides: Partial<DeliveryRepository> = {},
+): DeliveryRepository {
+  return {
+    addExpense: () => Promise.resolve(deliveryDay),
+    closeDay: () => Promise.resolve(deliveryDay),
+    createCourier: () =>
+      Promise.resolve({
+        activeDayId: null,
+        id: deliveryCourier.id,
+        name: deliveryCourier.name,
+        settledTotalCents: 0,
+      }),
+    findCourier: () => Promise.resolve(deliveryCourier),
+    findDay: () => Promise.resolve(deliveryDay),
+    listCouriers: () =>
+      Promise.resolve([
+        {
+          activeDayId: deliveryCourier.activeDayId,
+          id: deliveryCourier.id,
+          name: deliveryCourier.name,
+          settledTotalCents: 0,
+        },
+      ]),
+    openDay: () => Promise.resolve(deliveryDay),
+    recordDelivery: () => Promise.resolve(deliveryDay),
+    ...overrides,
+  };
+}
+
 function createStatements(
   findReport: StatementRepository["findReport"] = () =>
     Promise.resolve(statementReport),
@@ -427,6 +496,7 @@ async function createApp({
   comandas = createComandas(),
   credits = createCredits(),
   database = createDatabase(),
+  deliveries = createDeliveries(),
   inventory = createInventory(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
@@ -436,6 +506,7 @@ async function createApp({
   comandas?: ComandaRepository;
   credits?: CreditRepository;
   database?: Database;
+  deliveries?: DeliveryRepository;
   inventory?: InventoryRepository;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
@@ -446,6 +517,7 @@ async function createApp({
     comandas,
     credits,
     database,
+    deliveries,
     inventory,
     products,
     restaurantTables,
@@ -1641,6 +1713,132 @@ void test("payment routes reject malformed allocations before persistence", asyn
   assert.equal(settleResponse.statusCode, 400);
   assert.equal(closeCalled, false);
   assert.equal(settleCalled, false);
+
+  await app.close();
+});
+
+void test("GET /delivery/couriers lists couriers with their open day", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    couriers: [
+      {
+        activeDayId: "day-id",
+        id: "courier-id",
+        name: "Entregador",
+        settledTotalCents: 0,
+      },
+    ],
+  });
+
+  await app.close();
+});
+
+void test("POST /delivery/couriers rejects duplicated couriers", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      createCourier: () => Promise.reject(new DeliveryCourierConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { name: "Joao" },
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 409);
+
+  await app.close();
+});
+
+void test("POST /delivery/couriers/:courierId/days rejects a second open day", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      openDay: () => Promise.reject(new DeliveryDayConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { dailyRateCents: 8_000 },
+    url: "/delivery/couriers/courier-id/days",
+  });
+
+  assert.equal(response.statusCode, 409);
+
+  await app.close();
+});
+
+void test("delivery routes reject malformed values before persistence", async () => {
+  let recorded = false;
+  const app = await createApp({
+    deliveries: createDeliveries({
+      recordDelivery: () => {
+        recorded = true;
+        return Promise.resolve(deliveryDay);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 500,
+      paymentMethod: "BITCOIN",
+      totalCents: 1_000,
+    },
+    url: "/delivery/days/day-id/deliveries",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(recorded, false);
+
+  await app.close();
+});
+
+void test("delivery routes require the delivery permissions", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: ["comandas.read"],
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 403);
+
+  await app.close();
+});
+
+void test("closing a delivery day is rejected when it is already closed", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      closeDay: () => Promise.reject(new DeliveryDayConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/delivery/days/day-id/close",
+  });
+
+  assert.equal(response.statusCode, 409);
 
   await app.close();
 });

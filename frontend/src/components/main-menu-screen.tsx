@@ -8,20 +8,24 @@ import { AppIcon } from './app-icon';
 export function MainMenuScreen({
   canAccessAdmin = true,
   canAccessCredits = true,
+  canAccessDeliveries = true,
   canAccessTables = true,
   establishmentName,
   onAdmin,
   onCredits,
+  onDeliveries,
   onLogout,
   onTables,
   userName,
 }: {
   canAccessAdmin?: boolean;
   canAccessCredits?: boolean;
+  canAccessDeliveries?: boolean;
   canAccessTables?: boolean;
   establishmentName?: string;
   onAdmin: () => void;
   onCredits: () => void;
+  onDeliveries: () => void;
   onLogout?: () => void;
   onTables: () => void;
   userName?: string;
@@ -84,6 +88,14 @@ export function MainMenuScreen({
               onPress={onCredits}
             />
           )}
+          {canAccessDeliveries && (
+            <MenuCard
+              description="Controle entregadores, diárias, entregas e o acerto do dia."
+              icon="delivery"
+              label="Delivery"
+              onPress={onDeliveries}
+            />
+          )}
           {canAccessAdmin && (
             <MenuCard
               description="Consulte o extrato do dia e gerencie categorias, itens e valores."
@@ -107,7 +119,7 @@ function MenuCard({
 }: {
   description: string;
   disabled?: boolean;
-  icon: 'admin' | 'credits' | 'tables';
+  icon: 'admin' | 'credits' | 'delivery' | 'tables';
   label: string;
   onPress?: () => void;
 }) {

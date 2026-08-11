@@ -18,7 +18,7 @@ export function createStatementRepository(
 ): StatementRepository {
   return {
     async findReport(establishmentId, period) {
-      const [closedComandas, cancelledComandas, creditOrders] =
+      const [closedComandas, cancelledComandas, creditOrders, deliveries] =
         await prisma.$transaction([
           prisma.comanda.findMany({
             orderBy: {
@@ -229,6 +229,32 @@ export function createStatementRepository(
               ],
             },
           }),
+          prisma.delivery.findMany({
+            orderBy: { deliveredAt: "asc" },
+            select: {
+              address: true,
+              customerName: true,
+              day: {
+                select: {
+                  courier: {
+                    select: { name: true },
+                  },
+                },
+              },
+              deliveredAt: true,
+              feeCents: true,
+              id: true,
+              paymentMethod: true,
+              totalCents: true,
+            },
+            where: {
+              deliveredAt: {
+                gte: period.startAt,
+                lt: period.endAt,
+              },
+              establishmentId,
+            },
+          }),
         ]);
 
       const source: StatementSourceData = {
@@ -322,6 +348,16 @@ export function createStatementRepository(
             },
           ];
         }),
+        deliveries: deliveries.map((delivery) => ({
+          address: delivery.address,
+          courierName: delivery.day.courier.name,
+          customerName: delivery.customerName,
+          deliveredAt: delivery.deliveredAt,
+          feeCents: delivery.feeCents,
+          id: delivery.id,
+          paymentMethod: delivery.paymentMethod,
+          totalCents: delivery.totalCents,
+        })),
       };
 
       return buildStatementReport(period, source);

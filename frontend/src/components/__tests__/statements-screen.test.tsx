@@ -26,6 +26,8 @@ const statement: StatementReport = {
       creditPaidBeforeCents: null,
       creditTotalCents: null,
       customerName: null,
+      deliveryAddress: null,
+      deliveryFeeCents: null,
       event: 'TABLE_CLOSED',
       id: 'entry-id',
       items: [
@@ -57,6 +59,8 @@ const statement: StatementReport = {
       creditPaidBeforeCents: 0,
       creditTotalCents: 1500,
       customerName: 'Maria',
+      deliveryAddress: null,
+      deliveryFeeCents: null,
       event: 'CREDIT_FINALIZED',
       id: 'credit-entry-id',
       items: [
@@ -247,7 +251,7 @@ it('groups a contextual timeline by comanda and expands only one stage', async (
 
   fireEvent.press(
     screen.getByRole('button', {
-      name: 'Expandir etapa Comanda paga da comanda 42',
+      name: 'Expandir etapa Comanda paga de Comanda #42',
     }),
   );
   expect(screen.getByText('Café')).toBeTruthy();
@@ -255,7 +259,7 @@ it('groups a contextual timeline by comanda and expands only one stage', async (
 
   fireEvent.press(
     screen.getByRole('button', {
-      name: 'Expandir etapa Fiado aberto da comanda 43',
+      name: 'Expandir etapa Fiado aberto de Comanda #43',
     }),
   );
   expect(screen.queryByText('Café')).toBeNull();
@@ -405,7 +409,7 @@ it('filters timeline stages, clears filters and exports the detailed selection',
 
   fireEvent.press(
     screen.getByRole('button', {
-      name: 'Expandir etapa Fiado pago parcialmente da comanda 43',
+      name: 'Expandir etapa Fiado pago parcialmente de Comanda #43',
     }),
   );
   expect(screen.getByText('Formas de pagamento')).toBeTruthy();
@@ -457,7 +461,7 @@ it('shows empty states for periods and movements without products', async () => 
   fireEvent.press(screen.getByRole('tab', { name: 'Detalhado' }));
   fireEvent.press(
     screen.getByRole('button', {
-      name: 'Expandir etapa Comanda paga da comanda 42',
+      name: 'Expandir etapa Comanda paga de Comanda #42',
     }),
   );
   expect(screen.getByText('Nenhum item associado a esta movimentação.')).toBeTruthy();
