@@ -196,11 +196,12 @@ it('edits products inside the category and keeps lifecycle actions working', asy
   fireEvent.press(
     await screen.findByRole('button', { name: 'Expandir categoria Bebidas' }),
   );
+  const categoryCard = screen.getByTestId('menu-category-category-id');
   fireEvent.press(
     screen.getByRole('button', { name: 'Editar categoria Bebidas' }),
   );
   fireEvent.changeText(
-    screen.getByLabelText('Nome da categoria'),
+    within(categoryCard).getByLabelText('Nome da categoria'),
     'Bebidas geladas',
   );
   fireEvent.press(
@@ -209,7 +210,6 @@ it('edits products inside the category and keeps lifecycle actions working', asy
   await waitFor(() => expect(updateCategoryRequest).toHaveBeenCalled());
 
   fireEvent.press(screen.getByRole('button', { name: 'Editar item Agua' }));
-  const categoryCard = screen.getByTestId('menu-category-category-id');
   fireEvent.changeText(
     within(categoryCard).getByLabelText('Preço do item'),
     '650',

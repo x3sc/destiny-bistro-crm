@@ -177,23 +177,14 @@ export function MenuManagementScreen({
           }}
         />
 
-        {categoryEditor && (
-          <View style={styles.editor}>
-            <Text style={styles.editorTitle}>
-              {categoryEditor.kind === 'create' ? 'Nova categoria' : 'Editar categoria'}
-            </Text>
-            <Field
-              accessibilityLabel="Nome da categoria"
-              label="Nome"
-              onChangeText={(name) => setCategoryEditor({ ...categoryEditor, name })}
-              placeholder="Ex.: Sobremesas"
-              value={categoryEditor.name}
-            />
-            <View style={styles.editorActions}>
-              <ActionButton disabled={mutating} label="Salvar categoria" onPress={saveCategory} />
-              <ActionButton label="Cancelar" onPress={() => setCategoryEditor(undefined)} tone="secondary" />
-            </View>
-          </View>
+        {categoryEditor?.kind === 'create' && (
+          <CategoryEditorForm
+            disabled={mutating}
+            editor={categoryEditor}
+            onCancel={() => setCategoryEditor(undefined)}
+            onChange={setCategoryEditor}
+            onSave={saveCategory}
+          />
         )}
 
         {state.kind === 'loading' && (
@@ -214,6 +205,12 @@ export function MenuManagementScreen({
         {state.kind === 'success' && state.categories.map((category) => (
           <CategoryCard
             category={category}
+            categoryEditor={
+              categoryEditor?.kind === 'edit'
+                && categoryEditor.category.id === category.id
+                ? categoryEditor
+                : undefined
+            }
             disabled={mutating}
             expanded={expandedCategoryId === category.id}
             key={category.id}
@@ -236,6 +233,7 @@ export function MenuManagementScreen({
                 );
               }
             }}
+            onCategoryEditorChange={setCategoryEditor}
             onEdit={() => {
               setProductEditor(undefined);
               setCategoryEditor({ category, kind: 'edit', name: category.name });
@@ -279,10 +277,12 @@ export function MenuManagementScreen({
               }
             }}
             onSaveProduct={saveProduct}
+            onSaveCategory={saveCategory}
             onToggle={() => {
               setExpandedCategoryId((current) =>
                 current === category.id ? undefined : category.id,
               );
+              setCategoryEditor(undefined);
               setProductEditor(undefined);
             }}
             productEditor={
@@ -299,30 +299,36 @@ export function MenuManagementScreen({
 
 function CategoryCard({
   category,
+  categoryEditor,
   disabled,
   expanded,
   onCreateProduct,
   onDeactivate,
+  onCategoryEditorChange,
   onEdit,
   onEditProduct,
   onProductEditorChange,
   onProductActiveChange,
   onReactivate,
   onSaveProduct,
+  onSaveCategory,
   onToggle,
   productEditor,
 }: {
   category: MenuCategory;
+  categoryEditor?: Extract<CategoryEditor, { kind: 'edit' }>;
   disabled: boolean;
   expanded: boolean;
   onCreateProduct: () => void;
   onDeactivate: () => void;
+  onCategoryEditorChange: (editor: CategoryEditor | undefined) => void;
   onEdit: () => void;
   onEditProduct: (product: MenuProduct) => void;
   onProductEditorChange: (editor: ProductEditor | undefined) => void;
   onProductActiveChange: (product: MenuProduct, active: boolean) => void;
   onReactivate: () => void;
   onSaveProduct: () => void;
+  onSaveCategory: () => void;
   onToggle: () => void;
   productEditor?: ProductEditor;
 }) {
@@ -359,6 +365,16 @@ function CategoryCard({
             onPress={onEdit}
             tone="secondary"
           />
+
+          {categoryEditor && (
+            <CategoryEditorForm
+              disabled={disabled}
+              editor={categoryEditor}
+              onCancel={() => onCategoryEditorChange(undefined)}
+              onChange={onCategoryEditorChange}
+              onSave={onSaveCategory}
+            />
+          )}
 
           {productEditor && (
             <ProductEditorForm
@@ -441,6 +457,39 @@ function CategoryCard({
           </View>
         </View>
       )}
+    </View>
+  );
+}
+
+function CategoryEditorForm({
+  disabled,
+  editor,
+  onCancel,
+  onChange,
+  onSave,
+}: {
+  disabled: boolean;
+  editor: CategoryEditor;
+  onCancel: () => void;
+  onChange: (editor: CategoryEditor) => void;
+  onSave: () => void;
+}) {
+  return (
+    <View style={styles.editor}>
+      <Text style={styles.editorTitle}>
+        {editor.kind === 'create' ? 'Nova categoria' : 'Editar categoria'}
+      </Text>
+      <Field
+        accessibilityLabel="Nome da categoria"
+        label="Nome"
+        onChangeText={(name) => onChange({ ...editor, name })}
+        placeholder="Ex.: Sobremesas"
+        value={editor.name}
+      />
+      <View style={styles.editorActions}>
+        <ActionButton disabled={disabled} label="Salvar categoria" onPress={onSave} />
+        <ActionButton label="Cancelar" onPress={onCancel} tone="secondary" />
+      </View>
     </View>
   );
 }
