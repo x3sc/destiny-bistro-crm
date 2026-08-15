@@ -127,6 +127,10 @@ export interface StatementPeriod {
 }
 
 interface SourceComandaIdentity {
+  deliveryOrder?: {
+    address: string;
+    feeCents: number;
+  } | null;
   id: string;
   name: string | null;
   number: number;
@@ -136,14 +140,14 @@ interface SourceComandaIdentity {
 
 interface SourceCreditIdentity {
   customerName: string;
-  source: "MANUAL" | "TABLE";
+  source: "MANUAL" | "TABLE" | "DELIVERY";
 }
 
 interface SourcePayment {
   allocations: StatementPaymentAllocation[];
   amountCents: number;
   id: string;
-  origin?: StatementPaymentOrigin;
+  origin?: StatementPaymentOrigin | "DELIVERY_CHECKOUT";
   paidAt: Date;
 }
 
@@ -251,6 +255,7 @@ export function buildStatementReport(
         total + item.confirmedQuantity * item.unitPriceCents,
       0,
     );
+    const totalCents = tableTotalCents + (comanda.deliveryOrder?.feeCents ?? 0);
 
     const comandaPayments = comanda.payments ?? [];
     if (comanda.creditOrder && comandaPayments.length === 0) {
@@ -258,13 +263,15 @@ export function buildStatementReport(
         createEntry({
           comanda,
           creditBalanceAfterCents: 0,
-          creditPaidAfterCents: tableTotalCents,
+          creditPaidAfterCents: totalCents,
           creditPaidBeforeCents: Math.max(
-            tableTotalCents - comanda.creditOrder.settlementAmountCents,
+            totalCents - comanda.creditOrder.settlementAmountCents,
             0,
           ),
-          creditTotalCents: tableTotalCents,
+          creditTotalCents: totalCents,
           customerName: comanda.creditOrder.customerName,
+          deliveryAddress: comanda.deliveryOrder?.address ?? null,
+          deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
           event: "CREDIT_SETTLED",
           items: entryItems(comanda.items, "confirmedQuantity"),
           occurredAt: comanda.closedAt,
@@ -281,18 +288,21 @@ export function buildStatementReport(
               (total, payment) => total + payment.amountCents,
               0,
             )
-          : tableTotalCents;
+          : totalCents;
       entries.push(
         createEntry({
           comanda,
-          event: "TABLE_CLOSED",
+          customerName: comanda.deliveryOrder ? comanda.name : null,
+          deliveryAddress: comanda.deliveryOrder?.address ?? null,
+          deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
+          event: comanda.deliveryOrder ? "DELIVERY_RECORDED" : "TABLE_CLOSED",
           items: entryItems(comanda.items, "confirmedQuantity"),
           occurredAt: comanda.closedAt,
-          origin: "TABLE",
+          origin: comanda.deliveryOrder ? "DELIVERY" : "TABLE",
           payments: comandaPayments.flatMap((payment) => payment.allocations),
           receivedCents,
           receivedItemCount: itemCount,
-          soldCents: tableTotalCents,
+          soldCents: totalCents,
           soldItemCount: itemCount,
         }),
       );
@@ -324,17 +334,24 @@ export function buildStatementReport(
     );
     const initial = totalConfirmationEvents(initialEvents);
     const tableCheckoutPaidCents = (order.payments ?? [])
-      .filter((payment) => payment.origin === "TABLE_CHECKOUT")
+      .filter(
+        (payment) =>
+          payment.origin === "TABLE_CHECKOUT" ||
+          payment.origin === "DELIVERY_CHECKOUT",
+      )
       .reduce((total, payment) => total + payment.amountCents, 0);
     const creditTimeline = [
       createEntry({
         comanda: order.comanda,
         customerName: order.customerName,
+        deliveryAddress: order.comanda.deliveryOrder?.address ?? null,
+        deliveryFeeCents: order.comanda.deliveryOrder?.feeCents ?? null,
         event: "CREDIT_FINALIZED",
         items: initial.items,
         occurredAt: order.finalizedAt,
         origin: creditOrigin(order.source),
-        soldCents: initial.totalCents,
+        soldCents:
+          initial.totalCents + (order.comanda.deliveryOrder?.feeCents ?? 0),
         soldItemCount: initial.itemCount,
       }),
     ];
@@ -374,7 +391,10 @@ export function buildStatementReport(
           occurredAt: payment.paidAt,
           origin: creditOrigin(order.source),
           payments: payment.allocations,
-          paymentOrigin: payment.origin ?? "CREDIT_INSTALLMENT",
+          paymentOrigin:
+            payment.origin === "DELIVERY_CHECKOUT"
+              ? "DELIVERY_PAYMENT"
+              : (payment.origin ?? "CREDIT_INSTALLMENT"),
           receivedCents: payment.amountCents,
         }),
       );
@@ -783,8 +803,10 @@ function buildIndicators(
   };
 }
 
-function creditOrigin(source: "MANUAL" | "TABLE"): StatementOrigin {
-  return source === "MANUAL" ? "CREDIT_MANUAL" : "CREDIT_TABLE";
+function creditOrigin(source: "MANUAL" | "TABLE" | "DELIVERY"): StatementOrigin {
+  if (source === "MANUAL") return "CREDIT_MANUAL";
+  if (source === "DELIVERY") return "DELIVERY";
+  return "CREDIT_TABLE";
 }
 
 function isWithinPeriod(date: Date, period: StatementPeriod) {

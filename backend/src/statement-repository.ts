@@ -48,6 +48,9 @@ export function createStatementRepository(
                   totalCents: true,
                 },
               },
+              deliveryOrder: {
+                select: { address: true, feeCents: true },
+              },
               id: true,
               items: {
                 select: {
@@ -103,6 +106,9 @@ export function createStatementRepository(
                   source: true,
                 },
               },
+              deliveryOrder: {
+                select: { address: true, feeCents: true },
+              },
               id: true,
               items: {
                 select: {
@@ -139,6 +145,9 @@ export function createStatementRepository(
               comanda: {
                 select: {
                   closedAt: true,
+                  deliveryOrder: {
+                    select: { address: true, feeCents: true },
+                  },
                   events: {
                     orderBy: {
                       createdAt: "asc",
@@ -269,6 +278,7 @@ export function createStatementRepository(
                         source: comanda.creditOrder.source,
                       }
                     : null,
+                  deliveryOrder: comanda.deliveryOrder,
                   id: comanda.id,
                   items: comanda.items,
                   name: comanda.name,
@@ -295,6 +305,7 @@ export function createStatementRepository(
                         source: comanda.creditOrder.source,
                       }
                     : null,
+                  deliveryOrder: comanda.deliveryOrder,
                   id: comanda.id,
                   items: comanda.items,
                   name: comanda.name,
@@ -334,6 +345,7 @@ export function createStatementRepository(
             {
               comanda: {
                 closedAt: order.comanda.closedAt,
+                deliveryOrder: order.comanda.deliveryOrder,
                 events,
                 id: order.comanda.id,
                 name: order.comanda.name,

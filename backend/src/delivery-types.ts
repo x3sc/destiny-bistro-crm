@@ -1,6 +1,13 @@
 import type { PaymentMethod } from "./payment-types.js";
 
 export type DeliveryDayStatus = "OPEN" | "CLOSED";
+export type DeliveryOrderStatus =
+  | "NEW"
+  | "PREPARING"
+  | "READY"
+  | "OUT_FOR_DELIVERY"
+  | "DELIVERED";
+export type DeliveryOrderPaymentStatus = "OPEN" | "PAID" | "CREDIT";
 
 export interface DeliveryActor {
   id: string;
@@ -80,6 +87,35 @@ export interface DeliveryPeriod {
   startAt: Date;
 }
 
+export interface DeliveryOrderInput {
+  address: string;
+  customerName: string;
+  feeCents: number;
+  phone: string;
+}
+
+export interface DeliveryOrder {
+  address: string;
+  comandaId: string;
+  comandaNumber: number;
+  courierName: string | null;
+  createdAt: string;
+  customerName: string;
+  dayId: string | null;
+  deliveredAt: string | null;
+  dispatchedAt: string | null;
+  feeCents: number;
+  hasPendingItems: boolean;
+  id: string;
+  itemCount: number;
+  paidCents: number;
+  paymentStatus: DeliveryOrderPaymentStatus;
+  phone: string;
+  status: DeliveryOrderStatus;
+  totalCents: number;
+  updatedAt: string;
+}
+
 export interface DeliveryRepository {
   addExpense(
     establishmentId: string,
@@ -97,13 +133,30 @@ export interface DeliveryRepository {
     name: string,
     actorUserId: string,
   ): Promise<DeliveryCourierSummary>;
+  createOrder(
+    establishmentId: string,
+    input: DeliveryOrderInput,
+    actorUserId: string,
+  ): Promise<DeliveryOrder>;
+  advanceOrder(
+    establishmentId: string,
+    orderId: string,
+    status: DeliveryOrderStatus,
+    dayId: string | null,
+    actorUserId: string,
+  ): Promise<DeliveryOrder>;
   findCourier(
     establishmentId: string,
     courierId: string,
     period?: DeliveryPeriod,
   ): Promise<DeliveryCourierDetails>;
   findDay(establishmentId: string, dayId: string): Promise<DeliveryDayDetails>;
+  findOrder(establishmentId: string, orderId: string): Promise<DeliveryOrder>;
   listCouriers(establishmentId: string): Promise<DeliveryCourierSummary[]>;
+  listOrders(
+    establishmentId: string,
+    includeDelivered: boolean,
+  ): Promise<DeliveryOrder[]>;
   openDay(
     establishmentId: string,
     courierId: string,
@@ -124,6 +177,8 @@ export class DeliveryCourierConflictError extends Error {}
 export class DeliveryDayNotFoundError extends Error {}
 export class DeliveryDayConflictError extends Error {}
 export class DeliveryInputError extends Error {}
+export class DeliveryOrderNotFoundError extends Error {}
+export class DeliveryOrderConflictError extends Error {}
 
 const paymentMethods = new Set<PaymentMethod>([
   "CASH",
@@ -214,14 +269,70 @@ export function normalizeDeliveryInput(value: unknown): DeliveryInput {
     normalizedProducts = trimmed || null;
   }
 
+  const normalizedFeeCents = normalizeCents(feeCents);
+  const normalizedTotalCents = normalizeCents(totalCents, {
+    allowZero: false,
+  });
+
+  if (normalizedFeeCents > normalizedTotalCents) {
+    throw new DeliveryInputError();
+  }
+
   return {
     address: normalizedAddress,
     customerName: normalizedCustomerName,
-    feeCents: normalizeCents(feeCents),
+    feeCents: normalizedFeeCents,
     paymentMethod: paymentMethod as PaymentMethod,
     products: normalizedProducts,
-    totalCents: normalizeCents(totalCents, { allowZero: false }),
+    totalCents: normalizedTotalCents,
   };
+}
+
+export function normalizeDeliveryOrderInput(value: unknown): DeliveryOrderInput {
+  if (!value || typeof value !== "object") {
+    throw new DeliveryInputError();
+  }
+
+  const { address, customerName, feeCents, phone } = value as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    address: normalizeRequiredText(address, 255),
+    customerName: normalizeRequiredText(customerName, 80),
+    feeCents: normalizeCents(feeCents),
+    phone: normalizeBrazilianMobilePhone(phone),
+  };
+}
+
+function normalizeBrazilianMobilePhone(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/^[\d\s()+-]+$/u.test(value)
+  ) {
+    throw new DeliveryInputError();
+  }
+
+  const digits = value.replace(/\D/gu, "");
+  if (!/^[1-9]\d9\d{8}$/u.test(digits)) {
+    throw new DeliveryInputError();
+  }
+
+  return digits;
+}
+
+function normalizeRequiredText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") {
+    throw new DeliveryInputError();
+  }
+
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  if (!normalized || normalized.length > maxLength) {
+    throw new DeliveryInputError();
+  }
+
+  return normalized;
 }
 
 export function normalizeExpenseInput(value: unknown): DeliveryExpenseInput {

@@ -35,6 +35,8 @@ import {
   DeliveryDayConflictError,
   type DeliveryCourierDetails,
   type DeliveryDayDetails,
+  type DeliveryOrder,
+  type DeliveryOrderInput,
   type DeliveryRepository,
 } from "../../src/delivery-repository.js";
 import {
@@ -210,6 +212,28 @@ const deliveryCourier: DeliveryCourierDetails = {
   periodPayoutCents: 0,
   periodSettledCents: 0,
   settledTotalCents: 0,
+};
+
+const deliveryOrder: DeliveryOrder = {
+  address: "Rua A, 1",
+  comandaId: "delivery-comanda-id",
+  comandaNumber: 43,
+  courierName: null,
+  createdAt: openedAt,
+  customerName: "Cliente",
+  dayId: null,
+  deliveredAt: null,
+  dispatchedAt: null,
+  feeCents: 500,
+  hasPendingItems: false,
+  id: "delivery-order-id",
+  itemCount: 1,
+  paidCents: 0,
+  paymentStatus: "OPEN",
+  phone: "11999999999",
+  status: "NEW",
+  totalCents: 1_500,
+  updatedAt: openedAt,
 };
 
 const menuCategory: MenuCategory = {
@@ -459,6 +483,7 @@ function createDeliveries(
 ): DeliveryRepository {
   return {
     addExpense: () => Promise.resolve(deliveryDay),
+    advanceOrder: () => Promise.resolve(deliveryOrder),
     closeDay: () => Promise.resolve(deliveryDay),
     createCourier: () =>
       Promise.resolve({
@@ -467,8 +492,10 @@ function createDeliveries(
         name: deliveryCourier.name,
         settledTotalCents: 0,
       }),
+    createOrder: () => Promise.resolve(deliveryOrder),
     findCourier: () => Promise.resolve(deliveryCourier),
     findDay: () => Promise.resolve(deliveryDay),
+    findOrder: () => Promise.resolve(deliveryOrder),
     listCouriers: () =>
       Promise.resolve([
         {
@@ -478,6 +505,7 @@ function createDeliveries(
           settledTotalCents: 0,
         },
       ]),
+    listOrders: () => Promise.resolve([deliveryOrder]),
     openDay: () => Promise.resolve(deliveryDay),
     recordDelivery: () => Promise.resolve(deliveryDay),
     ...overrides,
@@ -1802,6 +1830,110 @@ void test("delivery routes reject malformed values before persistence", async ()
   assert.equal(response.statusCode, 400);
   assert.equal(recorded, false);
 
+  const invalidFeeResponse = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 1_001,
+      paymentMethod: "PIX",
+      totalCents: 1_000,
+    },
+    url: "/delivery/days/day-id/deliveries",
+  });
+
+  assert.equal(invalidFeeResponse.statusCode, 400);
+  assert.deepEqual(invalidFeeResponse.json(), {
+    status: "error",
+    message: "Invalid delivery",
+  });
+  assert.equal(recorded, false);
+
+  await app.close();
+});
+
+void test("GET /delivery/orders lists active operational orders", async () => {
+  const app = await createApp();
+  const response = await app.inject({ method: "GET", url: "/delivery/orders" });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { orders: [deliveryOrder] });
+  await app.close();
+});
+
+void test("POST /delivery/orders creates a comanda-backed order", async () => {
+  let receivedInput: DeliveryOrderInput | undefined;
+  const app = await createApp({
+    deliveries: createDeliveries({
+      createOrder: (_establishmentId, input) => {
+        receivedInput = input;
+        return Promise.resolve(deliveryOrder);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      address: " Rua A, 1 ",
+      customerName: " Cliente ",
+      feeCents: 500,
+      phone: " 11999999999 ",
+    },
+    url: "/delivery/orders",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(receivedInput, {
+    address: "Rua A, 1",
+    customerName: "Cliente",
+    feeCents: 500,
+    phone: "11999999999",
+  });
+  assert.deepEqual(response.json(), { order: deliveryOrder });
+
+  const invalidPhoneResponse = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 500,
+      phone: "22222222222222222222",
+    },
+    url: "/delivery/orders",
+  });
+  assert.equal(invalidPhoneResponse.statusCode, 400);
+  assert.deepEqual(invalidPhoneResponse.json(), {
+    status: "error",
+    message: "Invalid delivery order",
+  });
+  await app.close();
+});
+
+void test("POST /delivery/orders/:orderId/status assigns the open courier day", async () => {
+  let receivedDayId = "";
+  let receivedStatus = "";
+  const app = await createApp({
+    deliveries: createDeliveries({
+      advanceOrder: (_establishmentId, _orderId, status, dayId) => {
+        receivedDayId = dayId ?? "";
+        receivedStatus = status;
+        return Promise.resolve({
+          ...deliveryOrder,
+          dayId,
+          status,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: { dayId: "day-id", status: "OUT_FOR_DELIVERY" },
+    url: "/delivery/orders/delivery-order-id/status",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedDayId, "day-id");
+  assert.equal(receivedStatus, "OUT_FOR_DELIVERY");
   await app.close();
 });
 

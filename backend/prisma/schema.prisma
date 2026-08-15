@@ -36,6 +36,7 @@ enum ComandaCancellationReason {
 enum CreditOrderSource {
   MANUAL
   TABLE
+  DELIVERY
 }
 
 enum CreditOrderStatus {
@@ -55,11 +56,20 @@ enum PaymentMethod {
 enum PaymentOrigin {
   TABLE_CHECKOUT
   CREDIT_INSTALLMENT
+  DELIVERY_CHECKOUT
 }
 
 enum DeliveryDayStatus {
   OPEN
   CLOSED
+}
+
+enum DeliveryOrderStatus {
+  NEW
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
 }
 
 enum IngredientUnit {
@@ -94,6 +104,7 @@ model Establishment {
   inventoryMovements InventoryMovement[]
   deliveryCouriers   DeliveryCourier[]
   deliveryDays       DeliveryDay[]
+  deliveryOrders     DeliveryOrder[]
   deliveries         Delivery[]
   deliveryExpenses   DeliveryExpense[]
   auditLogs          AuditLog[]
@@ -129,6 +140,7 @@ model Comanda {
   table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
   creditOrder        CreditOrder?
+  deliveryOrder      DeliveryOrder?
   payments           Payment[]
   status             ComandaStatus              @default(OPEN)
   openedAt           DateTime                   @default(now())
@@ -503,6 +515,7 @@ model DeliveryDay {
   closedByUserId      String?
   closedByUser        User?             @relation("DeliveryDayClosedBy", fields: [closedByUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   deliveries          Delivery[]
+  deliveryOrders      DeliveryOrder[]
   expenses            DeliveryExpense[]
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
@@ -511,6 +524,30 @@ model DeliveryDay {
   @@index([establishmentId, status, openedAt])
   @@index([courierId, status])
   @@index([establishmentId, closedAt])
+}
+
+model DeliveryOrder {
+  id              String              @id @default(cuid())
+  establishmentId String
+  establishment   Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId       String              @unique
+  comanda         Comanda             @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  dayId           String?
+  day             DeliveryDay?        @relation(fields: [dayId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  customerName    String              @db.VarChar(80)
+  phone           String              @db.VarChar(30)
+  address         String              @db.VarChar(255)
+  feeCents        Int                 @default(0)
+  status          DeliveryOrderStatus @default(NEW)
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([id, establishmentId])
+  @@unique([comandaId, establishmentId])
+  @@index([establishmentId, status, updatedAt])
+  @@index([dayId, status])
 }
 
 model Delivery {

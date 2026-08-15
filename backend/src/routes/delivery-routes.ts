@@ -7,10 +7,14 @@ import {
   DeliveryDayConflictError,
   DeliveryDayNotFoundError,
   DeliveryInputError,
+  DeliveryOrderConflictError,
+  DeliveryOrderNotFoundError,
   normalizeCents,
   normalizeDeliveryInput,
+  normalizeDeliveryOrderInput,
   normalizeExpenseInput,
   type DeliveryPeriod,
+  type DeliveryOrderStatus,
   type DeliveryRepository,
 } from "../delivery-repository.js";
 import {
@@ -24,6 +28,19 @@ interface CourierParams {
 
 interface DayParams {
   dayId: string;
+}
+
+interface OrderParams {
+  orderId: string;
+}
+
+interface OrderQuery {
+  history?: string;
+}
+
+interface AdvanceOrderBody {
+  dayId?: unknown;
+  status?: unknown;
 }
 
 interface CreateCourierBody {
@@ -43,6 +60,118 @@ export function registerDeliveryRoutes(
   app: FastifyInstance,
   deliveries: DeliveryRepository,
 ) {
+  app.get<{ Querystring: OrderQuery }>(
+    "/delivery/orders",
+    { config: { permission: "deliveries.read" } },
+    async (request, reply) => {
+      try {
+        return {
+          orders: await deliveries.listOrders(
+            requireAuthUser(request).establishment.id,
+            request.query.history === "true",
+          ),
+        };
+      } catch (error) {
+        app.log.error(error, "Delivery order query failed");
+        return reply.code(503).send({
+          status: "error",
+          message: "Delivery orders unavailable",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/delivery/orders",
+    { config: { permission: "deliveries.write" } },
+    async (request, reply) => {
+      const user = requireAuthUser(request);
+      if (!user.permissions.includes("comandas.write")) {
+        return reply.code(403).send({
+          status: "error",
+          message: "Permission denied",
+        });
+      }
+      try {
+        const input = normalizeDeliveryOrderInput(request.body);
+        return reply.code(201).send({
+          order: await deliveries.createOrder(
+            user.establishment.id,
+            input,
+            user.id,
+          ),
+        });
+      } catch (error) {
+        if (error instanceof DeliveryInputError) {
+          return reply.code(400).send({
+            status: "error",
+            message: "Invalid delivery order",
+          });
+        }
+        app.log.error(error, "Delivery order creation failed");
+        return reply.code(503).send({
+          status: "error",
+          message: "Delivery order unavailable",
+        });
+      }
+    },
+  );
+
+  app.get<{ Params: OrderParams }>(
+    "/delivery/orders/:orderId",
+    { config: { permission: "deliveries.read" } },
+    async (request, reply) => {
+      try {
+        return {
+          order: await deliveries.findOrder(
+            requireAuthUser(request).establishment.id,
+            request.params.orderId,
+          ),
+        };
+      } catch (error) {
+        return sendOrderError(app, reply, error, "Delivery order query failed");
+      }
+    },
+  );
+
+  app.post<{ Body: AdvanceOrderBody; Params: OrderParams }>(
+    "/delivery/orders/:orderId/status",
+    { config: { permission: "deliveries.write" } },
+    async (request, reply) => {
+      const status = request.body?.status;
+      const allowedStatuses = new Set<DeliveryOrderStatus>([
+        "PREPARING",
+        "READY",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+      ]);
+      if (
+        typeof status !== "string" ||
+        !allowedStatuses.has(status as DeliveryOrderStatus) ||
+        (request.body?.dayId !== undefined && typeof request.body.dayId !== "string")
+      ) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid delivery order status",
+        });
+      }
+
+      try {
+        return {
+          order: await deliveries.advanceOrder(
+            requireAuthUser(request).establishment.id,
+            request.params.orderId,
+            status as DeliveryOrderStatus,
+            typeof request.body?.dayId === "string" ? request.body.dayId : null,
+            requireAuthUser(request).id,
+          ),
+        };
+      } catch (error) {
+        return sendOrderError(app, reply, error, "Delivery order update failed");
+      }
+    },
+  );
+
   app.get(
     "/delivery/couriers",
     { config: { permission: "deliveries.read" } },
@@ -303,6 +432,36 @@ export function registerDeliveryRoutes(
       }
     },
   );
+}
+
+function sendOrderError(
+  app: FastifyInstance,
+  reply: {
+    code(statusCode: number): {
+      send(payload: { message: string; status: string }): unknown;
+    };
+  },
+  error: unknown,
+  logMessage: string,
+) {
+  if (error instanceof DeliveryOrderNotFoundError) {
+    return reply.code(404).send({
+      status: "error",
+      message: "Delivery order not found",
+    });
+  }
+  if (error instanceof DeliveryOrderConflictError) {
+    return reply.code(409).send({
+      status: "error",
+      message: "Delivery order cannot advance",
+    });
+  }
+
+  app.log.error(error, logMessage);
+  return reply.code(503).send({
+    status: "error",
+    message: "Delivery order unavailable",
+  });
 }
 
 function sendDayError(

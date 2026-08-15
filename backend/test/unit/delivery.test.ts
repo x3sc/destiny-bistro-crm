@@ -6,6 +6,7 @@ import {
   DeliveryInputError,
   normalizeCourierName,
   normalizeDeliveryInput,
+  normalizeDeliveryOrderInput,
   normalizeExpenseInput,
 } from "../../src/delivery-types.js";
 
@@ -118,6 +119,14 @@ void test("deliveries reject invalid totals, fees and payment methods", () => {
     DeliveryInputError,
   );
   assert.throws(
+    () =>
+      normalizeDeliveryInput({
+        ...valid,
+        feeCents: valid.totalCents + 1,
+      }),
+    DeliveryInputError,
+  );
+  assert.throws(
     () => normalizeDeliveryInput({ ...valid, paymentMethod: "BITCOIN" }),
     DeliveryInputError,
   );
@@ -127,6 +136,68 @@ void test("deliveries reject invalid totals, fees and payment methods", () => {
   );
   assert.throws(
     () => normalizeDeliveryInput({ ...valid, address: "a".repeat(256) }),
+    DeliveryInputError,
+  );
+});
+
+void test("deliveries accept fees from zero through the full total", () => {
+  const valid = {
+    address: "Rua A, 1",
+    customerName: "Cliente",
+    paymentMethod: "PIX",
+    totalCents: 1_000,
+  };
+
+  assert.equal(normalizeDeliveryInput({ ...valid, feeCents: 0 }).feeCents, 0);
+  assert.equal(
+    normalizeDeliveryInput({ ...valid, feeCents: valid.totalCents }).feeCents,
+    valid.totalCents,
+  );
+});
+
+void test("delivery orders normalize customer contact and fee", () => {
+  assert.deepEqual(
+    normalizeDeliveryOrderInput({
+      address: "  Rua   A, 1 ",
+      customerName: "  Maria   Souza ",
+      feeCents: 700,
+      phone: "  (11) 99999-9999 ",
+    }),
+    {
+      address: "Rua A, 1",
+      customerName: "Maria Souza",
+      feeCents: 700,
+      phone: "11999999999",
+    },
+  );
+});
+
+void test("delivery orders reject missing fields and invalid fees", () => {
+  const valid = {
+    address: "Rua A, 1",
+    customerName: "Maria",
+    feeCents: 700,
+    phone: "11999999999",
+  };
+
+  assert.throws(
+    () => normalizeDeliveryOrderInput({ ...valid, phone: "  " }),
+    DeliveryInputError,
+  );
+  assert.throws(
+    () => normalizeDeliveryOrderInput({ ...valid, phone: "22222222222" }),
+    DeliveryInputError,
+  );
+  assert.throws(
+    () => normalizeDeliveryOrderInput({ ...valid, phone: "119999999999" }),
+    DeliveryInputError,
+  );
+  assert.throws(
+    () => normalizeDeliveryOrderInput({ ...valid, feeCents: -1 }),
+    DeliveryInputError,
+  );
+  assert.throws(
+    () => normalizeDeliveryOrderInput({ ...valid, address: "a".repeat(256) }),
     DeliveryInputError,
   );
 });

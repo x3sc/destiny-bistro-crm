@@ -48,7 +48,7 @@ export interface Comanda {
     customerName: string;
     orderId: string;
     paidCents: number;
-    source: "MANUAL" | "TABLE";
+    source: "MANUAL" | "TABLE" | "DELIVERY";
     status: "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
     totalCents: number;
   } | null;
