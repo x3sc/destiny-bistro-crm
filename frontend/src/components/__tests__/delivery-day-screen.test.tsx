@@ -123,6 +123,41 @@ it('keeps the delivery confirmation disabled until the required fields are fille
   expect(recordRequest).not.toHaveBeenCalled();
 });
 
+it('explains and blocks a fee above the total until the values are valid', async () => {
+  const recordRequest = jest.fn().mockResolvedValue(openDay);
+  renderScreen({ recordRequest });
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Registrar entrega' }));
+  fireEvent.changeText(screen.getByLabelText('Nome do cliente'), 'Bruno');
+  fireEvent.changeText(screen.getByLabelText('Endereço'), 'Avenida Central, 44');
+  fireEvent.changeText(screen.getByLabelText('Valor total da entrega'), '1000');
+  fireEvent.changeText(screen.getByLabelText('Taxa de entrega'), '1001');
+  fireEvent.press(screen.getByRole('button', { name: 'Confirmar entrega' }));
+
+  expect(
+    screen.getByText('A taxa de entrega não pode ser maior que o valor total.'),
+  ).toBeTruthy();
+  expect(recordRequest).not.toHaveBeenCalled();
+
+  fireEvent.changeText(screen.getByLabelText('Valor total da entrega'), '1001');
+
+  expect(
+    screen.queryByText('A taxa de entrega não pode ser maior que o valor total.'),
+  ).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Confirmar entrega' }));
+
+  await waitFor(() => {
+    expect(recordRequest).toHaveBeenCalledWith('http://api.test', 'day-id', {
+      address: 'Avenida Central, 44',
+      customerName: 'Bruno',
+      feeCents: 1_001,
+      paymentMethod: 'CASH',
+      products: null,
+      totalCents: 1_001,
+    });
+  });
+});
+
 it('records an expense that is deducted from the courier payout', async () => {
   const expenseRequest = jest.fn().mockResolvedValue(openDay);
   renderScreen({ expenseRequest });

@@ -155,8 +155,12 @@ export function DeliveryDayScreen({
 
   const day = state.kind === 'success' ? state.day : null;
   const isOpen = day?.status === 'OPEN';
+  const feeExceedsTotal = feeCents > totalCents;
   const deliveryValid =
-    customerName.trim().length > 0 && address.trim().length > 0 && totalCents > 0;
+    customerName.trim().length > 0 &&
+    address.trim().length > 0 &&
+    totalCents > 0 &&
+    !feeExceedsTotal;
   const expenseValid =
     expenseDescription.trim().length > 0 && expenseCents > 0;
 
@@ -286,6 +290,11 @@ export function DeliveryDayScreen({
                   A taxa está incluída no total. O bistrô fica com{' '}
                   {formatCentsAsBrl(Math.max(totalCents - feeCents, 0))}.
                 </Text>
+                {feeExceedsTotal ? (
+                  <Text style={deliveryStyles.error}>
+                    A taxa de entrega não pode ser maior que o valor total.
+                  </Text>
+                ) : null}
                 <PaymentMethodPicker
                   onSelect={setPaymentMethod}
                   selected={paymentMethod}

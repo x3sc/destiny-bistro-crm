@@ -2,6 +2,10 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 
 import type { PaymentMethod } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
+import {
+  brazilianMobileDigits,
+  formatBrazilianMobile,
+} from '../services/phone';
 import { themeColors } from '../theme/tokens';
 import { deliveryStyles } from './delivery-screens.styles';
 
@@ -102,6 +106,32 @@ export function TextField({
         placeholderTextColor={themeColors.placeholder}
         style={deliveryStyles.field}
         value={value}
+      />
+    </View>
+  );
+}
+
+export function PhoneField({
+  label,
+  onChangeDigits,
+  valueDigits,
+}: {
+  label: string;
+  onChangeDigits: (value: string) => void;
+  valueDigits: string;
+}) {
+  return (
+    <View style={deliveryStyles.fieldGroup}>
+      <Text style={deliveryStyles.fieldLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        keyboardType="phone-pad"
+        maxLength={15}
+        onChangeText={(value) => onChangeDigits(brazilianMobileDigits(value))}
+        placeholder="(11) 99999-9999"
+        placeholderTextColor={themeColors.placeholder}
+        style={deliveryStyles.field}
+        value={formatBrazilianMobile(valueDigits)}
       />
     </View>
   );

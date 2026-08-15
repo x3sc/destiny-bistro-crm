@@ -90,7 +90,7 @@ export function MainMenuScreen({
           )}
           {canAccessDeliveries && (
             <MenuCard
-              description="Controle entregadores, diárias, entregas e o acerto do dia."
+              description="Organize pedidos, entregadores, entregas e o acerto do dia."
               icon="delivery"
               label="Delivery"
               onPress={onDeliveries}

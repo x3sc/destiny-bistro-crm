@@ -34,6 +34,8 @@ export function ComandaCheckoutScreen({
   createCustomerRequest = createCreditCustomer,
   loadComandaRequest = loadComanda,
   loadCustomersRequest = loadCreditCustomers,
+  entityLabel = 'mesa',
+  headingTitle = 'Fechar mesa',
   onBack,
   onFinished,
 }: {
@@ -43,6 +45,8 @@ export function ComandaCheckoutScreen({
   createCustomerRequest?: typeof createCreditCustomer;
   loadComandaRequest?: typeof loadComanda;
   loadCustomersRequest?: typeof loadCreditCustomers;
+  entityLabel?: 'mesa' | 'pedido';
+  headingTitle?: string;
   onBack: () => void;
   onFinished: (customerId?: string) => void;
 }) {
@@ -117,7 +121,7 @@ export function ComandaCheckoutScreen({
         <ScreenBackButton onPress={onBack} />
         <View style={styles.heading}>
           <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-          <Text style={styles.title}>Fechar mesa</Text>
+          <Text style={styles.title}>{headingTitle}</Text>
           {state.kind === 'success' && (
             <Text style={styles.description}>
               Comanda #{state.comanda.number} · Total {formatCentsAsBrl(state.comanda.totalCents)}
@@ -150,7 +154,7 @@ export function ComandaCheckoutScreen({
                 submitting
                   ? 'Processando...'
                   : paidCents === state.comanda.totalCents
-                    ? 'Confirmar e fechar mesa'
+                    ? `Confirmar e fechar ${entityLabel}`
                     : paidCents === 0
                       ? 'Fechar como fiado'
                       : 'Confirmar e deixar saldo em fiado'

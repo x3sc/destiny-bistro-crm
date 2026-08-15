@@ -18,6 +18,7 @@ import {
 import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
 import { BrandedScreenHeader } from './branded-screen-header';
+import { DeliverySectionTabs } from './delivery-section-tabs';
 import { DeliveryButton, TextField } from './delivery-screen-parts';
 import { deliveryStyles } from './delivery-screens.styles';
 
@@ -32,6 +33,7 @@ export function DeliveryCouriersScreen({
   createRequest = createDeliveryCourier,
   loadRequest = loadDeliveryCouriers,
   onBack,
+  onOrders,
   onSelectCourier,
 }: {
   apiBaseUrl?: string;
@@ -39,6 +41,7 @@ export function DeliveryCouriersScreen({
   createRequest?: typeof createDeliveryCourier;
   loadRequest?: typeof loadDeliveryCouriers;
   onBack: () => void;
+  onOrders?: () => void;
   onSelectCourier: (courier: DeliveryCourierSummary) => void;
 }) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
@@ -103,6 +106,13 @@ export function DeliveryCouriersScreen({
         contentContainerStyle={deliveryStyles.content}
         style={deliveryStyles.scroll}
       >
+        {onOrders ? (
+          <DeliverySectionTabs
+            active="couriers"
+            onCouriers={() => undefined}
+            onOrders={onOrders}
+          />
+        ) : null}
         {formOpen ? (
           <View style={deliveryStyles.formCard}>
             <Text style={deliveryStyles.sectionTitle}>Novo entregador</Text>

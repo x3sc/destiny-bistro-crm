@@ -1,17 +1,29 @@
 import { type Href, useRouter } from 'expo-router';
 
-import { DeliveryCouriersScreen } from '@/components/delivery-couriers-screen';
+import { hasPermission, useAuth } from '@/auth/auth-context';
+import { DeliveryOrdersScreen } from '@/components/delivery-orders-screen';
 
 export default function DeliveriesRoute() {
   const router = useRouter();
+  const { user } = useAuth();
 
   return (
-    <DeliveryCouriersScreen
+    <DeliveryOrdersScreen
+      canWrite={
+        hasPermission(user, 'deliveries.write') &&
+        hasPermission(user, 'comandas.write')
+      }
       onBack={() => {
         router.replace('/');
       }}
-      onSelectCourier={(courier) => {
-        router.push(`/deliveries/${encodeURIComponent(courier.id)}` as Href);
+      onCouriers={() => {
+        router.push('/deliveries/couriers' as Href);
+      }}
+      onNewOrder={() => {
+        router.push('/deliveries/orders/new' as Href);
+      }}
+      onSelectOrder={(order) => {
+        router.push(`/deliveries/orders/${encodeURIComponent(order.id)}` as Href);
       }}
     />
   );
