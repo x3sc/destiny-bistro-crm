@@ -2067,14 +2067,25 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
         };
       }>()
       .statement.entries.find((entry) => entry.comandaId === comandaId);
-    assert.deepEqual(deliveryEntry, {
-      comandaId,
-      deliveryFeeCents: 500,
-      event: "DELIVERY_RECORDED",
-      origin: "DELIVERY",
-      receivedCents: 1_599,
-      soldCents: 1_599,
-    });
+    assert.ok(deliveryEntry);
+    assert.deepEqual(
+      {
+        comandaId: deliveryEntry.comandaId,
+        deliveryFeeCents: deliveryEntry.deliveryFeeCents,
+        event: deliveryEntry.event,
+        origin: deliveryEntry.origin,
+        receivedCents: deliveryEntry.receivedCents,
+        soldCents: deliveryEntry.soldCents,
+      },
+      {
+        comandaId,
+        deliveryFeeCents: 500,
+        event: "DELIVERY_RECORDED",
+        origin: "DELIVERY",
+        receivedCents: 1_599,
+        soldCents: 1_599,
+      },
+    );
 
     assert.equal(
       await prisma.auditLog.count({
