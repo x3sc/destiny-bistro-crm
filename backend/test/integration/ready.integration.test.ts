@@ -2011,12 +2011,20 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
         salesTotalCents: number;
       };
     }>().day;
-    assert.deepEqual(day, {
-      deliveryCount: 1,
-      feesTotalCents: 500,
-      payoutCents: 8_500,
-      salesTotalCents: 1_599,
-    });
+    assert.deepEqual(
+      {
+        deliveryCount: day.deliveryCount,
+        feesTotalCents: day.feesTotalCents,
+        payoutCents: day.payoutCents,
+        salesTotalCents: day.salesTotalCents,
+      },
+      {
+        deliveryCount: 1,
+        feesTotalCents: 500,
+        payoutCents: 8_500,
+        salesTotalCents: 1_599,
+      },
+    );
 
     const settlementResponse = await app.inject({
       method: "POST",
