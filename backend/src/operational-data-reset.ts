@@ -27,6 +27,13 @@ export async function resetOperationalData(
     const deliveryOrders = await transaction.deliveryOrder.deleteMany({
       where: { establishmentId },
     });
+    await transaction.inventoryOperation.updateMany({
+      data: { comandaId: null },
+      where: { establishmentId, comandaId: { not: null } },
+    });
+    await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
     const comandaItems = await transaction.comandaItem.deleteMany({
       where: { establishmentId },
     });

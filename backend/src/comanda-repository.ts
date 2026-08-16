@@ -7,6 +7,10 @@ import {
   removeComandaItem,
 } from "./comanda-item-operations.js";
 import {
+  cancelComandaItemConfiguration,
+  configureComandaItemAdditionals,
+} from "./comanda-configuration-operations.js";
+import {
   comandaSelect,
   getComandaOrThrow,
   mapComanda,
@@ -122,6 +126,44 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         ),
       );
     },
+    async configureItemAdditionals(
+      establishmentId,
+      comandaId,
+      itemId,
+      input,
+      actorUserId,
+    ) {
+      return prisma.$transaction((transaction) =>
+        configureComandaItemAdditionals(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          input,
+          actorUserId,
+        ),
+      );
+    },
+    async cancelItemConfiguration(
+      establishmentId,
+      comandaId,
+      itemId,
+      configurationId,
+      input,
+      actorUserId,
+    ) {
+      return prisma.$transaction((transaction) =>
+        cancelComandaItemConfiguration(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          configurationId,
+          input,
+          actorUserId,
+        ),
+      );
+    },
     async close(
       establishmentId,
       id,
@@ -140,6 +182,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             },
             items: {
               select: {
+                additionalTotalCents: true,
                 confirmedQuantity: true,
                 quantity: true,
                 unitPriceCents: true,
@@ -176,7 +219,8 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         }
 
         const totalCents = activeComanda.items.reduce(
-          (total, item) => total + item.quantity * item.unitPriceCents,
+          (total, item) =>
+            total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
           0,
         ) + (activeComanda.deliveryOrder?.feeCents ?? 0);
         const paidCents = paymentTotal(payments);

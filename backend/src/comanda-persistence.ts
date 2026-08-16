@@ -63,8 +63,30 @@ export const comandaSelect = {
     orderBy: {
       createdAt: "asc",
     },
+    where: { quantity: { gt: 0 } },
     select: {
+      additionalTotalCents: true,
       confirmedQuantity: true,
+      configurations: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          additionals: {
+            orderBy: { additionalName: "asc" },
+            select: {
+              additionalId: true,
+              additionalName: true,
+              id: true,
+              quantityPerUnit: true,
+              unitPriceCents: true,
+            },
+          },
+          configurationKey: true,
+          confirmedQuantity: true,
+          id: true,
+          quantity: true,
+        },
+        where: { quantity: { gt: 0 } },
+      },
       createdAt: true,
       id: true,
       productId: true,
@@ -101,8 +123,20 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
   const { creditOrder, deliveryOrder, payments, ...persistedComanda } = comanda;
   const items = comanda.items.map((item) => ({
     ...item,
+    configurations: item.configurations.map((configuration) => ({
+      ...configuration,
+      subtotalCents:
+        configuration.quantity *
+        (item.unitPriceCents +
+          configuration.additionals.reduce(
+            (total, additional) =>
+              total + additional.unitPriceCents * additional.quantityPerUnit,
+            0,
+          )),
+    })),
     createdAt: item.createdAt.toISOString(),
-    subtotalCents: item.unitPriceCents * item.quantity,
+    subtotalCents:
+      item.unitPriceCents * item.quantity + item.additionalTotalCents,
   }));
 
   return {
@@ -219,6 +253,7 @@ export async function syncOpenCreditOrderTotal(
 
   const items = await transaction.comandaItem.findMany({
     select: {
+      additionalTotalCents: true,
       quantity: true,
       unitPriceCents: true,
     },
@@ -231,7 +266,8 @@ export async function syncOpenCreditOrderTotal(
     where: { comandaId, establishmentId },
   });
   const totalCents = items.reduce(
-    (total, item) => total + item.quantity * item.unitPriceCents,
+    (total, item) =>
+      total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
     0,
   ) + (deliveryOrder?.feeCents ?? 0);
   const updated = await transaction.creditOrder.updateMany({

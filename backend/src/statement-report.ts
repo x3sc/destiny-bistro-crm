@@ -152,6 +152,7 @@ interface SourcePayment {
 }
 
 interface SourceItem {
+  additionalTotalCents?: number;
   confirmedQuantity: number;
   productId: string;
   productName: string;
@@ -252,7 +253,9 @@ export function buildStatementReport(
     );
     const tableTotalCents = comanda.items.reduce(
       (total, item) =>
-        total + item.confirmedQuantity * item.unitPriceCents,
+        total +
+        item.confirmedQuantity * item.unitPriceCents +
+        (item.additionalTotalCents ?? 0),
       0,
     );
     const totalCents = tableTotalCents + (comanda.deliveryOrder?.feeCents ?? 0);
