@@ -4,6 +4,7 @@ import {
   MenuCategoryNotFoundError,
   MenuConflictError,
   MenuInputError,
+  MenuAdditionalNotFoundError,
   MenuProductNotFoundError,
   type ProductRepository,
 } from "../product-repository.js";
@@ -25,6 +26,21 @@ interface ProductBody {
   priceCents?: unknown;
 }
 
+interface AdditionalBody {
+  active?: unknown;
+  code?: unknown;
+  name?: unknown;
+  priceCents?: unknown;
+}
+
+interface RecipeBody {
+  recipe?: unknown;
+}
+
+interface ProductAdditionalsBody {
+  additionalIds?: unknown;
+}
+
 export function registerProductRoutes(
   app: FastifyInstance,
   products: ProductRepository,
@@ -41,6 +57,23 @@ export function registerProductRoutes(
         };
       } catch (error) {
         app.log.error(error, "Product query failed");
+        return unavailable(reply);
+      }
+    },
+  );
+
+  app.get(
+    "/admin/additionals",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      try {
+        return {
+          additionals: await products.listAdditionals(
+            requireAuthUser(request).establishment.id,
+          ),
+        };
+      } catch (error) {
+        app.log.error(error, "Additional query failed");
         return unavailable(reply);
       }
     },
@@ -202,6 +235,192 @@ export function registerProductRoutes(
       }
     },
   );
+
+  app.put<{ Body: RecipeBody; Params: EntityParams }>(
+    "/admin/products/:entityId/recipe",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      const recipe = parseRecipe(request.body?.recipe);
+      if (!recipe) {
+        return invalid(reply);
+      }
+      try {
+        const user = requireAuthUser(request);
+        return {
+          product: await products.replaceProductRecipe(
+            user.establishment.id,
+            request.params.entityId,
+            recipe,
+            user.id,
+          ),
+        };
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Product recipe update failed");
+      }
+    },
+  );
+
+  app.put<{ Body: ProductAdditionalsBody; Params: EntityParams }>(
+    "/admin/products/:entityId/additionals",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      if (
+        !Array.isArray(request.body?.additionalIds) ||
+        request.body.additionalIds.some((id) => typeof id !== "string")
+      ) {
+        return invalid(reply);
+      }
+      try {
+        const user = requireAuthUser(request);
+        return {
+          product: await products.replaceProductAdditionals(
+            user.establishment.id,
+            request.params.entityId,
+            request.body.additionalIds as string[],
+            user.id,
+          ),
+        };
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Product additional update failed");
+      }
+    },
+  );
+
+  app.post<{ Body: AdditionalBody }>(
+    "/admin/additionals",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      if (!isAdditionalBody(request.body, false)) {
+        return invalid(reply);
+      }
+      try {
+        const user = requireAuthUser(request);
+        return reply.code(201).send({
+          additional: await products.createAdditional(
+            user.establishment.id,
+            {
+              code: request.body.code,
+              name: request.body.name,
+              priceCents: request.body.priceCents,
+            },
+            user.id,
+          ),
+        });
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Additional creation failed");
+      }
+    },
+  );
+
+  app.patch<{ Body: AdditionalBody; Params: EntityParams }>(
+    "/admin/additionals/:entityId",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      if (!isAdditionalBody(request.body, true)) {
+        return invalid(reply);
+      }
+      try {
+        const user = requireAuthUser(request);
+        return {
+          additional: await products.updateAdditional(
+            user.establishment.id,
+            request.params.entityId,
+            {
+              active: request.body.active,
+              code: request.body.code,
+              name: request.body.name,
+              priceCents: request.body.priceCents,
+            },
+            user.id,
+          ),
+        };
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Additional update failed");
+      }
+    },
+  );
+
+  app.delete<{ Params: EntityParams }>(
+    "/admin/additionals/:entityId",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      try {
+        const user = requireAuthUser(request);
+        return {
+          additional: await products.deactivateAdditional(
+            user.establishment.id,
+            request.params.entityId,
+            user.id,
+          ),
+        };
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Additional deactivation failed");
+      }
+    },
+  );
+
+  app.put<{ Body: RecipeBody; Params: EntityParams }>(
+    "/admin/additionals/:entityId/recipe",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      const recipe = parseRecipe(request.body?.recipe);
+      if (!recipe) {
+        return invalid(reply);
+      }
+      try {
+        const user = requireAuthUser(request);
+        return {
+          additional: await products.replaceAdditionalRecipe(
+            user.establishment.id,
+            request.params.entityId,
+            recipe,
+            user.id,
+          ),
+        };
+      } catch (error) {
+        return handleMenuError(app, reply, error, "Additional recipe update failed");
+      }
+    },
+  );
+}
+
+function isAdditionalBody(
+  body: AdditionalBody | undefined,
+  requiresActive: boolean,
+): body is AdditionalBody & {
+  active: boolean;
+  code: string;
+  name: string;
+  priceCents: number;
+} {
+  return Boolean(
+    body &&
+      typeof body.code === "string" &&
+      typeof body.name === "string" &&
+      typeof body.priceCents === "number" &&
+      (!requiresActive || typeof body.active === "boolean"),
+  );
+}
+
+function parseRecipe(value: unknown) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const items: unknown[] = value;
+  return items.every(isRecipeInput) ? items : null;
+}
+
+function isRecipeInput(
+  value: unknown,
+): value is { ingredientId: string; quantity: number } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "ingredientId" in value &&
+      typeof value.ingredientId === "string" &&
+      "quantity" in value &&
+      typeof value.quantity === "number",
+  );
 }
 
 function isProductBody(
@@ -255,7 +474,8 @@ function handleMenuError(
   }
   if (
     error instanceof MenuCategoryNotFoundError ||
-    error instanceof MenuProductNotFoundError
+    error instanceof MenuProductNotFoundError ||
+    error instanceof MenuAdditionalNotFoundError
   ) {
     return reply.code(404).send({ message: "Menu entry not found", status: "error" });
   }

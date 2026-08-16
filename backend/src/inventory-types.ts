@@ -1,7 +1,19 @@
 export type IngredientUnit = "UNIT" | "GRAM" | "MILLILITER";
-export type InventoryMovementType = "ENTRY" | "EXIT" | "ADJUSTMENT";
+export type InventoryInputUnit = IngredientUnit | "KILOGRAM" | "LITER";
+export type InventoryMovementType =
+  | "ENTRY"
+  | "EXIT"
+  | "ADJUSTMENT"
+  | "SALE_CONSUMPTION"
+  | "ADDITIONAL_CONSUMPTION"
+  | "LOSS"
+  | "MANUAL_EXIT"
+  | "POSITIVE_ADJUSTMENT"
+  | "NEGATIVE_ADJUSTMENT"
+  | "REVERSAL";
 
 export interface InventoryItem {
+  deficitQuantity: number;
   id: string;
   ingredient: {
     active: boolean;
@@ -17,6 +29,7 @@ export interface InventoryItem {
 }
 
 export interface InventoryMovement {
+  balanceBefore: number;
   balanceAfter: number;
   createdAt: string;
   id: string;
@@ -26,11 +39,47 @@ export interface InventoryMovement {
   type: InventoryMovementType;
 }
 
+export interface InventoryLot {
+  code: string | null;
+  createdAt: string;
+  currentQuantity: number;
+  expiresAt: string | null;
+  expired: boolean;
+  id: string;
+  initialQuantity: number;
+  origin: "PURCHASE" | "ADJUSTMENT" | "REVERSAL" | "LEGACY";
+  receivedAt: string;
+  stockId: string;
+  totalCostCents: number | null;
+}
+
 export interface CreateIngredientInput {
   code: string;
   minimumQuantity: number;
   name: string;
   unit: IngredientUnit;
+}
+
+export interface UpdateIngredientInput extends CreateIngredientInput {
+  active: boolean;
+}
+
+export interface CreateEntryInput {
+  code: string | null;
+  expiresAt: string | null;
+  quantity: string;
+  reason: string;
+  receivedAt: string;
+  requestId: string;
+  totalCostCents: number;
+  unit: InventoryInputUnit;
+}
+
+export interface InventoryEntryResult {
+  inventoryItem: InventoryItem;
+  lot: InventoryLot;
+  movement: InventoryMovement;
+  replayed: boolean;
 }
 
 export interface CreateMovementInput {
@@ -51,7 +100,29 @@ export interface InventoryRepository {
     input: CreateMovementInput,
     actorUserId: string,
   ): Promise<InventoryMovement>;
+  createEntry(
+    establishmentId: string,
+    stockId: string,
+    input: CreateEntryInput,
+    actorUserId: string,
+  ): Promise<InventoryEntryResult>;
+  deactivateIngredient(
+    establishmentId: string,
+    ingredientId: string,
+    actorUserId: string,
+  ): Promise<InventoryItem>;
   list(establishmentId: string): Promise<InventoryItem[]>;
+  listLots(establishmentId: string, stockId: string): Promise<InventoryLot[]>;
+  listMovements(
+    establishmentId: string,
+    stockId: string,
+  ): Promise<InventoryMovement[]>;
+  updateIngredient(
+    establishmentId: string,
+    ingredientId: string,
+    input: UpdateIngredientInput,
+    actorUserId: string,
+  ): Promise<InventoryItem>;
 }
 
 export class IngredientConflictError extends Error {}
@@ -60,3 +131,4 @@ export class InventoryBalanceError extends Error {}
 export class InventoryMovementConflictError extends Error {}
 export class InventoryMovementInputError extends Error {}
 export class InventoryStockNotFoundError extends Error {}
+export class InventoryRequestConflictError extends Error {}

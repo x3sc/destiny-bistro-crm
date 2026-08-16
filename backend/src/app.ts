@@ -50,7 +50,7 @@ export async function buildApp({
   const app = Fastify({ logger });
 
   await app.register(cors, {
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     origin: corsOrigins,
     allowedHeaders: ["Authorization", "Content-Type"],
   });
