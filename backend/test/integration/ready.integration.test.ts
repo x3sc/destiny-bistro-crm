@@ -1012,6 +1012,86 @@ void test("inventory consumption uses FEFO, ignores expired lots and keeps defic
     const finalStock = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
     assert.equal(finalStock.quantity, -42);
     assert.equal(finalStock.deficitQuantity, 92);
+
+    const configurationId = deficitResponse.json<{
+      comanda: { items: Array<{ configurations: Array<{ id: string }> }> };
+    }>().comanda.items[0].configurations[0].id;
+    const returned = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "RETURN_TO_STOCK",
+        quantity: 1,
+        reason: "Cancelamento com devolução",
+        requestId: "inventory-return-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(returned.statusCode, 200);
+    const afterReturn = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
+    assert.equal(afterReturn.quantity, 58);
+    assert.equal(afterReturn.deficitQuantity, 0);
+
+    const loss = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "LOSS",
+        quantity: 1,
+        reason: "Perda confirmada",
+        requestId: "inventory-loss-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(loss.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      58,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      2,
+    );
+    const totalCancellationPayload = {
+      disposition: "RETURN_TO_STOCK",
+      reason: "Cancelamento total solicitado",
+      requestId: "inventory-total-cancel-request",
+    } as const;
+    const totalCancellation = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellation.statusCode, 200);
+    assert.equal(
+      totalCancellation.json<{ comanda: { status: string } }>().comanda.status,
+      "CANCELLED",
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    const totalCancellationReplay = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellationReplay.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      3,
+    );
+    assert.equal(
+      (await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } }))
+        .status,
+      "FREE",
+    );
   } finally {
     await app.close();
     await prisma.$transaction(async (transaction) => {
@@ -1043,7 +1123,12 @@ void test("inventory consumption uses FEFO, ignores expired lots and keeps defic
       });
       await transaction.inventoryMovement.deleteMany({ where: { stockId: stock.id } });
       await transaction.inventoryOperation.deleteMany({
-        where: { sourceId: { in: itemIds } },
+        where: {
+          OR: [
+            { comandaId },
+            { sourceId: { in: [...itemIds, ...configurationIds] } },
+          ],
+        },
       });
       if (comandaId) {
         await transaction.comandaItem.deleteMany({ where: { comandaId } });
@@ -2751,7 +2836,8 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: 1_000,
         reason: "Compra de teste",
-        type: "ENTRY",
+        requestId: "legacy-adjustment-request",
+        type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });
@@ -2767,6 +2853,7 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: -250,
         reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2777,12 +2864,34 @@ void test("establishments isolate data and support multiple owners and employees
         .balanceAfter,
       750,
     );
+    const replayedExitResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: -250,
+        reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
+        type: "EXIT",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(replayedExitResponse.statusCode, 200);
+    assert.equal(
+      replayedExitResponse.json<{ replayed: boolean }>().replayed,
+      true,
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({
+        where: { id: primaryStockId },
+      })).quantity,
+      750,
+    );
 
     const negativeBalanceResponse = await primaryApp.inject({
       method: "POST",
       payload: {
         quantityDelta: -751,
         reason: "Consumo invalido",
+        requestId: "legacy-negative-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2811,9 +2920,10 @@ void test("establishments isolate data and support multiple owners and employees
     const crossTenantMovementResponse = await secondaryApp.inject({
       method: "POST",
       payload: {
-        quantityDelta: 10,
-        reason: "Tentativa cruzada",
-        type: "ENTRY",
+          quantityDelta: 10,
+          reason: "Tentativa cruzada",
+          requestId: "cross-tenant-request",
+          type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });

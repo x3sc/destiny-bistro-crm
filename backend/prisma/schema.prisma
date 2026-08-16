@@ -33,6 +33,7 @@ enum ComandaEventType {
 
 enum ComandaCancellationReason {
   OPENED_BY_MISTAKE
+  OPERATOR_CANCELLED
 }
 
 enum CreditOrderSource {

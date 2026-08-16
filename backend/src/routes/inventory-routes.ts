@@ -21,6 +21,7 @@ interface CreateIngredientBody {
 interface CreateMovementBody {
   quantityDelta?: unknown;
   reason?: unknown;
+  requestId?: unknown;
   type?: unknown;
 }
 
@@ -264,6 +265,7 @@ export function registerInventoryRoutes(
         !request.body ||
         typeof request.body.quantityDelta !== "number" ||
         typeof request.body.reason !== "string" ||
+        typeof request.body.requestId !== "string" ||
         typeof request.body.type !== "string"
       ) {
         return invalidMovement(reply);
@@ -272,18 +274,18 @@ export function registerInventoryRoutes(
       try {
         const user = requireAuthUser(request);
 
-        return reply.code(201).send({
-          movement: await inventory.createMovement(
+        const result = await inventory.createMovement(
             user.establishment.id,
             request.params.stockId,
             {
               quantityDelta: request.body.quantityDelta,
               reason: request.body.reason,
-              type: request.body.type as "ENTRY" | "EXIT" | "ADJUSTMENT",
+              requestId: request.body.requestId,
+              type: request.body.type as "EXIT" | "LOSS" | "ADJUSTMENT",
             },
             user.id,
-          ),
-        });
+          );
+        return reply.code(result.replayed ? 200 : 201).send(result);
       } catch (error) {
         if (error instanceof InventoryMovementInputError) {
           return invalidMovement(reply);
@@ -308,6 +310,10 @@ export function registerInventoryRoutes(
             message: "Inventory changed; retry the movement",
             status: "error",
           });
+        }
+
+        if (error instanceof InventoryRequestConflictError) {
+          return reply.code(409).send({ message: "Idempotency key already used", status: "error" });
         }
 
         app.log.error(error, "Inventory movement failed");

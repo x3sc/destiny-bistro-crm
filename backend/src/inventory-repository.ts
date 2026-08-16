@@ -1,10 +1,9 @@
-import { type Prisma, type PrismaClient } from "./generated/prisma/client.js";
+import { Prisma, type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
 import {
   IngredientConflictError,
   IngredientInputError,
   InventoryBalanceError,
-  InventoryMovementConflictError,
   InventoryMovementInputError,
   InventoryRequestConflictError,
   InventoryStockNotFoundError,
@@ -15,6 +14,7 @@ import {
   type InventoryItem,
   type InventoryLot,
   type InventoryMovement,
+  type InventoryMovementResult,
   type InventoryRepository,
   type UpdateIngredientInput,
 } from "./inventory-types.js";
@@ -101,83 +101,163 @@ export function createInventoryRepository(
       actorUserId,
     ) {
       const input = normalizeMovementInput(rawInput);
-
-      return prisma.$transaction(async (transaction) => {
-        const stock = await transaction.inventoryStock.findFirst({
-          select: {
-            id: true,
-            quantity: true,
-          },
-          where: {
+      try {
+        return await prisma.$transaction(async (transaction) => {
+          const replay = await findManualMovementReplay(
+            transaction,
             establishmentId,
-            id: stockId,
-          },
-        });
+            input.requestId,
+          );
+          if (replay) {
+            return replayManualMovement(replay, stockId, input, true);
+          }
 
-        if (!stock) {
-          throw new InventoryStockNotFoundError();
-        }
+          await transaction.$queryRaw(
+            Prisma.sql`SELECT id FROM InventoryStock WHERE establishmentId = ${establishmentId} AND id = ${stockId} FOR UPDATE`,
+          );
+          const stock = await transaction.inventoryStock.findFirst({
+            include: {
+              lots: {
+                where: {
+                  currentQuantity: { gt: 0 },
+                  ...(input.type === "LOSS"
+                    ? {}
+                    : { OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] }),
+                },
+              },
+            },
+            where: { establishmentId, id: stockId },
+          });
+          if (!stock) {
+            throw new InventoryStockNotFoundError();
+          }
 
-        const balanceAfter = stock.quantity + input.quantityDelta;
+          const balanceAfter = stock.quantity + input.quantityDelta;
+          if (balanceAfter < 0) {
+            throw new InventoryBalanceError();
+          }
+          if (
+            input.quantityDelta < 0 &&
+            input.type !== "LOSS" &&
+            stock.lots.reduce(
+              (total, lot) => total + lot.currentQuantity,
+              0,
+            ) < Math.abs(input.quantityDelta)
+          ) {
+            throw new InventoryBalanceError();
+          }
 
-        if (balanceAfter < 0) {
-          throw new InventoryBalanceError();
-        }
-
-        const updated = await transaction.inventoryStock.updateMany({
-          data: { quantity: balanceAfter },
-          where: {
-            establishmentId,
-            id: stock.id,
-            quantity: stock.quantity,
-          },
-        });
-
-        if (updated.count !== 1) {
-          throw new InventoryMovementConflictError();
-        }
-
-        const movement = await transaction.inventoryMovement.create({
-          data: {
-            actorUserId,
-            balanceAfter,
-            balanceBefore: stock.quantity,
-            establishmentId,
-            quantityDelta: input.quantityDelta,
-            reason: input.reason,
-            stockId: stock.id,
-            type: input.type,
-          },
-          select: {
-            balanceAfter: true,
-            balanceBefore: true,
-            createdAt: true,
-            id: true,
-            quantityDelta: true,
-            reason: true,
-            stockId: true,
-            type: true,
-          },
-        });
-
-        await transaction.auditLog.create({
-          data: createAuditData({
-            action: "INVENTORY_MOVEMENT_RECORDED",
-            establishmentId,
-            metadata: {
+          const operation = await transaction.inventoryOperation.create({
+            data: {
+              actorUserId,
+              establishmentId,
+              reason: input.reason,
+              requestId: input.requestId,
+              sourceId: stockId,
+              type: "MANUAL",
+            },
+          });
+          const deficitCovered =
+            input.quantityDelta > 0
+              ? Math.min(stock.deficitQuantity, input.quantityDelta)
+              : 0;
+          const lotQuantity =
+            input.quantityDelta > 0 ? input.quantityDelta - deficitCovered : 0;
+          const adjustmentLot = lotQuantity
+            ? await transaction.inventoryLot.create({
+                data: {
+                  actorUserId,
+                  currentQuantity: lotQuantity,
+                  establishmentId,
+                  initialQuantity: lotQuantity,
+                  origin: "ADJUSTMENT",
+                  receivedAt: new Date(),
+                  stockId,
+                },
+              })
+            : null;
+          const movement = await transaction.inventoryMovement.create({
+            data: {
+              actorUserId,
               balanceAfter,
+              balanceBefore: stock.quantity,
+              establishmentId,
+              operationId: operation.id,
               quantityDelta: input.quantityDelta,
               reason: input.reason,
+              stockId: stock.id,
               type: input.type,
             },
-            resourceId: stock.id,
-            resourceType: "INVENTORY_STOCK",
-            userId: actorUserId,
-          }),
-        });
+          });
 
-        return mapMovement(movement);
-      });
+          if (adjustmentLot) {
+            await transaction.inventoryMovementLot.create({
+              data: {
+                establishmentId,
+                lotId: adjustmentLot.id,
+                movementId: movement.id,
+                quantityDelta: lotQuantity,
+              },
+            });
+          } else if (input.quantityDelta < 0) {
+            let remaining = Math.abs(input.quantityDelta);
+            const lots = stock.lots.sort(compareInventoryLots);
+            for (const lot of lots) {
+              if (remaining === 0) break;
+              const allocated = Math.min(lot.currentQuantity, remaining);
+              await transaction.inventoryLot.update({
+                data: { currentQuantity: { decrement: allocated } },
+                where: { id: lot.id },
+              });
+              await transaction.inventoryMovementLot.create({
+                data: {
+                  establishmentId,
+                  lotId: lot.id,
+                  movementId: movement.id,
+                  quantityDelta: -allocated,
+                },
+              });
+              remaining -= allocated;
+            }
+          }
+
+          await transaction.inventoryStock.update({
+            data: {
+              deficitQuantity:
+                deficitCovered > 0 ? { decrement: deficitCovered } : undefined,
+              quantity: balanceAfter,
+            },
+            where: { id: stock.id },
+          });
+          await transaction.auditLog.create({
+            data: createAuditData({
+              action: "INVENTORY_MOVEMENT_RECORDED",
+              establishmentId,
+              metadata: {
+                balanceAfter,
+                quantityDelta: input.quantityDelta,
+                reason: input.reason,
+                requestId: input.requestId,
+                type: input.type,
+              },
+              resourceId: stock.id,
+              resourceType: "INVENTORY_STOCK",
+              userId: actorUserId,
+            }),
+          });
+          return { movement: mapMovement(movement), replayed: false };
+        });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          const replay = await prisma.$transaction((transaction) =>
+            findManualMovementReplay(transaction, establishmentId, input.requestId),
+          );
+          if (replay) {
+            return replayManualMovement(replay, stockId, input, true);
+          }
+        }
+        throw error;
+      }
     },
     async createEntry(establishmentId, stockId, rawInput, actorUserId) {
       const input = normalizeEntryInput(rawInput);
@@ -576,6 +656,38 @@ async function findEntryReplay(
   });
 }
 
+async function findManualMovementReplay(
+  transaction: Prisma.TransactionClient,
+  establishmentId: string,
+  requestId: string,
+) {
+  return transaction.inventoryOperation.findUnique({
+    include: { movements: { take: 1 } },
+    where: { establishmentId_requestId: { establishmentId, requestId } },
+  });
+}
+
+function replayManualMovement(
+  replay: NonNullable<Awaited<ReturnType<typeof findManualMovementReplay>>>,
+  stockId: string,
+  input: ReturnType<typeof normalizeMovementInput>,
+  replayed: boolean,
+): InventoryMovementResult {
+  const movement = replay.movements[0];
+  if (
+    replay.type !== "MANUAL" ||
+    replay.sourceId !== stockId ||
+    !movement ||
+    movement.stockId !== stockId ||
+    movement.quantityDelta !== input.quantityDelta ||
+    movement.reason !== input.reason ||
+    movement.type !== input.type
+  ) {
+    throw new InventoryRequestConflictError();
+  }
+  return { movement: mapMovement(movement), replayed };
+}
+
 function assertEntryReplay(
   replay: NonNullable<Awaited<ReturnType<typeof findEntryReplay>>>,
   stockId: string,
@@ -629,12 +741,13 @@ function normalizeMovementInput(
 ): CreateMovementInput {
   const reason = input.reason.trim().replace(/\s+/gu, " ");
   const validSign =
-    (input.type === "ENTRY" && input.quantityDelta > 0) ||
     (input.type === "EXIT" && input.quantityDelta < 0) ||
+    (input.type === "LOSS" && input.quantityDelta < 0) ||
     (input.type === "ADJUSTMENT" && input.quantityDelta !== 0);
 
   if (
-    !["ENTRY", "EXIT", "ADJUSTMENT"].includes(input.type) ||
+    !/^[a-zA-Z0-9_-]{8,191}$/u.test(input.requestId) ||
+    !["EXIT", "LOSS", "ADJUSTMENT"].includes(input.type) ||
     !Number.isInteger(input.quantityDelta) ||
     !validSign ||
     reason.length < 2 ||
@@ -646,8 +759,22 @@ function normalizeMovementInput(
   return {
     quantityDelta: input.quantityDelta,
     reason,
+    requestId: input.requestId,
     type: input.type,
   };
+}
+
+function compareInventoryLots(
+  a: { expiresAt: Date | null; id: string; receivedAt: Date },
+  b: { expiresAt: Date | null; id: string; receivedAt: Date },
+) {
+  const expirationA = a.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const expirationB = b.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  return (
+    expirationA - expirationB ||
+    a.receivedAt.getTime() - b.receivedAt.getTime() ||
+    a.id.localeCompare(b.id)
+  );
 }
 
 function mapInventoryItem(stock: PersistedInventoryItem): InventoryItem {

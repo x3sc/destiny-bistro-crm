@@ -8,6 +8,7 @@ import {
 } from "../../src/auth-repository.js";
 import {
   ComandaNotCancellableError,
+  ComandaInventoryPermissionError,
   ComandaNotClosableError,
   ComandaNotFoundError,
   ComandaCreditPermissionError,
@@ -486,6 +487,7 @@ function createProducts(
     listAdditionals: () => Promise.resolve([menuAdditional]),
     listActive: () => Promise.resolve([]),
     listMenu: () => Promise.resolve([menuCategory]),
+    listRecipeIngredients: () => Promise.resolve([]),
     replaceAdditionalRecipe: () => Promise.resolve(menuAdditional),
     replaceProductAdditionals: () => Promise.resolve(menuCategory.products[0]),
     replaceProductRecipe: () => Promise.resolve(menuCategory.products[0]),
@@ -520,7 +522,8 @@ function createInventory(
         replayed: false,
       }),
     createIngredient: () => Promise.resolve(inventoryItem),
-    createMovement: () => Promise.resolve(inventoryMovement),
+    createMovement: () =>
+      Promise.resolve({ movement: inventoryMovement, replayed: false }),
     deactivateIngredient: () => Promise.resolve(inventoryItem),
     list: () => Promise.resolve([inventoryItem]),
     listLots: () => Promise.resolve([]),
@@ -1065,9 +1068,10 @@ void test("POST /inventory/:stockId/movements records an audited tenant movement
         assert.deepEqual(input, {
           quantityDelta: 1000,
           reason: "Compra semanal",
-          type: "ENTRY",
+          requestId: "movement-request-1",
+          type: "ADJUSTMENT",
         });
-        return Promise.resolve(inventoryMovement);
+        return Promise.resolve({ movement: inventoryMovement, replayed: false });
       },
     }),
   });
@@ -1077,13 +1081,14 @@ void test("POST /inventory/:stockId/movements records an audited tenant movement
     payload: {
       quantityDelta: 1000,
       reason: "Compra semanal",
-      type: "ENTRY",
+      requestId: "movement-request-1",
+      type: "ADJUSTMENT",
     },
     url: "/inventory/stock-id/movements",
   });
 
   assert.equal(response.statusCode, 201);
-  assert.deepEqual(response.json(), { movement: inventoryMovement });
+  assert.deepEqual(response.json(), { movement: inventoryMovement, replayed: false });
 
   await app.close();
 });
@@ -1099,7 +1104,8 @@ void test("inventory movement reports tenant misses and negative balances", asyn
     payload: {
       quantityDelta: 1,
       reason: "Entrada",
-      type: "ENTRY",
+      requestId: "missing-stock-request",
+      type: "ADJUSTMENT",
     },
     url: "/inventory/other-tenant-stock/movements",
   });
@@ -1117,6 +1123,7 @@ void test("inventory movement reports tenant misses and negative balances", asyn
     payload: {
       quantityDelta: -300,
       reason: "Consumo",
+      requestId: "negative-balance-request",
       type: "EXIT",
     },
     url: "/inventory/stock-id/movements",
@@ -1434,6 +1441,66 @@ void test("POST /comandas/:comandaId/items/:itemId/confirm confirms item quantit
     inventoryWarnings: [],
   });
 
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel validates a total cancellation request", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (establishmentId, id, input, canWriteInventory, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(id, "comanda-id");
+        assert.equal(canWriteInventory, true);
+        assert.equal(actorUserId, "user-id");
+        assert.deepEqual(input, {
+          disposition: "RETURN_TO_STOCK",
+          reason: "Cliente desistiu",
+          requestId: "full-cancel-request",
+        });
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      reason: "  Cliente   desistiu  ",
+      requestId: "full-cancel-request",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+  assert.equal(response.statusCode, 200);
+  await app.close();
+});
+
+void test("confirmed total cancellation reports missing inventory.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () => Promise.resolve({
+        ...authenticatedUser,
+        permissions: authenticatedUser.permissions.filter(
+          (permission) => permission !== "inventory.write",
+        ),
+      }),
+    }),
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, _input, canWriteInventory) => {
+        assert.equal(canWriteInventory, false);
+        return Promise.reject(new ComandaInventoryPermissionError());
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      reason: "Perda autorizada",
+      requestId: "full-cancel-no-inventory",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+  assert.equal(response.statusCode, 403);
   await app.close();
 });
 

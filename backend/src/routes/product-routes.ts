@@ -236,6 +236,23 @@ export function registerProductRoutes(
     },
   );
 
+  app.get(
+    "/admin/recipe-ingredients",
+    { config: { permission: "products.write" } },
+    async (request, reply) => {
+      try {
+        return {
+          ingredients: await products.listRecipeIngredients(
+            requireAuthUser(request).establishment.id,
+          ),
+        };
+      } catch (error) {
+        app.log.error(error, "Recipe ingredient query failed");
+        return unavailable(reply);
+      }
+    },
+  );
+
   app.put<{ Body: RecipeBody; Params: EntityParams }>(
     "/admin/products/:entityId/recipe",
     { config: { permission: "products.write" } },

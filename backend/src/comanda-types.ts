@@ -11,7 +11,9 @@ export type ComandaEventType =
   | "ITEM_REMOVED"
   | "ITEM_CANCELLED"
   | "ADDITIONALS_CHANGED";
-export type ComandaCancellationReason = "OPENED_BY_MISTAKE";
+export type ComandaCancellationReason =
+  | "OPENED_BY_MISTAKE"
+  | "OPERATOR_CANCELLED";
 
 export interface ComandaEvent {
   actor: {
@@ -109,7 +111,17 @@ export interface ComandaRepository {
     productId: string,
     actorUserId: string,
   ): Promise<Comanda>;
-  cancel(establishmentId: string, id: string, actorUserId: string): Promise<Comanda>;
+  cancel(
+    establishmentId: string,
+    id: string,
+    input: {
+      disposition: "RETURN_TO_STOCK" | "LOSS";
+      reason: string;
+      requestId: string;
+    } | null,
+    canWriteInventory: boolean,
+    actorUserId: string,
+  ): Promise<Comanda>;
   changeItemQuantity(
     establishmentId: string,
     comandaId: string,
@@ -174,6 +186,8 @@ export class TableNotFoundError extends Error {}
 export class TableUnavailableError extends Error {}
 export class ComandaNotFoundError extends Error {}
 export class ComandaNotCancellableError extends Error {}
+export class ComandaCancellationConflictError extends Error {}
+export class ComandaInventoryPermissionError extends Error {}
 export class ComandaNotClosableError extends Error {}
 export class ComandaPaymentError extends Error {}
 export class ComandaCreditPermissionError extends Error {}

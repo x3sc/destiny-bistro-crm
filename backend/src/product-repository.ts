@@ -35,6 +35,12 @@ export interface RecipeIngredient {
   quantity: number;
 }
 
+export interface RecipeIngredientOption {
+  id: string;
+  name: string;
+  unit: "UNIT" | "GRAM" | "MILLILITER";
+}
+
 export interface MenuAdditional {
   active: boolean;
   code: string;
@@ -116,6 +122,7 @@ export interface ProductRepository {
   listAdditionals(establishmentId: string): Promise<MenuAdditional[]>;
   listActive(establishmentId: string): Promise<Product[]>;
   listMenu(establishmentId: string): Promise<MenuCategory[]>;
+  listRecipeIngredients(establishmentId: string): Promise<RecipeIngredientOption[]>;
   replaceAdditionalRecipe(
     establishmentId: string,
     additionalId: string,
@@ -406,6 +413,13 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
         where: { establishmentId },
       });
       return categories.map(mapMenuCategory);
+    },
+    async listRecipeIngredients(establishmentId) {
+      return prisma.ingredient.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, unit: true },
+        where: { active: true, establishmentId },
+      });
     },
     async replaceAdditionalRecipe(
       establishmentId,

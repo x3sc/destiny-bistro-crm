@@ -5,6 +5,8 @@ import {
   ComandaItemConfigurationError,
   ComandaItemNotFoundError,
   ComandaItemQuantityError,
+  ComandaCancellationConflictError,
+  ComandaInventoryPermissionError,
   ComandaNotMutableError,
   ComandaNotCancellableError,
   ComandaNotClosableError,
@@ -48,6 +50,12 @@ interface ConfigureAdditionalsBody {
 interface CancelConfigurationBody {
   disposition?: unknown;
   quantity?: unknown;
+  reason?: unknown;
+  requestId?: unknown;
+}
+
+interface CancelComandaBody {
+  disposition?: unknown;
   reason?: unknown;
   requestId?: unknown;
 }
@@ -96,16 +104,29 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     },
   );
 
-  app.post<{ Params: ComandaParams }>(
+  app.post<{ Body: CancelComandaBody; Params: ComandaParams }>(
     "/comandas/:comandaId/cancel",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
+      const body = request.body;
+      const input = body
+        ? parseCancelComandaBody(body)
+        : null;
+      if (body && !input) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid comanda cancellation",
+        });
+      }
       try {
+        const user = requireAuthUser(request);
         return {
           comanda: await comandas.cancel(
-            requireAuthUser(request).establishment.id,
+            user.establishment.id,
             request.params.comandaId,
-            requireAuthUser(request).id,
+            input,
+            user.permissions.includes("inventory.write"),
+            user.id,
           ),
         };
       } catch (error) {
@@ -120,6 +141,20 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
           return reply.code(409).send({
             status: "error",
             message: "Comanda cannot be cancelled",
+          });
+        }
+
+        if (error instanceof ComandaInventoryPermissionError) {
+          return reply.code(403).send({
+            status: "error",
+            message: "Missing required permission",
+          });
+        }
+
+        if (error instanceof ComandaCancellationConflictError) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Idempotency key already used",
           });
         }
 
@@ -360,6 +395,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
         ) {
           return reply.code(404).send({ status: "error", message: "Comanda item not found" });
         }
+
         if (
           error instanceof AdditionalUnavailableError ||
           error instanceof ComandaItemConfigurationError ||
@@ -456,6 +492,30 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       }
     },
   );
+}
+
+function parseCancelComandaBody(body: CancelComandaBody): {
+  disposition: "RETURN_TO_STOCK" | "LOSS";
+  reason: string;
+  requestId: string;
+} | null {
+  if (
+    (body.disposition !== "RETURN_TO_STOCK" && body.disposition !== "LOSS") ||
+    typeof body.reason !== "string" ||
+    body.reason.trim().length < 2 ||
+    body.reason.trim().length > 255 ||
+    typeof body.requestId !== "string" ||
+    body.requestId.length < 8 ||
+    body.requestId.length > 191
+  ) {
+    return null;
+  }
+  const disposition: "RETURN_TO_STOCK" | "LOSS" = body.disposition;
+  return {
+    disposition,
+    reason: body.reason.trim().replace(/\s+/gu, " "),
+    requestId: body.requestId,
+  };
 }
 
 function normalizeConfigureAdditionals(body: ConfigureAdditionalsBody | undefined) {

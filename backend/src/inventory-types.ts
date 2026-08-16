@@ -85,7 +85,13 @@ export interface InventoryEntryResult {
 export interface CreateMovementInput {
   quantityDelta: number;
   reason: string;
-  type: InventoryMovementType;
+  requestId: string;
+  type: "EXIT" | "LOSS" | "ADJUSTMENT";
+}
+
+export interface InventoryMovementResult {
+  movement: InventoryMovement;
+  replayed: boolean;
 }
 
 export interface InventoryRepository {
@@ -99,7 +105,7 @@ export interface InventoryRepository {
     stockId: string,
     input: CreateMovementInput,
     actorUserId: string,
-  ): Promise<InventoryMovement>;
+  ): Promise<InventoryMovementResult>;
   createEntry(
     establishmentId: string,
     stockId: string,
