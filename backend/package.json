@@ -14,7 +14,7 @@
     "prisma:validate": "prisma validate",
     "data:reset:operational": "tsx scripts/reset-operational-data.ts",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test test/unit/app.test.ts test/unit/password.test.ts test/unit/product-catalog.test.ts test/unit/statement-report.test.ts",
+    "test": "node --import tsx --test test/unit/app.test.ts test/unit/delivery.test.ts test/unit/password.test.ts test/unit/product-catalog.test.ts test/unit/statement-report.test.ts",
     "test:integration": "node --import tsx --test test/integration/ready.integration.test.ts",
     "typecheck": "npm run prisma:generate && tsc --noEmit",
     "establishment:provision": "tsx scripts/provision-establishment.ts",

@@ -4,6 +4,7 @@ export type AppIconName =
   | 'admin'
   | 'back'
   | 'credits'
+  | 'delivery'
   | 'external'
   | 'search'
   | 'tables'
@@ -11,11 +12,19 @@ export type AppIconName =
 
 const iconNames: Record<
   AppIconName,
-  'arrow-up-right-from-square' | 'caret-left' | 'circle-user' | 'house' | 'laptop' | 'magnifying-glass' | 'table-cells-large'
+  | 'arrow-up-right-from-square'
+  | 'caret-left'
+  | 'circle-user'
+  | 'house'
+  | 'laptop'
+  | 'magnifying-glass'
+  | 'motorcycle'
+  | 'table-cells-large'
 > = {
   admin: 'laptop',
   back: 'caret-left',
   credits: 'table-cells-large',
+  delivery: 'motorcycle',
   external: 'arrow-up-right-from-square',
   search: 'magnifying-glass',
   tables: 'house',

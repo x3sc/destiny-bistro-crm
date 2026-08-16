@@ -20,6 +20,7 @@ const colors = {
 const originLabels: Record<StatementEntry["origin"], string> = {
   CREDIT_MANUAL: "Fiado manual",
   CREDIT_TABLE: "Fiado de mesa",
+  DELIVERY: "Delivery",
   TABLE: "Mesa",
 };
 
@@ -59,6 +60,7 @@ const originFilterLabels: Record<StatementOriginFilter, string> = {
   ALL: "Todas",
   CREDIT_MANUAL: "Fiado manual",
   CREDIT_TABLE: "Fiado de mesa",
+  DELIVERY: "Delivery",
   TABLE: "Mesa",
 };
 
@@ -366,12 +368,20 @@ function groupEntriesByCommand(entries: StatementEntry[]) {
 
 function commandIdentification(entry: StatementEntry) {
   const name = entry.customerName ?? entry.comandaName;
+
+  if (entry.comandaNumber === null) {
+    return name ? `Entrega · ${name}` : "Entrega";
+  }
+
   return name
     ? `Comanda #${entry.comandaNumber} · ${name}`
     : `Comanda #${entry.comandaNumber}`;
 }
 
 function commandLocation(entry: StatementEntry) {
+  if (entry.origin === "DELIVERY") {
+    return entry.deliveryAddress ?? "Entrega";
+  }
   if (entry.tableNumber !== null) {
     return `Mesa ${entry.tableNumber}`;
   }
@@ -401,6 +411,19 @@ function entryPresentation(entry: StatementEntry): {
         { label: "Valor pago", valueCents: entry.receivedCents },
       ],
       title: "Comanda paga",
+    };
+  }
+  if (entry.event === "DELIVERY_RECORDED") {
+    return {
+      rows: [
+        { label: "Total", valueCents: entry.soldCents },
+        { label: "Taxa de entrega", valueCents: entry.deliveryFeeCents ?? 0 },
+        {
+          label: "Líquido do bistrô",
+          valueCents: entry.soldCents - (entry.deliveryFeeCents ?? 0),
+        },
+      ],
+      title: "Entrega paga",
     };
   }
   if (

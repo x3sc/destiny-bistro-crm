@@ -30,6 +30,12 @@ export const comandaSelect = {
       totalCents: true,
     },
   },
+  deliveryOrder: {
+    select: {
+      feeCents: true,
+      id: true,
+    },
+  },
   events: {
     orderBy: {
       createdAt: "asc",
@@ -92,7 +98,7 @@ type PersistedComanda = Prisma.ComandaGetPayload<{
 export type Transaction = Prisma.TransactionClient;
 
 export function mapComanda(comanda: PersistedComanda): Comanda {
-  const { creditOrder, payments, ...persistedComanda } = comanda;
+  const { creditOrder, deliveryOrder, payments, ...persistedComanda } = comanda;
   const items = comanda.items.map((item) => ({
     ...item,
     createdAt: item.createdAt.toISOString(),
@@ -129,7 +135,9 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
     items,
     openedAt: comanda.openedAt.toISOString(),
     payments: payments.map(mapPayment),
-    totalCents: items.reduce((total, item) => total + item.subtotalCents, 0),
+    totalCents:
+      items.reduce((total, item) => total + item.subtotalCents, 0) +
+      (deliveryOrder?.feeCents ?? 0),
   };
 }
 
@@ -150,6 +158,9 @@ export async function findOpenComanda(
           status: true,
         },
       },
+      deliveryOrder: {
+        select: { id: true },
+      },
       status: true,
     },
     where: { establishmentId, id },
@@ -163,7 +174,10 @@ export async function findOpenComanda(
     comanda.creditOrder?.status === "DRAFT" ||
     comanda.creditOrder?.status === "OPEN";
 
-  if (comanda.status !== "OPEN" || (!comanda.activeForTable && !isMutableCreditOrder)) {
+  if (
+    comanda.status !== "OPEN" ||
+    (!comanda.activeForTable && !isMutableCreditOrder && !comanda.deliveryOrder)
+  ) {
     throw new ComandaNotMutableError();
   }
 }
@@ -212,10 +226,14 @@ export async function syncOpenCreditOrderTotal(
       comandaId,
     },
   });
+  const deliveryOrder = await transaction.deliveryOrder.findFirst({
+    select: { feeCents: true },
+    where: { comandaId, establishmentId },
+  });
   const totalCents = items.reduce(
     (total, item) => total + item.quantity * item.unitPriceCents,
     0,
-  );
+  ) + (deliveryOrder?.feeCents ?? 0);
   const updated = await transaction.creditOrder.updateMany({
     data: {
       totalCents,

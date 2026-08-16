@@ -11,10 +11,13 @@ export type ComandaEventType =
   | 'ITEM_QUANTITY_CHANGED'
   | 'ITEM_REMOVED';
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
-export type CreditOrderSource = 'MANUAL' | 'TABLE';
+export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
 export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
-export type PaymentOrigin = 'TABLE_CHECKOUT' | 'CREDIT_INSTALLMENT';
+export type PaymentOrigin =
+  | 'TABLE_CHECKOUT'
+  | 'CREDIT_INSTALLMENT'
+  | 'DELIVERY_CHECKOUT';
 
 export interface PaymentAllocationInput {
   amountCents: number;
@@ -153,7 +156,9 @@ function isComandaCredit(value: unknown): value is ComandaCreditSummary {
     typeof credit.customerName === 'string' &&
     typeof credit.orderId === 'string' &&
     Number.isInteger(credit.paidCents) &&
-    (credit.source === 'MANUAL' || credit.source === 'TABLE') &&
+    (credit.source === 'MANUAL' ||
+      credit.source === 'TABLE' ||
+      credit.source === 'DELIVERY') &&
     (credit.status === 'DRAFT' ||
       credit.status === 'OPEN' ||
       credit.status === 'SETTLED' ||
@@ -180,7 +185,9 @@ function isPayment(value: unknown): value is Payment {
     typeof payment.comandaId === 'string' &&
     (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
     typeof payment.id === 'string' &&
-    (payment.origin === 'TABLE_CHECKOUT' || payment.origin === 'CREDIT_INSTALLMENT') &&
+    (payment.origin === 'TABLE_CHECKOUT' ||
+      payment.origin === 'CREDIT_INSTALLMENT' ||
+      payment.origin === 'DELIVERY_CHECKOUT') &&
     typeof payment.paidAt === 'string' &&
     (payment.recordedBy === null ||
       (typeof payment.recordedBy?.id === 'string' &&

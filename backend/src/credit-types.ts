@@ -1,6 +1,6 @@
 import type { Payment, PaymentAllocationInput } from "./payment-types.js";
 
-export type CreditOrderSource = "MANUAL" | "TABLE";
+export type CreditOrderSource = "MANUAL" | "TABLE" | "DELIVERY";
 export type CreditOrderStatus = "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
 
 export interface CreditOrder {

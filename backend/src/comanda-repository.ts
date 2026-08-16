@@ -145,6 +145,12 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
                 unitPriceCents: true,
               },
             },
+            deliveryOrder: {
+              select: {
+                feeCents: true,
+                id: true,
+              },
+            },
             openedAt: true,
             status: true,
             tableId: true,
@@ -162,8 +168,8 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         if (
           activeComanda.status !== "OPEN" ||
-          !activeComanda.activeForTable ||
-          activeComanda.tableId === null ||
+          (!activeComanda.activeForTable && !activeComanda.deliveryOrder) ||
+          (activeComanda.deliveryOrder && activeComanda.items.length === 0) ||
           hasPendingItems
         ) {
           throw new ComandaNotClosableError();
@@ -172,7 +178,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         const totalCents = activeComanda.items.reduce(
           (total, item) => total + item.quantity * item.unitPriceCents,
           0,
-        );
+        ) + (activeComanda.deliveryOrder?.feeCents ?? 0);
         const paidCents = paymentTotal(payments);
         const balanceCents = totalCents - paidCents;
 
@@ -193,13 +199,15 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           }
         }
 
-        await releaseActiveTable(
-          transaction,
-          establishmentId,
-          id,
-          activeComanda.tableId,
-          () => new ComandaNotClosableError(),
-        );
+        if (activeComanda.tableId !== null) {
+          await releaseActiveTable(
+            transaction,
+            establishmentId,
+            id,
+            activeComanda.tableId,
+            () => new ComandaNotClosableError(),
+          );
+        }
 
         const paidAt = new Date();
 
@@ -211,7 +219,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               establishmentId,
               finalizedAt: paidAt,
               orderedAt: activeComanda.openedAt,
-              source: "TABLE",
+              source: activeComanda.deliveryOrder ? "DELIVERY" : "TABLE",
               status: "OPEN",
               totalCents,
             },
@@ -226,7 +234,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               comandaId: id,
               creditOrderId: order.id,
               establishmentId,
-              origin: "TABLE_CHECKOUT",
+              origin: activeComanda.deliveryOrder
+                ? "DELIVERY_CHECKOUT"
+                : "TABLE_CHECKOUT",
               paidAt,
             });
           }
@@ -261,7 +271,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             amountCents: paidCents,
             comandaId: id,
             establishmentId,
-            origin: "TABLE_CHECKOUT",
+            origin: activeComanda.deliveryOrder
+              ? "DELIVERY_CHECKOUT"
+              : "TABLE_CHECKOUT",
             paidAt,
           });
         }

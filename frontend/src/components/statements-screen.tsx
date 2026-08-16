@@ -80,6 +80,7 @@ type ScreenState =
 const originLabels: Record<StatementOrigin, string> = {
   CREDIT_MANUAL: 'Fiado manual',
   CREDIT_TABLE: 'Fiado de mesa',
+  DELIVERY: 'Delivery',
   TABLE: 'Mesa',
 };
 
@@ -119,6 +120,7 @@ const originFilterOptions: {
   { label: 'Mesa', value: 'TABLE' },
   { label: 'Fiado manual', value: 'CREDIT_MANUAL' },
   { label: 'Fiado de mesa', value: 'CREDIT_TABLE' },
+  { label: 'Delivery', value: 'DELIVERY' },
 ];
 
 export function StatementsScreen({
@@ -483,12 +485,15 @@ function StatementDetailedView({
           return (
             <View key={command.comandaId} style={styles.commandCard}>
               <View style={styles.commandHeader}>
-                <Text style={styles.commandTitle}>Comanda #{command.comandaNumber}</Text>
-                {(command.customerName || command.comandaName) && (
-                  <Text style={styles.commandName}>
-                    {command.customerName ?? command.comandaName}
-                  </Text>
-                )}
+                <Text style={styles.commandTitle}>
+                  {commandTitle(command)}
+                </Text>
+                {command.comandaNumber !== null &&
+                  (command.customerName || command.comandaName) && (
+                    <Text style={styles.commandName}>
+                      {command.customerName ?? command.comandaName}
+                    </Text>
+                  )}
                 <Text style={styles.dailyMeta}>
                   {commandLocation(command)} · {originLabels[command.origin]} ·{' '}
                   {statusLabels[command.status]}
@@ -580,7 +585,7 @@ function StatementEntryCard({
   return (
     <View style={styles.entryCard}>
       <Pressable
-        accessibilityLabel={`${expanded ? 'Recolher' : 'Expandir'} etapa ${presentation.title} da comanda ${entry.comandaNumber}`}
+        accessibilityLabel={`${expanded ? 'Recolher' : 'Expandir'} etapa ${presentation.title} de ${commandTitle(entry)}`}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         onPress={onToggle}
@@ -670,10 +675,20 @@ function groupEntriesByCommand(entries: StatementEntry[]) {
 }
 
 function commandLocation(entry: StatementEntry) {
+  if (entry.origin === 'DELIVERY') {
+    return entry.deliveryAddress ?? 'Entrega';
+  }
   if (entry.tableNumber !== null) {
     return `Mesa ${entry.tableNumber}`;
   }
   return entry.customerName ? `Cliente ${entry.customerName}` : 'Sem mesa';
+}
+
+function commandTitle(entry: StatementEntry) {
+  if (entry.comandaNumber === null) {
+    return entry.customerName ? `Entrega · ${entry.customerName}` : 'Entrega';
+  }
+  return `Comanda #${entry.comandaNumber}`;
 }
 
 function entryPresentation(entry: StatementEntry): {
@@ -699,6 +714,19 @@ function entryPresentation(entry: StatementEntry): {
         { label: 'Valor pago', valueCents: entry.receivedCents },
       ],
       title: 'Comanda paga',
+    };
+  }
+  if (entry.event === 'DELIVERY_RECORDED') {
+    return {
+      rows: [
+        { label: 'Total', valueCents: entry.soldCents },
+        { label: 'Taxa de entrega', valueCents: entry.deliveryFeeCents ?? 0 },
+        {
+          label: 'Líquido do bistrô',
+          valueCents: entry.soldCents - (entry.deliveryFeeCents ?? 0),
+        },
+      ],
+      title: 'Entrega paga',
     };
   }
   if (
