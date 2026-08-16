@@ -41,12 +41,15 @@ import {
 } from "../../src/delivery-repository.js";
 import {
   InventoryBalanceError,
+  InventoryMovementInputError,
   InventoryStockNotFoundError,
+  quantityToBase,
   type InventoryItem,
   type InventoryMovement,
   type InventoryRepository,
 } from "../../src/inventory-repository.js";
 import type {
+  MenuAdditional,
   MenuCategory,
   Product,
   ProductRepository,
@@ -162,6 +165,7 @@ const creditPayment: Payment = {
 };
 
 const inventoryItem: InventoryItem = {
+  deficitQuantity: 0,
   id: "stock-id",
   ingredient: {
     active: true,
@@ -178,6 +182,7 @@ const inventoryItem: InventoryItem = {
 
 const inventoryMovement: InventoryMovement = {
   balanceAfter: 1250,
+  balanceBefore: 250,
   createdAt: openedAt,
   id: "movement-id",
   quantityDelta: 1000,
@@ -243,12 +248,23 @@ const menuCategory: MenuCategory = {
   products: [
     {
       active: true,
+      additionals: [],
       description: "Copo 300 ml",
       id: "product-id",
       name: "Suco de laranja",
       priceCents: 900,
+      recipe: [],
     },
   ],
+};
+
+const menuAdditional: MenuAdditional = {
+  active: true,
+  code: "ADICIONAL",
+  id: "additional-id",
+  name: "Adicional",
+  priceCents: 100,
+  recipe: [],
 };
 
 const creditCustomerDetails: CreditCustomerDetails = {
@@ -377,7 +393,9 @@ const comandaWithItem: Comanda = {
   ],
   items: [
     {
+      additionalTotalCents: 0,
       confirmedQuantity: 0,
+      configurations: [],
       createdAt: openedAt,
       id: "item-id",
       productId: "product-id",
@@ -423,9 +441,13 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
   return {
     addItem: () => Promise.resolve(comandaWithItem),
     cancel: () => Promise.resolve(comanda),
+    cancelItemConfiguration: () =>
+      Promise.resolve({ comanda, inventoryWarnings: [] }),
     changeItemQuantity: () => Promise.resolve(comandaWithItem),
     close: () => Promise.resolve(comanda),
-    confirmItem: () => Promise.resolve(comandaWithItem),
+    configureItemAdditionals: () => Promise.resolve(comandaWithItem),
+    confirmItem: () =>
+      Promise.resolve({ comanda: comandaWithItem, inventoryWarnings: [] }),
     findById: () => Promise.resolve(comanda),
     openForTable: () => Promise.resolve(comanda),
     removeItem: () => Promise.resolve(comanda),
@@ -455,13 +477,20 @@ function createProducts(
   overrides: Partial<ProductRepository> = {},
 ): ProductRepository {
   return {
+    createAdditional: () => Promise.resolve(menuAdditional),
     createCategory: () => Promise.resolve(menuCategory),
     createProduct: () => Promise.resolve(menuCategory.products[0]),
     deactivateCategory: () => Promise.resolve(menuCategory),
+    deactivateAdditional: () => Promise.resolve(menuAdditional),
     deactivateProduct: () => Promise.resolve(menuCategory.products[0]),
+    listAdditionals: () => Promise.resolve([menuAdditional]),
     listActive: () => Promise.resolve([]),
     listMenu: () => Promise.resolve([menuCategory]),
+    replaceAdditionalRecipe: () => Promise.resolve(menuAdditional),
+    replaceProductAdditionals: () => Promise.resolve(menuCategory.products[0]),
+    replaceProductRecipe: () => Promise.resolve(menuCategory.products[0]),
     updateCategory: () => Promise.resolve(menuCategory),
+    updateAdditional: () => Promise.resolve(menuAdditional),
     updateProduct: () => Promise.resolve(menuCategory.products[0]),
     ...overrides,
   };
@@ -471,9 +500,32 @@ function createInventory(
   overrides: Partial<InventoryRepository> = {},
 ): InventoryRepository {
   return {
+    createEntry: () =>
+      Promise.resolve({
+        inventoryItem,
+        lot: {
+          code: "LOTE-1",
+          createdAt: openedAt,
+          currentQuantity: 1000,
+          expired: false,
+          expiresAt: null,
+          id: "lot-id",
+          initialQuantity: 1000,
+          origin: "PURCHASE",
+          receivedAt: openedAt,
+          stockId: "stock-id",
+          totalCostCents: 2000,
+        },
+        movement: inventoryMovement,
+        replayed: false,
+      }),
     createIngredient: () => Promise.resolve(inventoryItem),
     createMovement: () => Promise.resolve(inventoryMovement),
+    deactivateIngredient: () => Promise.resolve(inventoryItem),
     list: () => Promise.resolve([inventoryItem]),
+    listLots: () => Promise.resolve([]),
+    listMovements: () => Promise.resolve([]),
+    updateIngredient: () => Promise.resolve(inventoryItem),
     ...overrides,
   };
 }
@@ -767,6 +819,7 @@ void test("GET /tables hides database errors from the client", async () => {
 void test("GET /products returns active products ordered by name", async () => {
   const products: Product[] = [
     {
+      additionals: [],
       category: { id: "category-food", name: "Lanches" },
       description: null,
       id: "coffee-id",
@@ -774,6 +827,7 @@ void test("GET /products returns active products ordered by name", async () => {
       priceCents: 600,
     },
     {
+      additionals: [],
       category: { id: "category-drinks", name: "Bebidas" },
       description: "Sem gas",
       id: "water-id",
@@ -1375,8 +1429,88 @@ void test("POST /comandas/:comandaId/items/:itemId/confirm confirms item quantit
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { comanda: comandaWithItem });
+  assert.deepEqual(response.json(), {
+    comanda: comandaWithItem,
+    inventoryWarnings: [],
+  });
 
+  await app.close();
+});
+
+void test("inventory quantities convert kg/g and L/ml without floating point", () => {
+  assert.equal(quantityToBase("1,250", "KILOGRAM", "GRAM"), 1_250);
+  assert.equal(quantityToBase("0.500", "LITER", "MILLILITER"), 500);
+  assert.equal(quantityToBase("125", "GRAM", "GRAM"), 125);
+  assert.equal(quantityToBase("2", "UNIT", "UNIT"), 2);
+});
+
+void test("inventory quantities reject fractional base units and incompatible units", () => {
+  assert.throws(
+    () => quantityToBase("1.5", "GRAM", "GRAM"),
+    InventoryMovementInputError,
+  );
+  assert.throws(
+    () => quantityToBase("1", "LITER", "GRAM"),
+    InventoryMovementInputError,
+  );
+});
+
+void test("PUT /comandas/:comandaId/items/:itemId/additionals configures pending units", async () => {
+  let captured: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      configureItemAdditionals: (_establishmentId, _comandaId, _itemId, input) => {
+        captured = input;
+        return Promise.resolve(comandaWithItem);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "PUT",
+    payload: {
+      additionals: [{ additionalId: "additional-id", quantityPerUnit: 2 }],
+      quantity: 1,
+      requestId: "request-additional-1",
+    },
+    url: "/comandas/comanda-id/items/item-id/additionals",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(captured, {
+    additionals: [{ additionalId: "additional-id", quantityPerUnit: 2 }],
+    quantity: 1,
+    requestId: "request-additional-1",
+  });
+  await app.close();
+});
+
+void test("confirmed item cancellation requires inventory.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: authenticatedUser.permissions.filter(
+            (permission) => permission !== "inventory.write",
+          ),
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      quantity: 1,
+      reason: "Produto derrubado",
+      requestId: "request-cancel-1",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), { status: "error", message: "Permission denied" });
   await app.close();
 });
 
