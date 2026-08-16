@@ -16,8 +16,10 @@ O PDV confirma itens por mesas, crédito e delivery, inclusive em dispositivos c
 - Lotes vencidos continuam consultáveis, mas não são consumidos.
 - Falta de saldo gera o movimento integral, saldo negativo, déficit e alerta; não bloqueia a confirmação da venda.
 - Entradas reduzem primeiro o déficit e disponibilizam apenas o restante.
+- Saldos positivos anteriores ao ledger recebem lotes `LEGACY` por migration incremental, mantendo retiradas futuras rastreáveis sem reset de dados.
 - Adicionais e configurações guardam nome e preço como snapshot da venda.
 - Cancelamentos nunca apagam o consumo original: devolução cria reversão e perda preserva o consumo.
+- O cancelamento total de comanda aberta agrupa cancelamentos confirmados, descarta apenas quantidades pendentes e exige `comandas.write` mais `inventory.write` quando existe consumo confirmado.
 - O reset operacional desvincula a referência opcional à comanda, mas preserva operações e movimentos do ledger.
 
 ## Consequências

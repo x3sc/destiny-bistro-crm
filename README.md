@@ -100,14 +100,18 @@ A API fica disponivel em `http://localhost:3333`:
   descricao, categoria e preco em centavos.
 - `GET /inventory`: lista ingredientes, saldo atual e estoque minimo.
 - `POST /ingredients`: cadastra um ingrediente e cria seu saldo inicial zerado.
-- `POST /inventory/:stockId/movements`: registra entrada, saida ou ajuste de
-  estoque com motivo e usuario responsavel.
+- `POST /inventory/:stockId/entries`: registra compra com lote, custo total,
+  validade opcional e `requestId`.
+- `POST /inventory/:stockId/movements`: registra retirada, perda ou ajuste
+  idempotente com motivo e usuario responsavel.
 - `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre e aceita
   o campo opcional `name`.
 - `GET /comandas/:comandaId`: consulta os detalhes da comanda, itens e total.
 - `POST /comandas/:comandaId/items`: adiciona produto a uma comanda aberta.
 - `PATCH /comandas/:comandaId/items/:itemId`: ajusta quantidade com `+1` ou `-1`.
 - `POST /comandas/:comandaId/items/:itemId/confirm`: confirma a quantidade atual.
+- `POST /comandas/:comandaId/cancel`: cancela comanda vazia ou, com motivo,
+  `requestId` e destino dos insumos, cancela integralmente uma comanda aberta.
 - `DELETE /comandas/:comandaId/items/:itemId`: remove apenas a quantidade ainda
   nao confirmada.
 - `POST /comandas/:comandaId/close`: recebe `payments` com parcelas em dinheiro,
@@ -307,7 +311,8 @@ Receitas e adicionais são administrados pelas rotas de cardápio. A confirmaç�
 um item consome a ficha técnica e os adicionais por FEFO, sem utilizar lotes
 vencidos. Saldo insuficiente não bloqueia a venda: a API devolve
 `inventoryWarnings`, mantém o saldo negativo e registra o déficit. Novas mutações
-de estoque e personalização exigem `requestId` idempotente.
+de estoque, personalização e cancelamento exigem `requestId` idempotente.
+Saldos anteriores ao ledger são preservados por migration como lotes `LEGACY`.
 
 As decisões de ledger, concorrência, FEFO e cancelamento estão registradas em
 [`docs/adrs/0001-inventory-ledger-fefo.md`](docs/adrs/0001-inventory-ledger-fefo.md).
