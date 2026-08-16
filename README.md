@@ -296,6 +296,22 @@ backup verificado. A limpeza afeta somente o estabelecimento informado e preserv
 seus ingredientes, saldos, movimentos, produtos, mesas, usuarios, cargos e
 permissoes.
 
+## Módulo de estoque
+
+O administrativo possui a área **Estoque** para consultar saldos, estoque baixo,
+déficits, lotes, vencimentos e movimentações. Também permite cadastrar insumos e
+registrar entradas, retiradas, perdas e ajustes. Quantidades de massa e volume são
+armazenadas em gramas e mililitros; custos e preços permanecem em centavos.
+
+Receitas e adicionais são administrados pelas rotas de cardápio. A confirmação de
+um item consome a ficha técnica e os adicionais por FEFO, sem utilizar lotes
+vencidos. Saldo insuficiente não bloqueia a venda: a API devolve
+`inventoryWarnings`, mantém o saldo negativo e registra o déficit. Novas mutações
+de estoque e personalização exigem `requestId` idempotente.
+
+As decisões de ledger, concorrência, FEFO e cancelamento estão registradas em
+[`docs/adrs/0001-inventory-ledger-fefo.md`](docs/adrs/0001-inventory-ledger-fefo.md).
+
 ## Implantação em VPS
 
 Os arquivos `compose.vps.yaml`, `backend/Dockerfile` e `frontend/Dockerfile`
@@ -326,6 +342,6 @@ npm.cmd test
 
 ## Status
 
-Setima fatia vertical em desenvolvimento: autenticação por usuário, sessões
-revogáveis, cargos e permissões extensíveis, auditoria por `userId`, limpeza
-operacional controlada e preparação para implantação em VPS.
+Módulos operacionais de mesas, crédito, delivery e estoque integrados, com
+autenticação por usuário, permissões, auditoria, ledger por lote e preparação para
+implantação controlada em VPS.
