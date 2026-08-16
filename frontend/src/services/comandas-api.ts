@@ -9,7 +9,9 @@ export type ComandaEventType =
   | 'ITEM_ADDED'
   | 'ITEM_CONFIRMED'
   | 'ITEM_QUANTITY_CHANGED'
-  | 'ITEM_REMOVED';
+  | 'ITEM_REMOVED'
+  | 'ITEM_CANCELLED'
+  | 'ADDITIONALS_CHANGED';
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
 export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
@@ -47,7 +49,22 @@ export interface ComandaCreditSummary {
 }
 
 export interface ComandaItem {
+  additionalTotalCents?: number;
   confirmedQuantity: number;
+  configurations?: {
+    additionals: {
+      additionalId: string;
+      additionalName: string;
+      id: string;
+      quantityPerUnit: number;
+      unitPriceCents: number;
+    }[];
+    configurationKey: string;
+    confirmedQuantity: number;
+    id: string;
+    quantity: number;
+    subtotalCents: number;
+  }[];
   createdAt: string;
   id: string;
   productId: string;
@@ -78,6 +95,7 @@ export interface Comanda {
     unitPriceCents: number | null;
   }[];
   id: string;
+  inventoryWarnings?: InventoryWarning[];
   items: ComandaItem[];
   name: string | null;
   number: number;
@@ -89,6 +107,15 @@ export interface Comanda {
     number: number;
   } | null;
   totalCents: number;
+}
+
+export interface InventoryWarning {
+  availableQuantity?: number;
+  ingredientName?: string;
+  missingQuantity?: number;
+  productName?: string;
+  type: 'INSUFFICIENT_STOCK' | 'MISSING_RECIPE';
+  unit?: 'UNIT' | 'GRAM' | 'MILLILITER';
 }
 
 function isComandaEvent(value: unknown): value is Comanda['events'][number] {
@@ -117,7 +144,9 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
       event.type === 'ITEM_ADDED' ||
       event.type === 'ITEM_CONFIRMED' ||
       event.type === 'ITEM_QUANTITY_CHANGED' ||
-      event.type === 'ITEM_REMOVED') &&
+      event.type === 'ITEM_REMOVED' ||
+      event.type === 'ITEM_CANCELLED' ||
+      event.type === 'ADDITIONALS_CHANGED') &&
     (event.unitPriceCents === null || Number.isInteger(event.unitPriceCents))
   );
 }
@@ -352,13 +381,50 @@ export async function confirmComandaItem(
   apiBaseUrl: string,
   comandaId: string,
   itemId: string,
+): Promise<Comanda> {
+  const response = await authenticatedFetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
+      jsonMutationInit('POST'),
+    );
+  if (!response.ok) throw new Error('Comanda request failed');
+  const payload: unknown = await response.json();
+  const candidate = payload as { comanda?: unknown; inventoryWarnings?: unknown };
+  if (
+    !isComanda(candidate.comanda) ||
+    (candidate.inventoryWarnings !== undefined &&
+      !isInventoryWarnings(candidate.inventoryWarnings))
+  ) {
+    throw new Error('Invalid comanda response');
+  }
+  return candidate.inventoryWarnings === undefined
+    ? candidate.comanda
+    : { ...candidate.comanda, inventoryWarnings: candidate.inventoryWarnings };
+}
+
+export async function configureComandaItemAdditionals(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  input: {
+    additionals: { additionalId: string; quantityPerUnit: number }[];
+    quantity: number;
+    requestId: string;
+  },
 ) {
   return readComanda(
     await authenticatedFetch(
-      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
-      jsonMutationInit('POST'),
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/additionals`,
+      { ...jsonMutationInit('POST', input), method: 'PUT' },
     ),
   );
+}
+
+function isInventoryWarnings(value: unknown): value is InventoryWarning[] {
+  return Array.isArray(value) && value.every((warning) => {
+    if (!warning || typeof warning !== 'object') return false;
+    const candidate = warning as Partial<InventoryWarning>;
+    return candidate.type === 'INSUFFICIENT_STOCK' || candidate.type === 'MISSING_RECIPE';
+  });
 }
 
 export async function removeComandaItem(

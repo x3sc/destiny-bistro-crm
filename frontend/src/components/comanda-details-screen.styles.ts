@@ -10,6 +10,11 @@ const titleFont = Platform.select({
 });
 
 export const styles = StyleSheet.create({
+  additionalOption: {
+    backgroundColor: themeColors.surfaceAccent,
+    borderRadius: 12,
+    padding: 12,
+  },
   safeArea: {
     backgroundColor: themeColors.background,
     flex: 1,
@@ -166,6 +171,15 @@ export const styles = StyleSheet.create({
   itemTimestamp: {
     color: themeColors.foregroundMuted,
     fontSize: 12,
+  },
+  input: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: themeColors.foreground,
+    minHeight: 48,
+    paddingHorizontal: 14,
   },
   confirmedBadge: {
     alignSelf: 'flex-start',

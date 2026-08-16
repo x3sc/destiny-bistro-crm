@@ -399,6 +399,18 @@ function CategoryCard({
                 <Text style={styles.price}>
                   {formatCentsAsBrl(product.priceCents)}
                 </Text>
+                {product.recipe?.length ? (
+                  <Text style={styles.meta}>
+                    Ficha técnica · {product.recipe.length} {product.recipe.length === 1 ? 'insumo' : 'insumos'}
+                  </Text>
+                ) : (
+                  <Text style={styles.warning}>Sem ficha técnica</Text>
+                )}
+                {(product.additionals?.length ?? 0) > 0 ? (
+                  <Text style={styles.meta}>
+                    Adicionais: {product.additionals?.map(({ name }) => name).join(', ')}
+                  </Text>
+                ) : null}
               </View>
               <View style={styles.productActions}>
                 <Pressable
@@ -656,4 +668,5 @@ const styles = StyleSheet.create({
   smallButton: { paddingHorizontal: 8, paddingVertical: 6 },
   smallButtonText: { color: themeColors.primary, fontSize: 13, fontWeight: '800' },
   title: { color: themeColors.foreground, fontSize: 26, fontWeight: '800' },
+  warning: { color: themeColors.dangerText, fontSize: 13, fontWeight: '800' },
 });

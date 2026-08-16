@@ -2,6 +2,13 @@ import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
 
 export interface Product {
+  additionals?: {
+    active: boolean;
+    code: string;
+    id: string;
+    name: string;
+    priceCents: number;
+  }[];
   category: { id: string; name: string };
   description: string | null;
   id: string;
@@ -25,6 +32,15 @@ function isProduct(value: unknown): value is Product {
     typeof product.id === 'string' &&
     typeof product.name === 'string' &&
     Number.isInteger(product.priceCents)
+    && (product.additionals === undefined ||
+      (Array.isArray(product.additionals) && product.additionals.every(
+        (additional) =>
+          additional &&
+          typeof additional === 'object' &&
+          typeof additional.id === 'string' &&
+          typeof additional.name === 'string' &&
+          Number.isInteger(additional.priceCents),
+      )))
   );
 }
 
