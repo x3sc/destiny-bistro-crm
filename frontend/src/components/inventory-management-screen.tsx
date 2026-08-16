@@ -15,9 +15,11 @@ import {
   createIngredient,
   createInventoryEntry,
   createInventoryMovement,
+  deactivateIngredient,
   loadInventory,
   loadInventoryLots,
   loadInventoryMovements,
+  updateIngredient,
   type IngredientUnit,
   type InventoryItem,
   type InventoryLot,
@@ -43,6 +45,7 @@ export function InventoryManagementScreen({
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [editor, setEditor] = useState<Editor>();
+  const [ingredientBeingEdited, setIngredientBeingEdited] = useState<InventoryItem>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
 
@@ -128,7 +131,7 @@ export function InventoryManagementScreen({
             style={styles.input}
             value={query}
           />
-          <ActionButton label="Novo insumo" onPress={() => setEditor('ingredient')} />
+          <ActionButton label="Novo insumo" onPress={() => { setIngredientBeingEdited(undefined); setEditor('ingredient'); }} />
         </View>
 
         {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -144,10 +147,17 @@ export function InventoryManagementScreen({
         {editor === 'ingredient' && normalizedApiBaseUrl ? (
           <IngredientEditor
             busy={busy}
+            initial={ingredientBeingEdited}
             onCancel={() => setEditor(undefined)}
-            onSave={(input) =>
-              mutate(() => createIngredient(normalizedApiBaseUrl, input), 'Insumo cadastrado.')
-            }
+            onSave={(input) => mutate(
+              () => ingredientBeingEdited
+                ? updateIngredient(normalizedApiBaseUrl, ingredientBeingEdited.ingredient.id, {
+                    ...input,
+                    active: ingredientBeingEdited.ingredient.active,
+                  })
+                : createIngredient(normalizedApiBaseUrl, input),
+              ingredientBeingEdited ? 'Insumo atualizado.' : 'Insumo cadastrado.',
+            )}
           />
         ) : null}
 
@@ -179,6 +189,10 @@ export function InventoryManagementScreen({
           <View style={styles.details}>
             <Text style={styles.sectionTitle}>{selected.ingredient.name}</Text>
             <View style={styles.actions}>
+              <ActionButton label="Editar insumo" onPress={() => { setIngredientBeingEdited(selected); setEditor('ingredient'); }} secondary />
+              {selected.ingredient.active ? (
+                <ActionButton label="Desativar" onPress={() => normalizedApiBaseUrl && void mutate(() => deactivateIngredient(normalizedApiBaseUrl, selected.ingredient.id), 'Insumo desativado.')} secondary />
+              ) : null}
               <ActionButton label="Entrada" onPress={() => setEditor('entry')} />
               <ActionButton label="Retirada" onPress={() => setEditor('exit')} secondary />
               <ActionButton label="Perda" onPress={() => setEditor('loss')} secondary />
@@ -231,14 +245,14 @@ export function InventoryManagementScreen({
   );
 }
 
-function IngredientEditor({ busy, onCancel, onSave }: { busy: boolean; onCancel: () => void; onSave: (input: { code: string; minimumQuantity: number; name: string; unit: IngredientUnit }) => void }) {
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [minimum, setMinimum] = useState('0');
-  const [unit, setUnit] = useState<IngredientUnit>('UNIT');
+function IngredientEditor({ busy, initial, onCancel, onSave }: { busy: boolean; initial?: InventoryItem; onCancel: () => void; onSave: (input: { code: string; minimumQuantity: number; name: string; unit: IngredientUnit }) => void }) {
+  const [name, setName] = useState(initial?.ingredient.name ?? '');
+  const [code, setCode] = useState(initial?.ingredient.code ?? '');
+  const [minimum, setMinimum] = useState(String(initial?.minimumQuantity ?? 0));
+  const [unit, setUnit] = useState<IngredientUnit>(initial?.ingredient.unit ?? 'UNIT');
   return (
     <View style={styles.editor}>
-      <Text style={styles.sectionTitle}>Novo insumo</Text>
+      <Text style={styles.sectionTitle}>{initial ? 'Editar insumo' : 'Novo insumo'}</Text>
       <TextInput accessibilityLabel="Nome do insumo" onChangeText={setName} placeholder="Nome" style={styles.input} value={name} />
       <TextInput accessibilityLabel="Código do insumo" autoCapitalize="characters" onChangeText={setCode} placeholder="Código" style={styles.input} value={code} />
       <TextInput accessibilityLabel="Estoque mínimo" keyboardType="number-pad" onChangeText={setMinimum} placeholder="Estoque mínimo" style={styles.input} value={minimum} />
@@ -253,6 +267,10 @@ function MovementEditor({ busy, editor, item, onCancel, onSave }: { busy: boolea
   const [reason, setReason] = useState('');
   const [code, setCode] = useState('');
   const [cost, setCost] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+  const [requestId] = useState(
+    () => `inventory-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   const isEntry = editor === 'entry';
   const numericQuantity = Number(quantity.replace(',', '.'));
   return (
@@ -260,9 +278,9 @@ function MovementEditor({ busy, editor, item, onCancel, onSave }: { busy: boolea
       <Text style={styles.sectionTitle}>{editorLabel(editor)}</Text>
       <TextInput accessibilityLabel="Quantidade" keyboardType="decimal-pad" onChangeText={setQuantity} placeholder="Quantidade" style={styles.input} value={quantity} />
       <TextInput accessibilityLabel="Motivo" onChangeText={setReason} placeholder="Motivo" style={styles.input} value={reason} />
-      {isEntry ? <><TextInput accessibilityLabel="Código do lote" onChangeText={setCode} placeholder="Código do lote (opcional)" style={styles.input} value={code} /><TextInput accessibilityLabel="Custo total em centavos" keyboardType="number-pad" onChangeText={setCost} placeholder="Custo total em centavos" style={styles.input} value={cost} /></> : null}
+      {isEntry ? <><TextInput accessibilityLabel="Código do lote" onChangeText={setCode} placeholder="Código do lote (opcional)" style={styles.input} value={code} /><TextInput accessibilityLabel="Validade do lote" onChangeText={setExpiresAt} placeholder="Validade AAAA-MM-DD (opcional)" style={styles.input} value={expiresAt} /><TextInput accessibilityLabel="Custo total em centavos" keyboardType="number-pad" onChangeText={setCost} placeholder="Custo total em centavos" style={styles.input} value={cost} /></> : null}
       <View style={styles.actions}>
-        <ActionButton disabled={busy} label="Confirmar" onPress={() => onSave(isEntry ? { entry: { code: code.trim() || null, expiresAt: null, quantity, reason, receivedAt: new Date().toISOString(), requestId: `inventory-${Date.now()}-${Math.random().toString(16).slice(2)}`, totalCostCents: Number(cost), unit: item.ingredient.unit } } : { movement: { quantityDelta: editor === 'adjustment' ? numericQuantity : -Math.abs(numericQuantity), reason, type: editor === 'adjustment' ? 'ADJUSTMENT' : 'EXIT' } })} />
+        <ActionButton disabled={busy} label="Confirmar" onPress={() => onSave(isEntry ? { entry: { code: code.trim() || null, expiresAt: expiresAt.trim() ? new Date(`${expiresAt.trim()}T12:00:00`).toISOString() : null, quantity, reason, receivedAt: new Date().toISOString(), requestId, totalCostCents: Number(cost), unit: item.ingredient.unit } } : { movement: { quantityDelta: editor === 'adjustment' ? numericQuantity : -Math.abs(numericQuantity), reason, requestId, type: editor === 'adjustment' ? 'ADJUSTMENT' : editor === 'loss' ? 'LOSS' : 'EXIT' } })} />
         <ActionButton label="Cancelar" onPress={onCancel} secondary />
       </View>
     </View>

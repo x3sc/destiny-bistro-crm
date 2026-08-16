@@ -319,6 +319,48 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(onCheckout).not.toHaveBeenCalled();
 });
 
+it('cancels a confirmed comanda with inventory disposition and a stable request', async () => {
+  const cancelRequest = jest.fn(() => Promise.resolve({
+    ...comandaWithConfirmedItem,
+    status: 'CANCELLED' as const,
+  }));
+  const onCancelled = jest.fn();
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={onCancelled}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  fireEvent.changeText(
+    screen.getByLabelText('Motivo do cancelamento total'),
+    'Cliente desistiu',
+  );
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar cancelamento total' }),
+  );
+
+  await waitFor(() => {
+    expect(cancelRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      expect.objectContaining({
+        disposition: 'RETURN_TO_STOCK',
+        reason: 'Cliente desistiu',
+        requestId: expect.stringMatching(/^cancel-comanda-/),
+      }),
+    );
+  });
+  expect(onCancelled).toHaveBeenCalled();
+});
+
 it('opens the unified checkout after all item quantities are confirmed', async () => {
   const onCheckout = jest.fn();
 

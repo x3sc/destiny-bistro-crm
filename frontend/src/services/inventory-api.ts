@@ -75,6 +75,36 @@ export async function createIngredient(
   return readObject<InventoryItem>(response, 'inventoryItem', isInventoryItem);
 }
 
+export async function updateIngredient(
+  apiBaseUrl: string,
+  ingredientId: string,
+  input: {
+    active: boolean;
+    code: string;
+    minimumQuantity: number;
+    name: string;
+    unit: IngredientUnit;
+  },
+) {
+  const response = await authenticatedFetch(
+    `${baseUrl(apiBaseUrl)}/ingredients/${encodeURIComponent(ingredientId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+    },
+  );
+  return readObject<InventoryItem>(response, 'inventoryItem', isInventoryItem);
+}
+
+export async function deactivateIngredient(apiBaseUrl: string, ingredientId: string) {
+  const response = await authenticatedFetch(
+    `${baseUrl(apiBaseUrl)}/ingredients/${encodeURIComponent(ingredientId)}`,
+    { method: 'DELETE' },
+  );
+  return readObject<InventoryItem>(response, 'inventoryItem', isInventoryItem);
+}
+
 export async function createInventoryEntry(
   apiBaseUrl: string,
   stockId: string,
@@ -103,7 +133,7 @@ export async function createInventoryEntry(
 export async function createInventoryMovement(
   apiBaseUrl: string,
   stockId: string,
-  input: { quantityDelta: number; reason: string; type: 'EXIT' | 'ADJUSTMENT' },
+  input: { quantityDelta: number; reason: string; requestId: string; type: 'EXIT' | 'LOSS' | 'ADJUSTMENT' },
 ) {
   const response = await authenticatedFetch(
     `${baseUrl(apiBaseUrl)}/inventory/${encodeURIComponent(stockId)}/movements`,

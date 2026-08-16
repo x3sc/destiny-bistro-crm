@@ -16,6 +16,12 @@ export interface RecipeIngredient {
   quantity: number;
 }
 
+export interface RecipeIngredientOption {
+  id: string;
+  name: string;
+  unit: 'UNIT' | 'GRAM' | 'MILLILITER';
+}
+
 export interface MenuAdditional {
   active: boolean;
   code: string;
@@ -111,6 +117,15 @@ export async function loadMenuAdditionals(apiBaseUrl: string) {
   return readArray<MenuAdditional>(response, 'additionals', isMenuAdditional);
 }
 
+export async function loadRecipeIngredients(apiBaseUrl: string) {
+  const response = await authenticatedFetch(`${baseUrl(apiBaseUrl)}/admin/recipe-ingredients`);
+  return readArray<RecipeIngredientOption>(
+    response,
+    'ingredients',
+    isRecipeIngredientOption,
+  );
+}
+
 export async function createMenuAdditional(
   apiBaseUrl: string,
   input: { code: string; name: string; priceCents: number },
@@ -120,6 +135,26 @@ export async function createMenuAdditional(
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
   });
+  return readAdditional(response);
+}
+
+export async function deactivateMenuAdditional(apiBaseUrl: string, additionalId: string) {
+  const response = await authenticatedFetch(
+    `${baseUrl(apiBaseUrl)}/admin/additionals/${encodeURIComponent(additionalId)}`,
+    { method: 'DELETE' },
+  );
+  return readAdditional(response);
+}
+
+export async function replaceAdditionalRecipe(
+  apiBaseUrl: string,
+  additionalId: string,
+  recipe: { ingredientId: string; quantity: number }[],
+) {
+  const response = await authenticatedFetch(
+    `${baseUrl(apiBaseUrl)}/admin/additionals/${encodeURIComponent(additionalId)}/recipe`,
+    { body: JSON.stringify({ recipe }), headers: { 'Content-Type': 'application/json' }, method: 'PUT' },
+  );
   return readAdditional(response);
 }
 
@@ -240,6 +275,16 @@ function isRecipeIngredient(value: unknown): value is RecipeIngredient {
       typeof recipe.ingredient.id === 'string' &&
       typeof recipe.ingredient.name === 'string' &&
       Number.isInteger(recipe.quantity),
+  );
+}
+
+function isRecipeIngredientOption(value: unknown): value is RecipeIngredientOption {
+  if (!value || typeof value !== 'object') return false;
+  const ingredient = value as Partial<RecipeIngredientOption>;
+  return (
+    typeof ingredient.id === 'string' &&
+    typeof ingredient.name === 'string' &&
+    ['UNIT', 'GRAM', 'MILLILITER'].includes(String(ingredient.unit))
   );
 }
 

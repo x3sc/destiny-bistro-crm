@@ -12,7 +12,7 @@ export type ComandaEventType =
   | 'ITEM_REMOVED'
   | 'ITEM_CANCELLED'
   | 'ADDITIONALS_CHANGED';
-export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
+export type ComandaCancellationReason = 'OPENED_BY_MISTAKE' | 'OPERATOR_CANCELLED';
 export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
 export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
@@ -51,7 +51,17 @@ export interface ComandaCreditSummary {
 export interface ComandaItem {
   additionalTotalCents?: number;
   confirmedQuantity: number;
-  configurations?: {
+  configurations?: ComandaItemConfiguration[];
+  createdAt: string;
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  subtotalCents: number;
+  unitPriceCents: number;
+}
+
+export interface ComandaItemConfiguration {
     additionals: {
       additionalId: string;
       additionalName: string;
@@ -64,14 +74,6 @@ export interface ComandaItem {
     id: string;
     quantity: number;
     subtotalCents: number;
-  }[];
-  createdAt: string;
-  id: string;
-  productId: string;
-  productName: string;
-  quantity: number;
-  subtotalCents: number;
-  unitPriceCents: number;
 }
 
 export interface Comanda {
@@ -137,7 +139,9 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
     (event.previousQuantity === null || Number.isInteger(event.previousQuantity)) &&
     (event.productId === null || typeof event.productId === 'string') &&
     (event.productName === null || typeof event.productName === 'string') &&
-    (event.reason === null || event.reason === 'OPENED_BY_MISTAKE') &&
+    (event.reason === null ||
+      event.reason === 'OPENED_BY_MISTAKE' ||
+      event.reason === 'OPERATOR_CANCELLED') &&
     (event.type === 'OPENED' ||
       event.type === 'CANCELLED' ||
       event.type === 'CLOSED' ||
@@ -325,11 +329,19 @@ export async function loadComanda(apiBaseUrl: string, comandaId: string) {
   );
 }
 
-export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
+export async function cancelComanda(
+  apiBaseUrl: string,
+  comandaId: string,
+  input?: {
+    disposition: 'RETURN_TO_STOCK' | 'LOSS';
+    reason: string;
+    requestId: string;
+  },
+) {
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
-      jsonMutationInit('POST'),
+      jsonMutationInit('POST', input),
     ),
   );
 }
@@ -417,6 +429,34 @@ export async function configureComandaItemAdditionals(
       { ...jsonMutationInit('POST', input), method: 'PUT' },
     ),
   );
+}
+
+export async function cancelComandaItemConfiguration(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  configurationId: string,
+  input: {
+    disposition: 'RETURN_TO_STOCK' | 'LOSS';
+    quantity: number;
+    reason: string;
+    requestId: string;
+  },
+): Promise<Comanda> {
+  const response = await authenticatedFetch(
+    `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/configurations/${encodeURIComponent(configurationId)}/cancel`,
+    jsonMutationInit('POST', input),
+  );
+  if (!response.ok) throw new Error('Comanda request failed');
+  const payload: unknown = await response.json();
+  const candidate = payload as { comanda?: unknown; inventoryWarnings?: unknown };
+  if (!isComanda(candidate.comanda)) throw new Error('Invalid comanda response');
+  return {
+    ...candidate.comanda,
+    ...(isInventoryWarnings(candidate.inventoryWarnings)
+      ? { inventoryWarnings: candidate.inventoryWarnings }
+      : {}),
+  };
 }
 
 function isInventoryWarnings(value: unknown): value is InventoryWarning[] {

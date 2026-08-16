@@ -12,6 +12,10 @@ export default function ComandaDetailsRoute() {
 
   return (
     <ComandaDetailsScreen
+      canCancelConfirmed={
+        hasPermission(user, 'comandas.write') &&
+        hasPermission(user, 'inventory.write')
+      }
       comandaId={comandaId}
       onAddProducts={(id) => {
         router.push(`/comandas/${encodeURIComponent(id)}/products`);

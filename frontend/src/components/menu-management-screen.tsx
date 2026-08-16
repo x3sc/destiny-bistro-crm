@@ -47,6 +47,7 @@ export function MenuManagementScreen({
   deleteProductRequest = deleteMenuProduct,
   loadRequest = loadAdminMenu,
   onBack,
+  onRecipes,
   updateCategoryRequest = updateMenuCategory,
   updateProductRequest = updateMenuProduct,
 }: {
@@ -57,6 +58,7 @@ export function MenuManagementScreen({
   deleteProductRequest?: typeof deleteMenuProduct;
   loadRequest?: typeof loadAdminMenu;
   onBack: () => void;
+  onRecipes?: () => void;
   updateCategoryRequest?: typeof updateMenuCategory;
   updateProductRequest?: typeof updateMenuProduct;
 }) {
@@ -176,6 +178,9 @@ export function MenuManagementScreen({
             setMessage(undefined);
           }}
         />
+        {onRecipes ? (
+          <ActionButton label="Receitas e adicionais" onPress={onRecipes} tone="secondary" />
+        ) : null}
 
         {categoryEditor?.kind === 'create' && (
           <CategoryEditorForm

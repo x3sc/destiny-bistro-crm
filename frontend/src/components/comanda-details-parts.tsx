@@ -1,6 +1,6 @@
 import { Alert, Platform, Pressable, Text, View } from 'react-native';
 
-import { type Comanda, type ComandaItem } from '../services/comandas-api';
+import { type Comanda, type ComandaItem, type ComandaItemConfiguration } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
 import { styles } from './comanda-details-screen.styles';
 
@@ -33,6 +33,7 @@ export function ComandaItems({
   onChangeQuantity,
   onConfirmItem,
   onConfigureAdditionals,
+  onCancelConfiguration,
   onRemoveItem,
 }: {
   comanda: Comanda;
@@ -40,6 +41,7 @@ export function ComandaItems({
   onChangeQuantity: (item: ComandaItem, delta: 1 | -1) => void;
   onConfirmItem: (item: ComandaItem) => void;
   onConfigureAdditionals: (item: ComandaItem) => void;
+  onCancelConfiguration?: (item: ComandaItem, configuration: ComandaItemConfiguration) => void;
   onRemoveItem: (item: ComandaItem) => void;
 }) {
   const newItems = comanda.items.filter(
@@ -140,7 +142,11 @@ export function ComandaItems({
                   {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                   {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
                 </Text>
-                <ConfigurationDetails item={item} mode="confirmed" />
+                <ConfigurationDetails
+                  item={item}
+                  mode="confirmed"
+                  onCancelConfiguration={onCancelConfiguration}
+                />
                 <Text style={styles.itemTimestamp}>
                   Adicionado em: {formatItemDateTime(item.createdAt)}
                 </Text>
@@ -212,16 +218,22 @@ export function ComandaItems({
 function ConfigurationDetails({
   item,
   mode,
+  onCancelConfiguration,
 }: {
   item: ComandaItem;
   mode: 'confirmed' | 'pending';
+  onCancelConfiguration?: (item: ComandaItem, configuration: ComandaItemConfiguration) => void;
 }) {
   const configurations = (item.configurations ?? []).filter((configuration) => {
     const quantity =
       mode === 'confirmed'
         ? configuration.confirmedQuantity
         : configuration.quantity - configuration.confirmedQuantity;
-    return quantity > 0 && configuration.additionals.length > 0;
+    return (
+      quantity > 0 &&
+      (configuration.additionals.length > 0 ||
+        (mode === 'confirmed' && Boolean(onCancelConfiguration)))
+    );
   });
   return (
     <>
@@ -231,11 +243,22 @@ function ConfigurationDetails({
             ? configuration.confirmedQuantity
             : configuration.quantity - configuration.confirmedQuantity;
         return (
-          <Text key={`${configuration.id}-${mode}`} style={styles.description}>
-            {quantity} un. com {configuration.additionals.map((additional) =>
-              `${additional.quantityPerUnit}x ${additional.additionalName}`,
-            ).join(', ')}
-          </Text>
+          <View key={`${configuration.id}-${mode}`}>
+            <Text style={styles.description}>
+              {quantity} un.{configuration.additionals.length > 0 ? ` com ${configuration.additionals.map((additional) =>
+                `${additional.quantityPerUnit}x ${additional.additionalName}`,
+              ).join(', ')}` : ' sem adicionais'}
+            </Text>
+            {mode === 'confirmed' && onCancelConfiguration ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => onCancelConfiguration(item, configuration)}
+                style={styles.smallButton}
+              >
+                <Text style={styles.smallButtonText}>Cancelar unidades confirmadas</Text>
+              </Pressable>
+            ) : null}
+          </View>
         );
       })}
     </>
@@ -274,6 +297,7 @@ export function ComandaActions({
   credit,
   disabled,
   isClosing,
+  hasItems,
   onAddProducts,
   onCancel,
   onCancelCredit,
@@ -288,6 +312,7 @@ export function ComandaActions({
   credit: Comanda['credit'];
   disabled: boolean;
   isClosing: boolean;
+  hasItems: boolean;
   onAddProducts: () => void;
   onCancel: () => void;
   onCancelCredit: () => void;
@@ -380,13 +405,17 @@ export function ComandaActions({
       {canCancel && (
         <ActionButton
           disabled={disabled}
-          label={disabled ? 'Cancelando...' : 'Cancelar comanda vazia'}
+          label={disabled ? 'Cancelando...' : hasItems ? 'Cancelar comanda' : 'Cancelar comanda vazia'}
           onPress={() => {
-            confirmDestructiveAction({
-              message: 'Deseja cancelar esta comanda vazia e liberar a mesa?',
-              onConfirm: onCancel,
-              title: 'Cancelar comanda',
-            });
+            if (hasItems) {
+              onCancel();
+            } else {
+              confirmDestructiveAction({
+                message: 'Deseja cancelar esta comanda vazia e liberar a mesa?',
+                onConfirm: onCancel,
+                title: 'Cancelar comanda',
+              });
+            }
           }}
           tone="danger"
         />
