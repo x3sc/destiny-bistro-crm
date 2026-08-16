@@ -94,6 +94,13 @@ export interface InventoryMovementResult {
   replayed: boolean;
 }
 
+export interface InventoryMovementPage {
+  movements: InventoryMovement[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 export interface InventoryRepository {
   createIngredient(
     establishmentId: string,
@@ -122,7 +129,8 @@ export interface InventoryRepository {
   listMovements(
     establishmentId: string,
     stockId: string,
-  ): Promise<InventoryMovement[]>;
+    pagination: { page: number; pageSize: number },
+  ): Promise<InventoryMovementPage>;
   updateIngredient(
     establishmentId: string,
     ingredientId: string,

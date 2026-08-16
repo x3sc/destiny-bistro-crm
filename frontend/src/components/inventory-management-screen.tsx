@@ -192,7 +192,15 @@ export function InventoryManagementScreen({
               <ActionButton label="Editar insumo" onPress={() => { setIngredientBeingEdited(selected); setEditor('ingredient'); }} secondary />
               {selected.ingredient.active ? (
                 <ActionButton label="Desativar" onPress={() => normalizedApiBaseUrl && void mutate(() => deactivateIngredient(normalizedApiBaseUrl, selected.ingredient.id), 'Insumo desativado.')} secondary />
-              ) : null}
+              ) : (
+                <ActionButton label="Ativar" onPress={() => normalizedApiBaseUrl && void mutate(() => updateIngredient(normalizedApiBaseUrl, selected.ingredient.id, {
+                  active: true,
+                  code: selected.ingredient.code,
+                  minimumQuantity: selected.minimumQuantity,
+                  name: selected.ingredient.name,
+                  unit: selected.ingredient.unit,
+                }), 'Insumo ativado.')} secondary />
+              )}
               <ActionButton label="Entrada" onPress={() => setEditor('entry')} />
               <ActionButton label="Retirada" onPress={() => setEditor('exit')} secondary />
               <ActionButton label="Perda" onPress={() => setEditor('loss')} secondary />

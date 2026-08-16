@@ -527,7 +527,8 @@ function createInventory(
     deactivateIngredient: () => Promise.resolve(inventoryItem),
     list: () => Promise.resolve([inventoryItem]),
     listLots: () => Promise.resolve([]),
-    listMovements: () => Promise.resolve([]),
+    listMovements: () =>
+      Promise.resolve({ movements: [], page: 1, pageSize: 50, total: 0 }),
     updateIngredient: () => Promise.resolve(inventoryItem),
     ...overrides,
   };
@@ -1090,6 +1091,36 @@ void test("POST /inventory/:stockId/movements records an audited tenant movement
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.json(), { movement: inventoryMovement, replayed: false });
 
+  await app.close();
+});
+
+void test("GET /inventory/:stockId/movements returns paginated history", async () => {
+  const app = await createApp({
+    inventory: createInventory({
+      listMovements: (establishmentId, stockId, pagination) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(stockId, "stock-id");
+        assert.deepEqual(pagination, { page: 2, pageSize: 25 });
+        return Promise.resolve({
+          movements: [inventoryMovement],
+          page: 2,
+          pageSize: 25,
+          total: 26,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "GET",
+    url: "/inventory/stock-id/movements?page=2&pageSize=25",
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    movements: [inventoryMovement],
+    page: 2,
+    pageSize: 25,
+    total: 26,
+  });
   await app.close();
 });
 

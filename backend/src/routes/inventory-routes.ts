@@ -48,6 +48,11 @@ interface IngredientParams {
   ingredientId: string;
 }
 
+interface PaginationQuery {
+  page?: string;
+  pageSize?: string;
+}
+
 export function registerInventoryRoutes(
   app: FastifyInstance,
   inventory: InventoryRepository,
@@ -194,18 +199,21 @@ export function registerInventoryRoutes(
     },
   );
 
-  app.get<{ Params: StockParams }>(
+  app.get<{ Params: StockParams; Querystring: PaginationQuery }>(
     "/inventory/:stockId/movements",
     { config: { permission: "inventory.read" } },
     async (request, reply) => {
       try {
         const user = requireAuthUser(request);
-        return {
-          movements: await inventory.listMovements(
-            user.establishment.id,
-            request.params.stockId,
-          ),
-        };
+        const pagination = parsePagination(request.query);
+        if (!pagination) {
+          return reply.code(400).send({ message: "Invalid pagination", status: "error" });
+        }
+        return inventory.listMovements(
+          user.establishment.id,
+          request.params.stockId,
+          pagination,
+        );
       } catch (error) {
         if (error instanceof InventoryStockNotFoundError) {
           return reply.code(404).send({ message: "Inventory stock not found", status: "error" });
@@ -325,6 +333,21 @@ export function registerInventoryRoutes(
       }
     },
   );
+}
+
+function parsePagination(query: PaginationQuery) {
+  const page = query.page === undefined ? 1 : Number(query.page);
+  const pageSize = query.pageSize === undefined ? 50 : Number(query.pageSize);
+  if (
+    !Number.isInteger(page) ||
+    page < 1 ||
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > 100
+  ) {
+    return null;
+  }
+  return { page, pageSize };
 }
 
 function isUpdateIngredientBody(

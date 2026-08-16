@@ -146,6 +146,22 @@ export async function deactivateMenuAdditional(apiBaseUrl: string, additionalId:
   return readAdditional(response);
 }
 
+export async function updateMenuAdditional(
+  apiBaseUrl: string,
+  additionalId: string,
+  input: { active: boolean; code: string; name: string; priceCents: number },
+) {
+  const response = await authenticatedFetch(
+    `${baseUrl(apiBaseUrl)}/admin/additionals/${encodeURIComponent(additionalId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+    },
+  );
+  return readAdditional(response);
+}
+
 export async function replaceAdditionalRecipe(
   apiBaseUrl: string,
   additionalId: string,

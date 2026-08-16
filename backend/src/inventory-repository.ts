@@ -420,14 +420,24 @@ export function createInventoryRepository(
       });
       return lots.map(mapLot);
     },
-    async listMovements(establishmentId, stockId) {
+    async listMovements(establishmentId, stockId, pagination) {
       await assertStockExists(prisma, establishmentId, stockId);
-      const movements = await prisma.inventoryMovement.findMany({
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: 200,
-        where: { establishmentId, stockId },
-      });
-      return movements.map(mapMovement);
+      const where = { establishmentId, stockId };
+      const [movements, total] = await prisma.$transaction([
+        prisma.inventoryMovement.findMany({
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          skip: (pagination.page - 1) * pagination.pageSize,
+          take: pagination.pageSize,
+          where,
+        }),
+        prisma.inventoryMovement.count({ where }),
+      ]);
+      return {
+        movements: movements.map(mapMovement),
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        total,
+      };
     },
     async updateIngredient(
       establishmentId,

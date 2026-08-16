@@ -12,6 +12,7 @@ import {
   replaceAdditionalRecipe,
   replaceProductAdditionals,
   replaceProductRecipe,
+  updateMenuAdditional,
   type MenuAdditional,
   type MenuProduct,
   type RecipeIngredientOption,
@@ -40,6 +41,7 @@ export function RecipeManagementScreen({
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [newAdditional, setNewAdditional] = useState({ code: '', name: '', price: '' });
+  const [additionalDetails, setAdditionalDetails] = useState({ code: '', name: '', price: '' });
 
   const refresh = useCallback(() => {
     if (!baseUrl) return Promise.reject(new Error('API não configurada'));
@@ -67,6 +69,11 @@ export function RecipeManagementScreen({
   const selectAdditional = (additional: MenuAdditional) => {
     setSelectedProduct(undefined);
     setSelectedAdditional(additional);
+    setAdditionalDetails({
+      code: additional.code,
+      name: additional.name,
+      price: String(additional.priceCents),
+    });
     setRecipe(recipeValues(additional.recipe));
   };
   const mutate = async (request: () => Promise<unknown>, success: string) => {
@@ -148,6 +155,15 @@ export function RecipeManagementScreen({
         {selectedAdditional ? (
           <View style={styles.editor}>
             <Text style={styles.title}>Receita · {selectedAdditional.name}</Text>
+            <TextInput accessibilityLabel="Editar código do adicional" onChangeText={(code) => setAdditionalDetails((value) => ({ ...value, code }))} placeholder="Código" style={styles.input} value={additionalDetails.code} />
+            <TextInput accessibilityLabel="Editar nome do adicional" onChangeText={(name) => setAdditionalDetails((value) => ({ ...value, name }))} placeholder="Nome" style={styles.input} value={additionalDetails.name} />
+            <TextInput accessibilityLabel="Editar preço do adicional em centavos" keyboardType="number-pad" onChangeText={(price) => setAdditionalDetails((value) => ({ ...value, price }))} placeholder="Preço em centavos" style={styles.input} value={additionalDetails.price} />
+            <Button disabled={busy} label="Salvar dados do adicional" onPress={() => baseUrl && void mutate(() => updateMenuAdditional(baseUrl, selectedAdditional.id, {
+              active: selectedAdditional.active,
+              code: additionalDetails.code,
+              name: additionalDetails.name,
+              priceCents: Number(additionalDetails.price),
+            }), 'Dados do adicional salvos.')} />
             <RecipeFields ingredients={ingredients} onChange={setRecipe} values={recipe} />
             <Button disabled={busy} label="Salvar receita do adicional" onPress={() => baseUrl && void mutate(() => replaceAdditionalRecipe(baseUrl, selectedAdditional.id, normalizedRecipe(recipe)), 'Receita do adicional salva.')} />
             {selectedAdditional.active ? <Button disabled={busy} label="Desativar adicional" onPress={() => baseUrl && void mutate(() => deactivateMenuAdditional(baseUrl, selectedAdditional.id), 'Adicional desativado.')} secondary /> : null}

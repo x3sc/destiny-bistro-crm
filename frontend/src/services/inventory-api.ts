@@ -58,7 +58,7 @@ export async function loadInventoryLots(apiBaseUrl: string, stockId: string) {
 
 export async function loadInventoryMovements(apiBaseUrl: string, stockId: string) {
   const response = await authenticatedFetch(
-    `${baseUrl(apiBaseUrl)}/inventory/${encodeURIComponent(stockId)}/movements`,
+    `${baseUrl(apiBaseUrl)}/inventory/${encodeURIComponent(stockId)}/movements?page=1&pageSize=50`,
   );
   return readArray<InventoryMovement>(response, 'movements', isInventoryMovement);
 }
