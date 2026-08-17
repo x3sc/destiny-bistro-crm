@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,14 +19,18 @@ import {
   deleteMenuCategory,
   deleteMenuProduct,
   loadAdminMenu,
+  loadRecipeIngredients,
   type MenuCategory,
   type MenuProduct,
+  type RecipeIngredientOption,
+  replaceProductRecipe,
   updateMenuCategory,
   updateMenuProduct,
 } from '../services/menu-admin-api';
 import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
 import { ScreenBackButton } from './screen-back-button';
+import { RecipeEditorModal, type RecipeEditorState } from './recipe-editor-modal';
 
 type CategoryEditor =
   | { kind: 'create'; name: string }
@@ -33,6 +38,7 @@ type CategoryEditor =
 type ProductEditor =
   | { category: MenuCategory; description: string; kind: 'create'; name: string; price: string }
   | { category: MenuCategory; description: string; kind: 'edit'; name: string; price: string; product: MenuProduct };
+type RecipeValues = Record<string, string>;
 
 type ScreenState =
   | { kind: 'error' }
@@ -46,8 +52,9 @@ export function MenuManagementScreen({
   deleteCategoryRequest = deleteMenuCategory,
   deleteProductRequest = deleteMenuProduct,
   loadRequest = loadAdminMenu,
+  loadRecipeIngredientsRequest = loadRecipeIngredients,
   onBack,
-  onRecipes,
+  replaceRecipeRequest = replaceProductRecipe,
   updateCategoryRequest = updateMenuCategory,
   updateProductRequest = updateMenuProduct,
 }: {
@@ -57,8 +64,9 @@ export function MenuManagementScreen({
   deleteCategoryRequest?: typeof deleteMenuCategory;
   deleteProductRequest?: typeof deleteMenuProduct;
   loadRequest?: typeof loadAdminMenu;
+  loadRecipeIngredientsRequest?: typeof loadRecipeIngredients;
   onBack: () => void;
-  onRecipes?: () => void;
+  replaceRecipeRequest?: typeof replaceProductRecipe;
   updateCategoryRequest?: typeof updateMenuCategory;
   updateProductRequest?: typeof updateMenuProduct;
 }) {
@@ -67,6 +75,9 @@ export function MenuManagementScreen({
   const [expandedCategoryId, setExpandedCategoryId] = useState<string>();
   const [categoryEditor, setCategoryEditor] = useState<CategoryEditor>();
   const [productEditor, setProductEditor] = useState<ProductEditor>();
+  const [recipeEditor, setRecipeEditor] = useState<RecipeEditorState>();
+  const [recipeIngredients, setRecipeIngredients] = useState<RecipeIngredientOption[]>();
+  const [recipeMessage, setRecipeMessage] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [mutating, setMutating] = useState(false);
 
@@ -153,6 +164,78 @@ export function MenuManagementScreen({
     void mutate(request, 'Item salvo.');
   };
 
+  const closeRecipe = () => {
+    setRecipeEditor(undefined);
+    setRecipeIngredients(undefined);
+    setRecipeMessage(undefined);
+  };
+
+  const openRecipe = async (product: MenuProduct) => {
+    setRecipeEditor({ product, values: recipeValues(product.recipe ?? []) });
+    setRecipeIngredients(undefined);
+    setRecipeMessage(undefined);
+
+    if (!normalizedApiBaseUrl) {
+      setRecipeMessage('API nao configurada.');
+      return;
+    }
+
+    try {
+      setRecipeIngredients(await loadRecipeIngredientsRequest(normalizedApiBaseUrl));
+    } catch {
+      setRecipeMessage('Nao foi possivel carregar os insumos do estoque.');
+    }
+  };
+
+  const saveRecipe = async () => {
+    if (!normalizedApiBaseUrl || !recipeEditor || !recipeIngredients || mutating) {
+      return;
+    }
+
+    const recipe = normalizedRecipe(recipeEditor.values);
+    const hasInvalidQuantity = Object.values(recipeEditor.values).some((value) => {
+      if (!value.trim()) {
+        return false;
+      }
+      const quantity = Number(value);
+      return !Number.isInteger(quantity) || quantity < 0;
+    });
+    if (hasInvalidQuantity) {
+      setRecipeMessage('Informe quantidades inteiras maiores ou iguais a zero.');
+      return;
+    }
+
+    setMutating(true);
+    setRecipeMessage(undefined);
+    try {
+      const updatedProduct = await replaceRecipeRequest(
+        normalizedApiBaseUrl,
+        recipeEditor.product.id,
+        recipe,
+      );
+      setState((current) => current.kind === 'success'
+        ? {
+            categories: current.categories.map((category) => ({
+              ...category,
+              products: category.products.map((product) =>
+                product.id === updatedProduct.id ? updatedProduct : product,
+              ),
+            })),
+            kind: 'success',
+          }
+        : current);
+      setProductEditor((current) => current?.kind === 'edit' && current.product.id === updatedProduct.id
+        ? { ...current, product: updatedProduct }
+        : current);
+      closeRecipe();
+      setMessage('Receita salva.');
+    } catch {
+      setRecipeMessage('Nao foi possivel salvar a receita.');
+    } finally {
+      setMutating(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -167,7 +250,9 @@ export function MenuManagementScreen({
           </View>
         </View>
 
-        {message && <Text style={styles.message}>{message}</Text>}
+        {message && !categoryEditor && !productEditor ? (
+          <Text style={styles.message}>{message}</Text>
+        ) : null}
 
         <ActionButton
           disabled={mutating}
@@ -178,20 +263,6 @@ export function MenuManagementScreen({
             setMessage(undefined);
           }}
         />
-        {onRecipes ? (
-          <ActionButton label="Receitas e adicionais" onPress={onRecipes} tone="secondary" />
-        ) : null}
-
-        {categoryEditor?.kind === 'create' && (
-          <CategoryEditorForm
-            disabled={mutating}
-            editor={categoryEditor}
-            onCancel={() => setCategoryEditor(undefined)}
-            onChange={setCategoryEditor}
-            onSave={saveCategory}
-          />
-        )}
-
         {state.kind === 'loading' && (
           <View style={styles.loading}>
             <ActivityIndicator color={themeColors.primary} size="large" />
@@ -210,12 +281,6 @@ export function MenuManagementScreen({
         {state.kind === 'success' && state.categories.map((category) => (
           <CategoryCard
             category={category}
-            categoryEditor={
-              categoryEditor?.kind === 'edit'
-                && categoryEditor.category.id === category.id
-                ? categoryEditor
-                : undefined
-            }
             disabled={mutating}
             expanded={expandedCategoryId === category.id}
             key={category.id}
@@ -238,7 +303,6 @@ export function MenuManagementScreen({
                 );
               }
             }}
-            onCategoryEditorChange={setCategoryEditor}
             onEdit={() => {
               setProductEditor(undefined);
               setCategoryEditor({ category, kind: 'edit', name: category.name });
@@ -254,7 +318,6 @@ export function MenuManagementScreen({
                 product,
               });
             }}
-            onProductEditorChange={setProductEditor}
             onProductActiveChange={(product, active) => {
               if (!normalizedApiBaseUrl) {
                 return;
@@ -281,61 +344,87 @@ export function MenuManagementScreen({
                 );
               }
             }}
-            onSaveProduct={saveProduct}
-            onSaveCategory={saveCategory}
             onToggle={() => {
               setExpandedCategoryId((current) =>
                 current === category.id ? undefined : category.id,
               );
-              setCategoryEditor(undefined);
-              setProductEditor(undefined);
             }}
-            productEditor={
-              productEditor?.category.id === category.id
-                ? productEditor
-                : undefined
-            }
           />
         ))}
       </ScrollView>
+
+      {categoryEditor ? (
+        <EditorModal
+          accessibilityLabel={categoryEditor.kind === 'create' ? 'Janela de nova categoria' : 'Janela de editar categoria'}
+          onClose={() => setCategoryEditor(undefined)}
+        >
+          {message ? <Text style={styles.modalMessage}>{message}</Text> : null}
+          <CategoryEditorForm
+            disabled={mutating}
+            editor={categoryEditor}
+            onCancel={() => setCategoryEditor(undefined)}
+            onChange={setCategoryEditor}
+            onSave={saveCategory}
+          />
+        </EditorModal>
+      ) : null}
+
+      {productEditor ? (
+        <EditorModal
+          accessibilityLabel={productEditor.kind === 'create' ? 'Janela de novo item' : 'Janela de editar item'}
+          onClose={() => setProductEditor(undefined)}
+        >
+          {message ? <Text style={styles.modalMessage}>{message}</Text> : null}
+          <ProductEditorForm
+            disabled={mutating}
+            editor={productEditor}
+            onCancel={() => setProductEditor(undefined)}
+            onChange={setProductEditor}
+            onRecipe={productEditor.kind === 'edit'
+              ? () => void openRecipe(productEditor.product)
+              : undefined}
+            onSave={saveProduct}
+          />
+        </EditorModal>
+      ) : null}
+
+      {recipeEditor ? (
+        <RecipeEditorModal
+          disabled={mutating}
+          editor={recipeEditor}
+          ingredients={recipeIngredients}
+          message={recipeMessage}
+          onCancel={closeRecipe}
+          onChange={setRecipeEditor}
+          onSave={() => void saveRecipe()}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
 
 function CategoryCard({
   category,
-  categoryEditor,
   disabled,
   expanded,
   onCreateProduct,
   onDeactivate,
-  onCategoryEditorChange,
   onEdit,
   onEditProduct,
-  onProductEditorChange,
   onProductActiveChange,
   onReactivate,
-  onSaveProduct,
-  onSaveCategory,
   onToggle,
-  productEditor,
 }: {
   category: MenuCategory;
-  categoryEditor?: Extract<CategoryEditor, { kind: 'edit' }>;
   disabled: boolean;
   expanded: boolean;
   onCreateProduct: () => void;
   onDeactivate: () => void;
-  onCategoryEditorChange: (editor: CategoryEditor | undefined) => void;
   onEdit: () => void;
   onEditProduct: (product: MenuProduct) => void;
-  onProductEditorChange: (editor: ProductEditor | undefined) => void;
   onProductActiveChange: (product: MenuProduct, active: boolean) => void;
   onReactivate: () => void;
-  onSaveProduct: () => void;
-  onSaveCategory: () => void;
   onToggle: () => void;
-  productEditor?: ProductEditor;
 }) {
   return (
     <View
@@ -371,26 +460,6 @@ function CategoryCard({
             tone="secondary"
           />
 
-          {categoryEditor && (
-            <CategoryEditorForm
-              disabled={disabled}
-              editor={categoryEditor}
-              onCancel={() => onCategoryEditorChange(undefined)}
-              onChange={onCategoryEditorChange}
-              onSave={onSaveCategory}
-            />
-          )}
-
-          {productEditor && (
-            <ProductEditorForm
-              disabled={disabled}
-              editor={productEditor}
-              onCancel={() => onProductEditorChange(undefined)}
-              onChange={onProductEditorChange}
-              onSave={onSaveProduct}
-            />
-          )}
-
           {category.products.map((product) => (
             <View
               key={product.id}
@@ -411,11 +480,6 @@ function CategoryCard({
                 ) : (
                   <Text style={styles.warning}>Sem ficha técnica</Text>
                 )}
-                {(product.additionals?.length ?? 0) > 0 ? (
-                  <Text style={styles.meta}>
-                    Adicionais: {product.additionals?.map(({ name }) => name).join(', ')}
-                  </Text>
-                ) : null}
               </View>
               <View style={styles.productActions}>
                 <Pressable
@@ -516,12 +580,14 @@ function ProductEditorForm({
   editor,
   onCancel,
   onChange,
+  onRecipe,
   onSave,
 }: {
   disabled: boolean;
   editor: ProductEditor;
   onCancel: () => void;
   onChange: (editor: ProductEditor) => void;
+  onRecipe?: () => void;
   onSave: () => void;
 }) {
   return (
@@ -552,11 +618,43 @@ function ProductEditorForm({
         placeholder="R$ 0,00"
         value={editor.price}
       />
+      {onRecipe ? (
+        <ActionButton label="Receita" onPress={onRecipe} tone="secondary" />
+      ) : null}
       <View style={styles.editorActions}>
         <ActionButton disabled={disabled} label="Salvar item" onPress={onSave} />
         <ActionButton label="Cancelar" onPress={onCancel} tone="secondary" />
       </View>
     </View>
+  );
+}
+
+function EditorModal({
+  accessibilityLabel,
+  children,
+  onClose,
+}: {
+  accessibilityLabel: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible>
+      <View style={styles.modalBackdrop}>
+        <View
+          accessibilityLabel={accessibilityLabel}
+          accessibilityViewIsModal
+          style={styles.modalSheet}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -634,6 +732,19 @@ function centsInput(value: number) {
   return formatCurrencyInput(String(value));
 }
 
+function recipeValues(recipe: NonNullable<MenuProduct['recipe']>) {
+  return Object.fromEntries(recipe.map(({ ingredient, quantity }) => [
+    ingredient.id,
+    String(quantity),
+  ]));
+}
+
+function normalizedRecipe(values: RecipeValues) {
+  return Object.entries(values)
+    .filter(([, value]) => Number(value) > 0 && Number.isInteger(Number(value)))
+    .map(([ingredientId, value]) => ({ ingredientId, quantity: Number(value) }));
+}
+
 const styles = StyleSheet.create({
   button: { alignItems: 'center', backgroundColor: themeColors.primary, borderRadius: 12, minHeight: 46, paddingHorizontal: 16, paddingVertical: 13 },
   buttonPressed: { opacity: 0.65 },
@@ -662,6 +773,10 @@ const styles = StyleSheet.create({
   input: { backgroundColor: themeColors.surface, borderColor: themeColors.borderStrong, borderRadius: 12, borderWidth: 1, color: themeColors.foreground, fontSize: 15, minHeight: 48, paddingHorizontal: 14 },
   loading: { alignItems: 'center', gap: 12, paddingVertical: 32 },
   message: { backgroundColor: themeColors.surfaceAccent, borderRadius: 12, color: themeColors.foregroundBody, fontSize: 14, padding: 12 },
+  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(30, 22, 16, 0.48)', flex: 1, justifyContent: 'center', padding: 18 },
+  modalContent: { gap: 10 },
+  modalMessage: { color: themeColors.dangerText, fontSize: 14, fontWeight: '700', paddingHorizontal: 4 },
+  modalSheet: { backgroundColor: themeColors.background, borderColor: themeColors.borderStrong, borderRadius: 18, borderWidth: 1, maxHeight: '90%', maxWidth: 560, overflow: 'hidden', width: '100%' },
   meta: { color: themeColors.foregroundMuted, fontSize: 13 },
   price: { color: themeColors.primary, fontSize: 15, fontWeight: '800', marginTop: 3 },
   productActions: { alignItems: 'center', flexDirection: 'row', gap: 10 },

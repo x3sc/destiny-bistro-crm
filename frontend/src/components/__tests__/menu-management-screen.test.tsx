@@ -3,7 +3,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react-native';
 
 import { MenuManagementScreen } from '../menu-management-screen';
@@ -63,6 +62,74 @@ it('starts collapsed and keeps only one category expanded', async () => {
   expect(screen.getByText('Brigadeiro')).toBeTruthy();
 });
 
+it('opens menu editors in modals and exposes recipe only while editing an item', async () => {
+  const loadRecipeIngredientsRequest = jest.fn().mockResolvedValue([
+    { id: 'ingredient-id', name: 'Farinha', unit: 'GRAM' },
+    { id: 'second-ingredient-id', name: 'Leite', unit: 'MILLILITER' },
+  ]);
+  const replaceRecipeRequest = jest.fn().mockResolvedValue({
+    ...category.products[0],
+    recipe: [
+      {
+        ingredient: { id: 'ingredient-id', name: 'Farinha', unit: 'GRAM' },
+        quantity: 150,
+      },
+    ],
+  });
+  render(
+    <MenuManagementScreen
+      apiBaseUrl="http://localhost:3333"
+      loadRecipeIngredientsRequest={loadRecipeIngredientsRequest}
+      loadRequest={jest.fn().mockResolvedValue([category])}
+      onBack={jest.fn()}
+      replaceRecipeRequest={replaceRecipeRequest}
+    />,
+  );
+
+  await screen.findByText('Bebidas');
+  expect(screen.queryByRole('button', { name: 'Receitas e adicionais' })).toBeNull();
+
+  fireEvent.press(screen.getByRole('button', { name: 'Nova categoria' }));
+  expect(screen.getByLabelText('Janela de nova categoria')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
+
+  fireEvent.press(screen.getByRole('button', { name: 'Expandir categoria Bebidas' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Editar categoria Bebidas' }));
+  expect(screen.getByLabelText('Janela de editar categoria')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
+
+  fireEvent.press(screen.getByRole('button', { name: 'Novo item em Bebidas' }));
+  expect(screen.getByLabelText('Janela de novo item')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Receita' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
+
+  fireEvent.press(screen.getByRole('button', { name: 'Editar item Agua' }));
+  expect(screen.getByLabelText('Janela de editar item')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Receita' }));
+
+  expect(await screen.findByLabelText('Janela de receita de Agua')).toBeTruthy();
+  expect(loadRecipeIngredientsRequest).toHaveBeenCalledWith('http://localhost:3333');
+  expect(screen.queryByLabelText('Quantidade de Farinha')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar insumo' }));
+  expect(screen.getByLabelText('Janela para adicionar insumo')).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText('Buscar insumo por nome'), 'fari');
+  expect(screen.getByRole('button', { name: 'Adicionar insumo Farinha' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Adicionar insumo Leite' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar insumo Farinha' }));
+  expect(screen.queryByLabelText('Janela para adicionar insumo')).toBeNull();
+  fireEvent.changeText(screen.getByLabelText('Quantidade de Farinha'), '150');
+  fireEvent.press(screen.getByRole('button', { name: 'Salvar receita' }));
+
+  await waitFor(() => expect(replaceRecipeRequest).toHaveBeenCalledWith(
+    'http://localhost:3333',
+    'product-id',
+    [{ ingredientId: 'ingredient-id', quantity: 150 }],
+  ));
+  expect(screen.queryByLabelText('Janela de receita de Agua')).toBeNull();
+  expect(screen.getByLabelText('Janela de editar item')).toBeTruthy();
+  expect(screen.getByText('Receita salva.')).toBeTruthy();
+});
+
 it('creates a category, expands it and adds a priced item inside its card', async () => {
   const emptyCategory = { ...category, products: [] };
   const createCategoryRequest = jest.fn().mockResolvedValue(emptyCategory);
@@ -107,31 +174,30 @@ it('creates a category, expands it and adds a priced item inside its card', asyn
   fireEvent.press(
     screen.getByRole('button', { name: 'Novo item em Bebidas' }),
   );
-  const categoryCard = screen.getByTestId('menu-category-category-id');
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Nome do item'),
+    screen.getByLabelText('Nome do item'),
     'Suco',
   );
   expect(
-    within(categoryCard).getByDisplayValue('R$ 0,00'),
+    screen.getByDisplayValue('R$ 0,00'),
   ).toBeTruthy();
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Preço do item'),
+    screen.getByLabelText('Preço do item'),
     '1',
   );
-  expect(within(categoryCard).getByDisplayValue('R$ 0,01')).toBeTruthy();
+  expect(screen.getByDisplayValue('R$ 0,01')).toBeTruthy();
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Preço do item'),
+    screen.getByLabelText('Preço do item'),
     'R$ 0,012',
   );
-  expect(within(categoryCard).getByDisplayValue('R$ 0,12')).toBeTruthy();
+  expect(screen.getByDisplayValue('R$ 0,12')).toBeTruthy();
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Preço do item'),
+    screen.getByLabelText('Preço do item'),
     'R$ 0,123',
   );
-  expect(within(categoryCard).getByDisplayValue('R$ 1,23')).toBeTruthy();
+  expect(screen.getByDisplayValue('R$ 1,23')).toBeTruthy();
   fireEvent.press(
-    within(categoryCard).getByRole('button', { name: 'Salvar item' }),
+    screen.getByRole('button', { name: 'Salvar item' }),
   );
 
   await waitFor(() =>
@@ -150,7 +216,7 @@ it('creates a category, expands it and adds a priced item inside its card', asyn
   ).toBeTruthy();
 });
 
-it('discards the product form when its category is collapsed', async () => {
+it('discards the product modal when creation is cancelled', async () => {
   render(
     <MenuManagementScreen
       apiBaseUrl="http://localhost:3333"
@@ -167,9 +233,7 @@ it('discards the product form when its category is collapsed', async () => {
   );
   fireEvent.changeText(screen.getByLabelText('Nome do item'), 'Rascunho');
 
-  fireEvent.press(
-    screen.getByRole('button', { name: 'Recolher categoria Bebidas' }),
-  );
+  fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
 
   expect(screen.queryByLabelText('Nome do item')).toBeNull();
   expect(screen.queryByDisplayValue('Rascunho')).toBeNull();
@@ -196,12 +260,11 @@ it('edits products inside the category and keeps lifecycle actions working', asy
   fireEvent.press(
     await screen.findByRole('button', { name: 'Expandir categoria Bebidas' }),
   );
-  const categoryCard = screen.getByTestId('menu-category-category-id');
   fireEvent.press(
     screen.getByRole('button', { name: 'Editar categoria Bebidas' }),
   );
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Nome da categoria'),
+    screen.getByLabelText('Nome da categoria'),
     'Bebidas geladas',
   );
   fireEvent.press(
@@ -211,12 +274,12 @@ it('edits products inside the category and keeps lifecycle actions working', asy
 
   fireEvent.press(screen.getByRole('button', { name: 'Editar item Agua' }));
   fireEvent.changeText(
-    within(categoryCard).getByLabelText('Preço do item'),
+    screen.getByLabelText('Preço do item'),
     '650',
   );
-  expect(within(categoryCard).getByDisplayValue('R$ 6,50')).toBeTruthy();
+  expect(screen.getByDisplayValue('R$ 6,50')).toBeTruthy();
   fireEvent.press(
-    within(categoryCard).getByRole('button', { name: 'Salvar item' }),
+    screen.getByRole('button', { name: 'Salvar item' }),
   );
   await waitFor(() => expect(updateProductRequest).toHaveBeenCalled());
 
