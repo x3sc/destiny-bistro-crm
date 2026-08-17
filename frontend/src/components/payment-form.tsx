@@ -5,7 +5,11 @@ import type {
   PaymentAllocationInput,
   PaymentMethod,
 } from '../services/comandas-api';
-import { formatCentsAsBrl } from '../services/money';
+import {
+  centsFromBrlInput,
+  formatCentsAsBrl,
+  formatCentsForBrlInput,
+} from '../services/money';
 import { themeColors } from '../theme/tokens';
 
 const methods: { label: string; method: PaymentMethod }[] = [
@@ -181,7 +185,7 @@ export function PaymentForm({
                   0,
                 );
                 const amountCents = Math.min(
-                  centsFromInput(value),
+                  centsFromBrlInput(value),
                   availableCents,
                 );
                 updateEntries(
@@ -193,7 +197,7 @@ export function PaymentForm({
                 );
               }}
               style={styles.input}
-              value={inputFromCents(entry.amountCents)}
+              value={formatCentsForBrlInput(entry.amountCents)}
             />
           </View>
         );
@@ -274,17 +278,6 @@ function summarizePayments(
       (allowZero || totalCents > 0) &&
       everyInformedValueHasMethod,
   };
-}
-
-function centsFromInput(value: string) {
-  const digits = value.replace(/\D/gu, '').slice(-9);
-  return digits ? Number(digits) : 0;
-}
-
-function inputFromCents(value: number) {
-  const integerPart = Math.floor(value / 100).toLocaleString('pt-BR');
-  const decimalPart = String(value % 100).padStart(2, '0');
-  return `R$ ${integerPart},${decimalPart}`;
 }
 
 const styles = StyleSheet.create({
