@@ -27,15 +27,19 @@ enum ComandaEventType {
   ITEM_CONFIRMED
   ITEM_QUANTITY_CHANGED
   ITEM_REMOVED
+  ITEM_CANCELLED
+  ADDITIONALS_CHANGED
 }
 
 enum ComandaCancellationReason {
   OPENED_BY_MISTAKE
+  OPERATOR_CANCELLED
 }
 
 enum CreditOrderSource {
   MANUAL
   TABLE
+  DELIVERY
 }
 
 enum CreditOrderStatus {
@@ -55,6 +59,20 @@ enum PaymentMethod {
 enum PaymentOrigin {
   TABLE_CHECKOUT
   CREDIT_INSTALLMENT
+  DELIVERY_CHECKOUT
+}
+
+enum DeliveryDayStatus {
+  OPEN
+  CLOSED
+}
+
+enum DeliveryOrderStatus {
+  NEW
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
 }
 
 enum IngredientUnit {
@@ -67,6 +85,33 @@ enum InventoryMovementType {
   ENTRY
   EXIT
   ADJUSTMENT
+  SALE_CONSUMPTION
+  ADDITIONAL_CONSUMPTION
+  LOSS
+  MANUAL_EXIT
+  POSITIVE_ADJUSTMENT
+  NEGATIVE_ADJUSTMENT
+  REVERSAL
+}
+
+enum InventoryOperationType {
+  ENTRY
+  MANUAL
+  CONFIRMATION
+  CANCELLATION
+  CONFIGURATION
+}
+
+enum InventoryLotOrigin {
+  PURCHASE
+  ADJUSTMENT
+  REVERSAL
+  LEGACY
+}
+
+enum InventoryDisposition {
+  RETURN_TO_STOCK
+  LOSS
 }
 
 model Establishment {
@@ -87,6 +132,21 @@ model Establishment {
   ingredients        Ingredient[]
   inventoryStocks    InventoryStock[]
   inventoryMovements InventoryMovement[]
+  inventoryLots      InventoryLot[]
+  inventoryOperations InventoryOperation[]
+  inventoryMovementLots InventoryMovementLot[]
+  productIngredients ProductIngredient[]
+  additionals        Additional[]
+  productAdditionals ProductAdditional[]
+  additionalIngredients AdditionalIngredient[]
+  comandaItemConfigurations ComandaItemConfiguration[]
+  comandaItemAdditionals ComandaItemAdditional[]
+  comandaItemCancellations ComandaItemCancellation[]
+  deliveryCouriers   DeliveryCourier[]
+  deliveryDays       DeliveryDay[]
+  deliveryOrders     DeliveryOrder[]
+  deliveries         Delivery[]
+  deliveryExpenses   DeliveryExpense[]
   auditLogs          AuditLog[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -120,6 +180,7 @@ model Comanda {
   table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
   creditOrder        CreditOrder?
+  deliveryOrder      DeliveryOrder?
   payments           Payment[]
   status             ComandaStatus              @default(OPEN)
   openedAt           DateTime                   @default(now())
@@ -128,6 +189,7 @@ model Comanda {
   cancellationReason ComandaCancellationReason?
   items              ComandaItem[]
   events             ComandaEvent[]
+  inventoryOperations InventoryOperation[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -246,6 +308,8 @@ model Product {
   priceCents      Int
   active          Boolean         @default(true)
   comandaItems    ComandaItem[]
+  ingredients     ProductIngredient[]
+  allowedAdditionals ProductAdditional[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -267,10 +331,13 @@ model ComandaItem {
   unitPriceCents    Int
   quantity          Int
   confirmedQuantity Int           @default(0)
+  additionalTotalCents Int         @default(0)
+  configurations    ComandaItemConfiguration[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   @@unique([comandaId, productId])
+  @@unique([id, establishmentId])
   @@index([establishmentId, createdAt])
   @@index([comandaId])
   @@index([productId])
@@ -316,6 +383,13 @@ model User {
   comandaEvents      ComandaEvent[]
   payments           Payment[]
   inventoryMovements InventoryMovement[]
+  inventoryLots      InventoryLot[]
+  inventoryOperations InventoryOperation[]
+  inventoryCancellations ComandaItemCancellation[]
+  deliveryDaysOpened DeliveryDay[]       @relation("DeliveryDayOpenedBy")
+  deliveryDaysClosed DeliveryDay[]       @relation("DeliveryDayClosedBy")
+  deliveries         Delivery[]
+  deliveryExpenses   DeliveryExpense[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -413,6 +487,8 @@ model Ingredient {
   unit            IngredientUnit
   active          Boolean         @default(true)
   stock           InventoryStock?
+  productRecipes  ProductIngredient[]
+  additionalRecipes AdditionalIngredient[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -429,7 +505,9 @@ model InventoryStock {
   ingredient      Ingredient          @relation(fields: [ingredientId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   quantity        Int                 @default(0)
   minimumQuantity Int                 @default(0)
+  deficitQuantity Int                 @default(0)
   movements       InventoryMovement[]
+  lots            InventoryLot[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
@@ -445,15 +523,308 @@ model InventoryMovement {
   establishment   Establishment         @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   stockId         String
   stock           InventoryStock        @relation(fields: [stockId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  operationId     String?
+  operation       InventoryOperation?   @relation(fields: [operationId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   type            InventoryMovementType
   quantityDelta   Int
+  balanceBefore   Int
   balanceAfter    Int
   reason          String                @db.VarChar(255)
   actorUserId     String
   actorUser       User                  @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  lotAllocations  InventoryMovementLot[]
   createdAt       DateTime              @default(now())
 
   @@index([establishmentId, createdAt])
   @@index([stockId, createdAt])
   @@index([actorUserId, createdAt])
+  @@index([operationId])
+}
+
+model InventoryOperation {
+  id              String                 @id @default(cuid())
+  establishmentId String
+  establishment   Establishment          @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  type            InventoryOperationType
+  requestId       String                 @db.VarChar(191)
+  sourceId        String?                @db.VarChar(191)
+  comandaId       String?
+  comanda         Comanda?               @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  actorUserId     String
+  actorUser       User                   @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  reason          String?                @db.VarChar(255)
+  movements       InventoryMovement[]
+  createdAt       DateTime               @default(now())
+
+  @@unique([establishmentId, requestId])
+  @@unique([id, establishmentId])
+  @@index([comandaId, createdAt])
+  @@index([sourceId, createdAt])
+}
+
+model InventoryLot {
+  id                String             @id @default(cuid())
+  establishmentId   String
+  establishment     Establishment      @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  stockId           String
+  stock             InventoryStock     @relation(fields: [stockId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  origin            InventoryLotOrigin
+  code              String?            @db.VarChar(80)
+  initialQuantity   Int
+  currentQuantity   Int
+  totalCostCents    Int?
+  receivedAt        DateTime
+  expiresAt         DateTime?
+  actorUserId       String
+  actorUser         User               @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  movementAllocations InventoryMovementLot[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([id, establishmentId])
+  @@unique([establishmentId, stockId, code])
+  @@index([stockId, expiresAt, receivedAt])
+  @@index([establishmentId, expiresAt])
+}
+
+model InventoryMovementLot {
+  id              String            @id @default(cuid())
+  establishmentId String
+  establishment   Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  movementId      String
+  movement        InventoryMovement @relation(fields: [movementId], references: [id], onDelete: Restrict)
+  lotId           String
+  lot             InventoryLot      @relation(fields: [lotId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  quantityDelta   Int
+  createdAt       DateTime          @default(now())
+
+  @@unique([movementId, lotId])
+  @@index([lotId, createdAt])
+  @@index([establishmentId, createdAt])
+}
+
+model ProductIngredient {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  productId       String
+  product         Product       @relation(fields: [productId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  ingredientId    String
+  ingredient      Ingredient    @relation(fields: [ingredientId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  quantity        Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([establishmentId, productId, ingredientId])
+  @@index([ingredientId])
+}
+
+model Additional {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  code            String        @db.VarChar(50)
+  name            String        @db.VarChar(100)
+  priceCents      Int
+  active          Boolean       @default(true)
+  products        ProductAdditional[]
+  ingredients     AdditionalIngredient[]
+  orderItems      ComandaItemAdditional[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([establishmentId, code])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, active, name])
+}
+
+model ProductAdditional {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  productId       String
+  product         Product       @relation(fields: [productId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  additionalId    String
+  additional      Additional    @relation(fields: [additionalId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@unique([establishmentId, productId, additionalId])
+  @@index([additionalId])
+}
+
+model AdditionalIngredient {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  additionalId    String
+  additional      Additional    @relation(fields: [additionalId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  ingredientId    String
+  ingredient      Ingredient    @relation(fields: [ingredientId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  quantity        Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([establishmentId, additionalId, ingredientId])
+  @@index([ingredientId])
+}
+
+model ComandaItemConfiguration {
+  id                String        @id @default(cuid())
+  establishmentId   String
+  establishment     Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaItemId     String
+  comandaItem       ComandaItem   @relation(fields: [comandaItemId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  configurationKey  String        @db.VarChar(191)
+  quantity          Int
+  confirmedQuantity Int           @default(0)
+  additionals       ComandaItemAdditional[]
+  cancellations     ComandaItemCancellation[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([comandaItemId, configurationKey])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, createdAt])
+}
+
+model ComandaItemAdditional {
+  id                String                    @id @default(cuid())
+  establishmentId   String
+  establishment     Establishment             @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  configurationId   String
+  configuration     ComandaItemConfiguration  @relation(fields: [configurationId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  additionalId      String
+  additional        Additional                @relation(fields: [additionalId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  additionalName    String                    @db.VarChar(100)
+  unitPriceCents    Int
+  quantityPerUnit   Int                       @default(1)
+  createdAt         DateTime                  @default(now())
+
+  @@unique([configurationId, additionalId])
+  @@index([establishmentId, createdAt])
+}
+
+model ComandaItemCancellation {
+  id              String                    @id @default(cuid())
+  establishmentId String
+  establishment   Establishment             @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  configurationId String
+  configuration   ComandaItemConfiguration  @relation(fields: [configurationId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  quantity        Int
+  disposition     InventoryDisposition
+  reason          String                    @db.VarChar(255)
+  actorUserId     String
+  actorUser       User                      @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime                  @default(now())
+
+  @@index([configurationId, createdAt])
+  @@index([establishmentId, createdAt])
+}
+
+model DeliveryCourier {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  name            String        @db.VarChar(80)
+  normalizedName  String        @db.VarChar(80)
+  active          Boolean       @default(true)
+  days            DeliveryDay[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([establishmentId, normalizedName])
+  @@unique([id, establishmentId])
+  @@index([establishmentId, active, name])
+}
+
+model DeliveryDay {
+  id                  String            @id @default(cuid())
+  establishmentId     String
+  establishment       Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  courierId           String
+  courier             DeliveryCourier   @relation(fields: [courierId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  status              DeliveryDayStatus @default(OPEN)
+  dailyRateCents      Int               @default(0)
+  openedAt            DateTime          @default(now())
+  closedAt            DateTime?
+  settlementPaidCents Int?
+  openedByUserId      String
+  openedByUser        User              @relation("DeliveryDayOpenedBy", fields: [openedByUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  closedByUserId      String?
+  closedByUser        User?             @relation("DeliveryDayClosedBy", fields: [closedByUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  deliveries          Delivery[]
+  deliveryOrders      DeliveryOrder[]
+  expenses            DeliveryExpense[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([id, establishmentId])
+  @@index([establishmentId, status, openedAt])
+  @@index([courierId, status])
+  @@index([establishmentId, closedAt])
+}
+
+model DeliveryOrder {
+  id              String              @id @default(cuid())
+  establishmentId String
+  establishment   Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId       String              @unique
+  comanda         Comanda             @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  dayId           String?
+  day             DeliveryDay?        @relation(fields: [dayId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  customerName    String              @db.VarChar(80)
+  phone           String              @db.VarChar(30)
+  address         String              @db.VarChar(255)
+  feeCents        Int                 @default(0)
+  status          DeliveryOrderStatus @default(NEW)
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([id, establishmentId])
+  @@unique([comandaId, establishmentId])
+  @@index([establishmentId, status, updatedAt])
+  @@index([dayId, status])
+}
+
+model Delivery {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  dayId           String
+  day             DeliveryDay   @relation(fields: [dayId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  customerName    String        @db.VarChar(80)
+  address         String        @db.VarChar(255)
+  products        String?       @db.VarChar(255)
+  totalCents      Int
+  feeCents        Int
+  paymentMethod   PaymentMethod
+  deliveredAt     DateTime      @default(now())
+  actorUserId     String
+  actorUser       User          @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([id, establishmentId])
+  @@index([establishmentId, deliveredAt])
+  @@index([dayId, deliveredAt])
+  @@index([actorUserId, deliveredAt])
+}
+
+model DeliveryExpense {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  dayId           String
+  day             DeliveryDay   @relation(fields: [dayId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  description     String        @db.VarChar(255)
+  amountCents     Int
+  actorUserId     String
+  actorUser       User          @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@unique([id, establishmentId])
+  @@index([establishmentId, createdAt])
+  @@index([dayId, createdAt])
 }

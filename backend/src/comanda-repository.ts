@@ -7,6 +7,10 @@ import {
   removeComandaItem,
 } from "./comanda-item-operations.js";
 import {
+  cancelComandaItemConfiguration,
+  configureComandaItemAdditionals,
+} from "./comanda-configuration-operations.js";
+import {
   comandaSelect,
   getComandaOrThrow,
   mapComanda,
@@ -14,6 +18,8 @@ import {
 } from "./comanda-persistence.js";
 import {
   ComandaNotCancellableError,
+  ComandaCancellationConflictError,
+  ComandaInventoryPermissionError,
   ComandaNotClosableError,
   ComandaNotFoundError,
   ComandaCreditPermissionError,
@@ -40,8 +46,35 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         ),
       );
     },
-    async cancel(establishmentId, id, actorUserId) {
-      return prisma.$transaction(async (transaction) => {
+    async cancel(establishmentId, id, input, canWriteInventory, actorUserId) {
+      try {
+        return await prisma.$transaction(async (transaction) => {
+        const sourceId = `COMANDA:${id}`;
+        if (input) {
+          const replay = await transaction.inventoryOperation.findUnique({
+            where: {
+              establishmentId_requestId: {
+                establishmentId,
+                requestId: input.requestId,
+              },
+            },
+          });
+          if (replay) {
+            const comanda = await transaction.comanda.findFirst({
+              select: { status: true },
+              where: { establishmentId, id },
+            });
+            if (
+              replay.type !== "CANCELLATION" ||
+              replay.sourceId !== sourceId ||
+              replay.reason !== input.reason ||
+              comanda?.status !== "CANCELLED"
+            ) {
+              throw new ComandaCancellationConflictError();
+            }
+            return getComandaOrThrow(transaction, establishmentId, id);
+          }
+        }
         const activeComanda = await transaction.comanda.findFirst({
           select: {
             activeForTable: {
@@ -49,9 +82,12 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
                 id: true,
               },
             },
-            _count: {
+            items: {
               select: {
-                items: true,
+                configurations: {
+                  select: { confirmedQuantity: true, id: true },
+                },
+                id: true,
               },
             },
             status: true,
@@ -68,9 +104,63 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           activeComanda.status !== "OPEN" ||
           !activeComanda.activeForTable ||
           activeComanda.tableId === null ||
-          activeComanda._count.items > 0
+          (activeComanda.items.length > 0 && !input)
         ) {
           throw new ComandaNotCancellableError();
+        }
+        const hasConfirmedItems = activeComanda.items.some((item) =>
+          item.configurations.some(
+            (configuration) => configuration.confirmedQuantity > 0,
+          ),
+        );
+        if (hasConfirmedItems && !canWriteInventory) {
+          throw new ComandaInventoryPermissionError();
+        }
+        if (input) {
+          await transaction.inventoryOperation.create({
+            data: {
+              actorUserId,
+              comandaId: id,
+              establishmentId,
+              reason: input.reason,
+              requestId: input.requestId,
+              sourceId,
+              type: "CANCELLATION",
+            },
+          });
+          for (const item of activeComanda.items) {
+            for (const configuration of item.configurations) {
+              if (configuration.confirmedQuantity > 0) {
+                await cancelComandaItemConfiguration(
+                  transaction,
+                  establishmentId,
+                  id,
+                  item.id,
+                  configuration.id,
+                  {
+                    disposition: input.disposition,
+                    quantity: configuration.confirmedQuantity,
+                    reason: input.reason,
+                    requestId: `${input.requestId.slice(0, 120)}-${configuration.id}`,
+                  },
+                  actorUserId,
+                );
+              }
+            }
+          }
+          const itemIds = activeComanda.items.map(({ id: itemId }) => itemId);
+          await transaction.comandaItemConfiguration.updateMany({
+            data: { confirmedQuantity: 0, quantity: 0 },
+            where: { comandaItemId: { in: itemIds } },
+          });
+          await transaction.comandaItem.updateMany({
+            data: {
+              additionalTotalCents: 0,
+              confirmedQuantity: 0,
+              quantity: 0,
+            },
+            where: { id: { in: itemIds } },
+          });
         }
 
         await releaseActiveTable(
@@ -80,14 +170,19 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           activeComanda.tableId,
           () => new ComandaNotCancellableError(),
         );
-        await cancelOpenComanda(transaction, establishmentId, id);
+        await cancelOpenComanda(
+          transaction,
+          establishmentId,
+          id,
+          input ? "OPERATOR_CANCELLED" : "OPENED_BY_MISTAKE",
+        );
 
         await transaction.comandaEvent.create({
           data: {
             actorUserId,
             comandaId: id,
             establishmentId,
-            reason: "OPENED_BY_MISTAKE",
+            reason: input ? "OPERATOR_CANCELLED" : "OPENED_BY_MISTAKE",
             type: "CANCELLED",
           },
         });
@@ -95,6 +190,13 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           data: createAuditData({
             action: "COMANDA_CANCELLED",
             establishmentId,
+            metadata: input
+              ? {
+                  disposition: input.disposition,
+                  reason: input.reason,
+                  requestId: input.requestId,
+                }
+              : undefined,
             resourceId: id,
             resourceType: "COMANDA",
             userId: actorUserId,
@@ -102,7 +204,35 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
         });
 
         return getComandaOrThrow(transaction, establishmentId, id);
-      });
+        });
+      } catch (error) {
+        if (input && isUniqueConstraintError(error)) {
+          const replay = await prisma.inventoryOperation.findUnique({
+            where: {
+              establishmentId_requestId: {
+                establishmentId,
+                requestId: input.requestId,
+              },
+            },
+          });
+          const comanda = await prisma.comanda.findFirst({
+            select: { status: true },
+            where: { establishmentId, id },
+          });
+          if (
+            replay?.type === "CANCELLATION" &&
+            replay.sourceId === `COMANDA:${id}` &&
+            replay.reason === input.reason &&
+            comanda?.status === "CANCELLED"
+          ) {
+            return prisma.$transaction((transaction) =>
+              getComandaOrThrow(transaction, establishmentId, id),
+            );
+          }
+          throw new ComandaCancellationConflictError();
+        }
+        throw error;
+      }
     },
     async changeItemQuantity(
       establishmentId,
@@ -118,6 +248,44 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           comandaId,
           itemId,
           delta,
+          actorUserId,
+        ),
+      );
+    },
+    async configureItemAdditionals(
+      establishmentId,
+      comandaId,
+      itemId,
+      input,
+      actorUserId,
+    ) {
+      return prisma.$transaction((transaction) =>
+        configureComandaItemAdditionals(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          input,
+          actorUserId,
+        ),
+      );
+    },
+    async cancelItemConfiguration(
+      establishmentId,
+      comandaId,
+      itemId,
+      configurationId,
+      input,
+      actorUserId,
+    ) {
+      return prisma.$transaction((transaction) =>
+        cancelComandaItemConfiguration(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          configurationId,
+          input,
           actorUserId,
         ),
       );
@@ -140,9 +308,16 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             },
             items: {
               select: {
+                additionalTotalCents: true,
                 confirmedQuantity: true,
                 quantity: true,
                 unitPriceCents: true,
+              },
+            },
+            deliveryOrder: {
+              select: {
+                feeCents: true,
+                id: true,
               },
             },
             openedAt: true,
@@ -162,17 +337,18 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         if (
           activeComanda.status !== "OPEN" ||
-          !activeComanda.activeForTable ||
-          activeComanda.tableId === null ||
+          (!activeComanda.activeForTable && !activeComanda.deliveryOrder) ||
+          (activeComanda.deliveryOrder && activeComanda.items.length === 0) ||
           hasPendingItems
         ) {
           throw new ComandaNotClosableError();
         }
 
         const totalCents = activeComanda.items.reduce(
-          (total, item) => total + item.quantity * item.unitPriceCents,
+          (total, item) =>
+            total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
           0,
-        );
+        ) + (activeComanda.deliveryOrder?.feeCents ?? 0);
         const paidCents = paymentTotal(payments);
         const balanceCents = totalCents - paidCents;
 
@@ -193,13 +369,15 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           }
         }
 
-        await releaseActiveTable(
-          transaction,
-          establishmentId,
-          id,
-          activeComanda.tableId,
-          () => new ComandaNotClosableError(),
-        );
+        if (activeComanda.tableId !== null) {
+          await releaseActiveTable(
+            transaction,
+            establishmentId,
+            id,
+            activeComanda.tableId,
+            () => new ComandaNotClosableError(),
+          );
+        }
 
         const paidAt = new Date();
 
@@ -211,7 +389,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               establishmentId,
               finalizedAt: paidAt,
               orderedAt: activeComanda.openedAt,
-              source: "TABLE",
+              source: activeComanda.deliveryOrder ? "DELIVERY" : "TABLE",
               status: "OPEN",
               totalCents,
             },
@@ -226,7 +404,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               comandaId: id,
               creditOrderId: order.id,
               establishmentId,
-              origin: "TABLE_CHECKOUT",
+              origin: activeComanda.deliveryOrder
+                ? "DELIVERY_CHECKOUT"
+                : "TABLE_CHECKOUT",
               paidAt,
             });
           }
@@ -261,7 +441,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             amountCents: paidCents,
             comandaId: id,
             establishmentId,
-            origin: "TABLE_CHECKOUT",
+            origin: activeComanda.deliveryOrder
+              ? "DELIVERY_CHECKOUT"
+              : "TABLE_CHECKOUT",
             paidAt,
           });
         }
@@ -455,10 +637,11 @@ async function cancelOpenComanda(
   transaction: Transaction,
   establishmentId: string,
   id: string,
+  reason: "OPENED_BY_MISTAKE" | "OPERATOR_CANCELLED",
 ) {
   const cancelledComanda = await transaction.comanda.updateMany({
     data: {
-      cancellationReason: "OPENED_BY_MISTAKE",
+      cancellationReason: reason,
       cancelledAt: new Date(),
       status: "CANCELLED",
     },
@@ -472,4 +655,13 @@ async function cancelOpenComanda(
   if (cancelledComanda.count !== 1) {
     throw new ComandaNotCancellableError();
   }
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
 }

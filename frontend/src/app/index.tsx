@@ -17,6 +17,7 @@ export default function HomeScreen() {
           canManageMenu(user) || hasPermission(user, 'statements.read')
         }
         canAccessCredits={hasPermission(user, 'credits.read')}
+        canAccessDeliveries={hasPermission(user, 'deliveries.read')}
         canAccessTables={hasPermission(user, 'tables.read')}
         establishmentName={user?.establishment.name}
         onAdmin={() => {
@@ -24,6 +25,9 @@ export default function HomeScreen() {
         }}
         onCredits={() => {
           router.push('/credits' as Href);
+        }}
+        onDeliveries={() => {
+          router.push('/deliveries' as Href);
         }}
         onTables={() => {
           router.push('/tables' as Href);

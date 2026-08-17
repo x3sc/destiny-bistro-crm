@@ -30,6 +30,12 @@ export const comandaSelect = {
       totalCents: true,
     },
   },
+  deliveryOrder: {
+    select: {
+      feeCents: true,
+      id: true,
+    },
+  },
   events: {
     orderBy: {
       createdAt: "asc",
@@ -57,8 +63,30 @@ export const comandaSelect = {
     orderBy: {
       createdAt: "asc",
     },
+    where: { quantity: { gt: 0 } },
     select: {
+      additionalTotalCents: true,
       confirmedQuantity: true,
+      configurations: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          additionals: {
+            orderBy: { additionalName: "asc" },
+            select: {
+              additionalId: true,
+              additionalName: true,
+              id: true,
+              quantityPerUnit: true,
+              unitPriceCents: true,
+            },
+          },
+          configurationKey: true,
+          confirmedQuantity: true,
+          id: true,
+          quantity: true,
+        },
+        where: { quantity: { gt: 0 } },
+      },
       createdAt: true,
       id: true,
       productId: true,
@@ -92,11 +120,23 @@ type PersistedComanda = Prisma.ComandaGetPayload<{
 export type Transaction = Prisma.TransactionClient;
 
 export function mapComanda(comanda: PersistedComanda): Comanda {
-  const { creditOrder, payments, ...persistedComanda } = comanda;
+  const { creditOrder, deliveryOrder, payments, ...persistedComanda } = comanda;
   const items = comanda.items.map((item) => ({
     ...item,
+    configurations: item.configurations.map((configuration) => ({
+      ...configuration,
+      subtotalCents:
+        configuration.quantity *
+        (item.unitPriceCents +
+          configuration.additionals.reduce(
+            (total, additional) =>
+              total + additional.unitPriceCents * additional.quantityPerUnit,
+            0,
+          )),
+    })),
     createdAt: item.createdAt.toISOString(),
-    subtotalCents: item.unitPriceCents * item.quantity,
+    subtotalCents:
+      item.unitPriceCents * item.quantity + item.additionalTotalCents,
   }));
 
   return {
@@ -129,7 +169,9 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
     items,
     openedAt: comanda.openedAt.toISOString(),
     payments: payments.map(mapPayment),
-    totalCents: items.reduce((total, item) => total + item.subtotalCents, 0),
+    totalCents:
+      items.reduce((total, item) => total + item.subtotalCents, 0) +
+      (deliveryOrder?.feeCents ?? 0),
   };
 }
 
@@ -150,6 +192,9 @@ export async function findOpenComanda(
           status: true,
         },
       },
+      deliveryOrder: {
+        select: { id: true },
+      },
       status: true,
     },
     where: { establishmentId, id },
@@ -163,7 +208,10 @@ export async function findOpenComanda(
     comanda.creditOrder?.status === "DRAFT" ||
     comanda.creditOrder?.status === "OPEN";
 
-  if (comanda.status !== "OPEN" || (!comanda.activeForTable && !isMutableCreditOrder)) {
+  if (
+    comanda.status !== "OPEN" ||
+    (!comanda.activeForTable && !isMutableCreditOrder && !comanda.deliveryOrder)
+  ) {
     throw new ComandaNotMutableError();
   }
 }
@@ -205,6 +253,7 @@ export async function syncOpenCreditOrderTotal(
 
   const items = await transaction.comandaItem.findMany({
     select: {
+      additionalTotalCents: true,
       quantity: true,
       unitPriceCents: true,
     },
@@ -212,10 +261,15 @@ export async function syncOpenCreditOrderTotal(
       comandaId,
     },
   });
+  const deliveryOrder = await transaction.deliveryOrder.findFirst({
+    select: { feeCents: true },
+    where: { comandaId, establishmentId },
+  });
   const totalCents = items.reduce(
-    (total, item) => total + item.quantity * item.unitPriceCents,
+    (total, item) =>
+      total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
     0,
-  );
+  ) + (deliveryOrder?.feeCents ?? 0);
   const updated = await transaction.creditOrder.updateMany({
     data: {
       totalCents,

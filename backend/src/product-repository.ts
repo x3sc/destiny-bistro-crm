@@ -8,6 +8,7 @@ export interface ProductCategorySummary {
 }
 
 export interface Product {
+  additionals: MenuAdditional[];
   category: ProductCategorySummary;
   description: string | null;
   id: string;
@@ -17,8 +18,46 @@ export interface Product {
 
 export interface MenuProduct {
   active: boolean;
+  additionals: MenuAdditional[];
   description: string | null;
   id: string;
+  name: string;
+  priceCents: number;
+  recipe: RecipeIngredient[];
+}
+
+export interface RecipeIngredient {
+  ingredient: {
+    id: string;
+    name: string;
+    unit: "UNIT" | "GRAM" | "MILLILITER";
+  };
+  quantity: number;
+}
+
+export interface RecipeIngredientOption {
+  id: string;
+  name: string;
+  unit: "UNIT" | "GRAM" | "MILLILITER";
+}
+
+export interface MenuAdditional {
+  active: boolean;
+  code: string;
+  id: string;
+  name: string;
+  priceCents: number;
+  recipe: RecipeIngredient[];
+}
+
+export interface RecipeInput {
+  ingredientId: string;
+  quantity: number;
+}
+
+export interface AdditionalInput {
+  active?: boolean;
+  code: string;
   name: string;
   priceCents: number;
 }
@@ -50,6 +89,11 @@ export interface UpdateProductInput extends CreateProductInput {
 }
 
 export interface ProductRepository {
+  createAdditional(
+    establishmentId: string,
+    input: AdditionalInput,
+    actorUserId: string,
+  ): Promise<MenuAdditional>;
   createCategory(
     establishmentId: string,
     input: CreateCategoryInput,
@@ -70,8 +114,33 @@ export interface ProductRepository {
     productId: string,
     actorUserId: string,
   ): Promise<MenuProduct>;
+  deactivateAdditional(
+    establishmentId: string,
+    additionalId: string,
+    actorUserId: string,
+  ): Promise<MenuAdditional>;
+  listAdditionals(establishmentId: string): Promise<MenuAdditional[]>;
   listActive(establishmentId: string): Promise<Product[]>;
   listMenu(establishmentId: string): Promise<MenuCategory[]>;
+  listRecipeIngredients(establishmentId: string): Promise<RecipeIngredientOption[]>;
+  replaceAdditionalRecipe(
+    establishmentId: string,
+    additionalId: string,
+    recipe: RecipeInput[],
+    actorUserId: string,
+  ): Promise<MenuAdditional>;
+  replaceProductAdditionals(
+    establishmentId: string,
+    productId: string,
+    additionalIds: string[],
+    actorUserId: string,
+  ): Promise<MenuProduct>;
+  replaceProductRecipe(
+    establishmentId: string,
+    productId: string,
+    recipe: RecipeInput[],
+    actorUserId: string,
+  ): Promise<MenuProduct>;
   updateCategory(
     establishmentId: string,
     categoryId: string,
@@ -84,19 +153,48 @@ export interface ProductRepository {
     input: UpdateProductInput,
     actorUserId: string,
   ): Promise<MenuProduct>;
+  updateAdditional(
+    establishmentId: string,
+    additionalId: string,
+    input: AdditionalInput & { active: boolean },
+    actorUserId: string,
+  ): Promise<MenuAdditional>;
 }
 
 export class MenuInputError extends Error {}
 export class MenuConflictError extends Error {}
 export class MenuCategoryNotFoundError extends Error {}
 export class MenuProductNotFoundError extends Error {}
+export class MenuAdditionalNotFoundError extends Error {}
+
+const recipeSelect = {
+  ingredient: { select: { id: true, name: true, unit: true } },
+  quantity: true,
+} as const;
+
+const additionalSelect = {
+  active: true,
+  code: true,
+  id: true,
+  ingredients: { orderBy: { ingredient: { name: "asc" as const } }, select: recipeSelect },
+  name: true,
+  priceCents: true,
+} satisfies Prisma.AdditionalSelect;
 
 const menuProductSelect = {
   active: true,
+  allowedAdditionals: {
+    orderBy: { additional: { name: "asc" as const } },
+    select: { additional: { select: additionalSelect } },
+  },
   description: true,
   id: true,
   name: true,
   priceCents: true,
+  ingredients: {
+    orderBy: { ingredient: { name: "asc" as const } },
+    select: recipeSelect,
+  },
 } satisfies Prisma.ProductSelect;
 
 const menuCategorySelect = {
@@ -111,6 +209,28 @@ const menuCategorySelect = {
 
 export function createProductRepository(prisma: PrismaClient): ProductRepository {
   return {
+    async createAdditional(establishmentId, rawInput, actorUserId) {
+      const input = normalizeAdditionalInput(rawInput, false);
+      try {
+        return await prisma.$transaction(async (transaction) => {
+          const additional = await transaction.additional.create({
+            data: { ...input, active: true, establishmentId },
+            select: additionalSelect,
+          });
+          await recordMenuAudit(transaction, {
+            action: "ADDITIONAL_CREATED",
+            actorUserId,
+            establishmentId,
+            metadata: input,
+            resourceId: additional.id,
+            resourceType: "ADDITIONAL",
+          });
+          return mapAdditional(additional);
+        });
+      } catch (error) {
+        throwMappedConflict(error);
+      }
+    },
     async createCategory(establishmentId, rawInput, actorUserId) {
       const input = normalizeCategoryInput(rawInput);
 
@@ -134,7 +254,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
               userId: actorUserId,
             }),
           });
-          return category;
+          return mapMenuCategory(category);
         });
       } catch (error) {
         throwMappedConflict(error);
@@ -177,7 +297,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
               userId: actorUserId,
             }),
           });
-          return product;
+          return mapMenuProduct(product);
         });
       } catch (error) {
         throwMappedConflict(error);
@@ -205,7 +325,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
             userId: actorUserId,
           }),
         });
-        return category;
+        return mapMenuCategory(category);
       });
     },
     async deactivateProduct(establishmentId, productId, actorUserId) {
@@ -225,13 +345,44 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
             userId: actorUserId,
           }),
         });
-        return product;
+        return mapMenuProduct(product);
       });
     },
+    async deactivateAdditional(establishmentId, additionalId, actorUserId) {
+      return prisma.$transaction(async (transaction) => {
+        await requireAdditional(transaction, establishmentId, additionalId);
+        const additional = await transaction.additional.update({
+          data: { active: false },
+          select: additionalSelect,
+          where: { id: additionalId },
+        });
+        await recordMenuAudit(transaction, {
+          action: "ADDITIONAL_DEACTIVATED",
+          actorUserId,
+          establishmentId,
+          resourceId: additionalId,
+          resourceType: "ADDITIONAL",
+        });
+        return mapAdditional(additional);
+      });
+    },
+    async listAdditionals(establishmentId) {
+      const additionals = await prisma.additional.findMany({
+        orderBy: { name: "asc" },
+        select: additionalSelect,
+        where: { establishmentId },
+      });
+      return additionals.map(mapAdditional);
+    },
     async listActive(establishmentId) {
-      return prisma.product.findMany({
+      const products = await prisma.product.findMany({
         orderBy: { name: "asc" },
         select: {
+          allowedAdditionals: {
+            orderBy: { additional: { name: "asc" } },
+            select: { additional: { select: additionalSelect } },
+            where: { additional: { active: true } },
+          },
           category: { select: { id: true, name: true } },
           description: true,
           id: true,
@@ -244,12 +395,154 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
           establishmentId,
         },
       });
+      return products.map((product) => ({
+        additionals: product.allowedAdditionals.map(({ additional }) =>
+          mapAdditional(additional),
+        ),
+        category: product.category,
+        description: product.description,
+        id: product.id,
+        name: product.name,
+        priceCents: product.priceCents,
+      }));
     },
     async listMenu(establishmentId) {
-      return prisma.menuCategory.findMany({
+      const categories = await prisma.menuCategory.findMany({
         orderBy: { name: "asc" },
         select: menuCategorySelect,
         where: { establishmentId },
+      });
+      return categories.map(mapMenuCategory);
+    },
+    async listRecipeIngredients(establishmentId) {
+      return prisma.ingredient.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, unit: true },
+        where: { active: true, establishmentId },
+      });
+    },
+    async replaceAdditionalRecipe(
+      establishmentId,
+      additionalId,
+      rawRecipe,
+      actorUserId,
+    ) {
+      const recipe = normalizeRecipe(rawRecipe);
+      return prisma.$transaction(async (transaction) => {
+        await requireAdditional(transaction, establishmentId, additionalId);
+        await requireIngredients(transaction, establishmentId, recipe);
+        await transaction.additionalIngredient.deleteMany({
+          where: { additionalId, establishmentId },
+        });
+        if (recipe.length > 0) {
+          await transaction.additionalIngredient.createMany({
+            data: recipe.map((item) => ({
+              additionalId,
+              establishmentId,
+              ingredientId: item.ingredientId,
+              quantity: item.quantity,
+            })),
+          });
+        }
+        await recordMenuAudit(transaction, {
+          action: "ADDITIONAL_RECIPE_UPDATED",
+          actorUserId,
+          establishmentId,
+          metadata: { recipe },
+          resourceId: additionalId,
+          resourceType: "ADDITIONAL",
+        });
+        return mapAdditional(
+          await transaction.additional.findUniqueOrThrow({
+            select: additionalSelect,
+            where: { id: additionalId },
+          }),
+        );
+      });
+    },
+    async replaceProductAdditionals(
+      establishmentId,
+      productId,
+      rawAdditionalIds,
+      actorUserId,
+    ) {
+      const additionalIds = [...new Set(rawAdditionalIds.map((id) => id.trim()))];
+      if (additionalIds.some((id) => !id) || additionalIds.length !== rawAdditionalIds.length) {
+        throw new MenuInputError();
+      }
+      return prisma.$transaction(async (transaction) => {
+        await requireProduct(transaction, establishmentId, productId);
+        const count = await transaction.additional.count({
+          where: { active: true, establishmentId, id: { in: additionalIds } },
+        });
+        if (count !== additionalIds.length) {
+          throw new MenuAdditionalNotFoundError();
+        }
+        await transaction.productAdditional.deleteMany({
+          where: { establishmentId, productId },
+        });
+        if (additionalIds.length > 0) {
+          await transaction.productAdditional.createMany({
+            data: additionalIds.map((additionalId) => ({
+              additionalId,
+              establishmentId,
+              productId,
+            })),
+          });
+        }
+        await recordMenuAudit(transaction, {
+          action: "PRODUCT_ADDITIONALS_UPDATED",
+          actorUserId,
+          establishmentId,
+          metadata: { additionalIds },
+          resourceId: productId,
+          resourceType: "PRODUCT",
+        });
+        return mapMenuProduct(
+          await transaction.product.findUniqueOrThrow({
+            select: menuProductSelect,
+            where: { id: productId },
+          }),
+        );
+      });
+    },
+    async replaceProductRecipe(
+      establishmentId,
+      productId,
+      rawRecipe,
+      actorUserId,
+    ) {
+      const recipe = normalizeRecipe(rawRecipe);
+      return prisma.$transaction(async (transaction) => {
+        await requireProduct(transaction, establishmentId, productId);
+        await requireIngredients(transaction, establishmentId, recipe);
+        await transaction.productIngredient.deleteMany({
+          where: { establishmentId, productId },
+        });
+        if (recipe.length > 0) {
+          await transaction.productIngredient.createMany({
+            data: recipe.map((item) => ({
+              establishmentId,
+              ingredientId: item.ingredientId,
+              productId,
+              quantity: item.quantity,
+            })),
+          });
+        }
+        await recordMenuAudit(transaction, {
+          action: "PRODUCT_RECIPE_UPDATED",
+          actorUserId,
+          establishmentId,
+          metadata: { recipe },
+          resourceId: productId,
+          resourceType: "PRODUCT",
+        });
+        return mapMenuProduct(
+          await transaction.product.findUniqueOrThrow({
+            select: menuProductSelect,
+            where: { id: productId },
+          }),
+        );
       });
     },
     async updateCategory(
@@ -282,7 +575,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
               userId: actorUserId,
             }),
           });
-          return category;
+          return mapMenuCategory(category);
         });
       } catch (error) {
         throwMappedConflict(error);
@@ -319,8 +612,37 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
             userId: actorUserId,
           }),
         });
-        return product;
+        return mapMenuProduct(product);
       });
+    },
+    async updateAdditional(
+      establishmentId,
+      additionalId,
+      rawInput,
+      actorUserId,
+    ) {
+      const input = normalizeAdditionalInput(rawInput, true);
+      try {
+        return await prisma.$transaction(async (transaction) => {
+          await requireAdditional(transaction, establishmentId, additionalId);
+          const additional = await transaction.additional.update({
+            data: input,
+            select: additionalSelect,
+            where: { id: additionalId },
+          });
+          await recordMenuAudit(transaction, {
+            action: "ADDITIONAL_UPDATED",
+            actorUserId,
+            establishmentId,
+            metadata: input,
+            resourceId: additionalId,
+            resourceType: "ADDITIONAL",
+          });
+          return mapAdditional(additional);
+        });
+      } catch (error) {
+        throwMappedConflict(error);
+      }
     },
   };
 }
@@ -365,6 +687,52 @@ function normalizeUpdateProductInput(input: UpdateProductInput) {
   return { ...normalizeProductInput(input), active: input.active };
 }
 
+function normalizeAdditionalInput(input: AdditionalInput, requiresActive: boolean) {
+  const code = input.code.trim().toLocaleUpperCase("pt-BR");
+  const name = cleanText(input.name);
+  if (
+    !code ||
+    code.length > 50 ||
+    name.length < 2 ||
+    name.length > 100 ||
+    !Number.isInteger(input.priceCents) ||
+    input.priceCents < 0 ||
+    input.priceCents > 99_999_999 ||
+    (requiresActive && typeof input.active !== "boolean")
+  ) {
+    throw new MenuInputError();
+  }
+  return {
+    active: requiresActive ? input.active : undefined,
+    code,
+    name,
+    priceCents: input.priceCents,
+  };
+}
+
+function normalizeRecipe(recipe: RecipeInput[]) {
+  if (!Array.isArray(recipe)) {
+    throw new MenuInputError();
+  }
+  const normalized = recipe.map((item) => ({
+    ingredientId: item.ingredientId.trim(),
+    quantity: item.quantity,
+  }));
+  if (
+    normalized.some(
+      (item) =>
+        !item.ingredientId ||
+        !Number.isInteger(item.quantity) ||
+        item.quantity <= 0,
+    ) ||
+    new Set(normalized.map(({ ingredientId }) => ingredientId)).size !==
+      normalized.length
+  ) {
+    throw new MenuInputError();
+  }
+  return normalized;
+}
+
 function cleanText(value: string) {
   return value.trim().replace(/\s+/gu, " ");
 }
@@ -404,6 +772,95 @@ async function requireProduct(
   if (!product) {
     throw new MenuProductNotFoundError();
   }
+}
+
+async function requireAdditional(
+  transaction: Prisma.TransactionClient,
+  establishmentId: string,
+  additionalId: string,
+) {
+  const additional = await transaction.additional.findFirst({
+    select: { id: true },
+    where: { establishmentId, id: additionalId },
+  });
+  if (!additional) {
+    throw new MenuAdditionalNotFoundError();
+  }
+}
+
+async function requireIngredients(
+  transaction: Prisma.TransactionClient,
+  establishmentId: string,
+  recipe: RecipeInput[],
+) {
+  const count = await transaction.ingredient.count({
+    where: {
+      active: true,
+      establishmentId,
+      id: { in: recipe.map(({ ingredientId }) => ingredientId) },
+    },
+  });
+  if (count !== recipe.length) {
+    throw new MenuInputError();
+  }
+}
+
+type PersistedMenuProduct = Prisma.ProductGetPayload<{
+  select: typeof menuProductSelect;
+}>;
+type PersistedAdditional = Prisma.AdditionalGetPayload<{
+  select: typeof additionalSelect;
+}>;
+type PersistedMenuCategory = Prisma.MenuCategoryGetPayload<{
+  select: typeof menuCategorySelect;
+}>;
+
+function mapAdditional(additional: PersistedAdditional): MenuAdditional {
+  const { ingredients, ...summary } = additional;
+  return { ...summary, recipe: ingredients };
+}
+
+function mapMenuProduct(product: PersistedMenuProduct): MenuProduct {
+  const { allowedAdditionals, ingredients, ...summary } = product;
+  return {
+    ...summary,
+    additionals: allowedAdditionals.map(({ additional }) =>
+      mapAdditional(additional),
+    ),
+    recipe: ingredients,
+  };
+}
+
+function mapMenuCategory(category: PersistedMenuCategory): MenuCategory {
+  return {
+    active: category.active,
+    id: category.id,
+    name: category.name,
+    products: category.products.map(mapMenuProduct),
+  };
+}
+
+async function recordMenuAudit(
+  transaction: Prisma.TransactionClient,
+  input: {
+    action: string;
+    actorUserId: string;
+    establishmentId: string;
+    metadata?: Prisma.InputJsonValue;
+    resourceId: string;
+    resourceType: string;
+  },
+) {
+  await transaction.auditLog.create({
+    data: createAuditData({
+      action: input.action,
+      establishmentId: input.establishmentId,
+      metadata: input.metadata,
+      resourceId: input.resourceId,
+      resourceType: input.resourceType,
+      userId: input.actorUserId,
+    }),
+  });
 }
 
 function throwMappedConflict(error: unknown): never {

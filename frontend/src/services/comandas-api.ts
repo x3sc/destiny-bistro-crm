@@ -9,12 +9,17 @@ export type ComandaEventType =
   | 'ITEM_ADDED'
   | 'ITEM_CONFIRMED'
   | 'ITEM_QUANTITY_CHANGED'
-  | 'ITEM_REMOVED';
-export type ComandaCancellationReason = 'OPENED_BY_MISTAKE';
-export type CreditOrderSource = 'MANUAL' | 'TABLE';
+  | 'ITEM_REMOVED'
+  | 'ITEM_CANCELLED'
+  | 'ADDITIONALS_CHANGED';
+export type ComandaCancellationReason = 'OPENED_BY_MISTAKE' | 'OPERATOR_CANCELLED';
+export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
 export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
-export type PaymentOrigin = 'TABLE_CHECKOUT' | 'CREDIT_INSTALLMENT';
+export type PaymentOrigin =
+  | 'TABLE_CHECKOUT'
+  | 'CREDIT_INSTALLMENT'
+  | 'DELIVERY_CHECKOUT';
 
 export interface PaymentAllocationInput {
   amountCents: number;
@@ -44,7 +49,9 @@ export interface ComandaCreditSummary {
 }
 
 export interface ComandaItem {
+  additionalTotalCents?: number;
   confirmedQuantity: number;
+  configurations?: ComandaItemConfiguration[];
   createdAt: string;
   id: string;
   productId: string;
@@ -52,6 +59,21 @@ export interface ComandaItem {
   quantity: number;
   subtotalCents: number;
   unitPriceCents: number;
+}
+
+export interface ComandaItemConfiguration {
+    additionals: {
+      additionalId: string;
+      additionalName: string;
+      id: string;
+      quantityPerUnit: number;
+      unitPriceCents: number;
+    }[];
+    configurationKey: string;
+    confirmedQuantity: number;
+    id: string;
+    quantity: number;
+    subtotalCents: number;
 }
 
 export interface Comanda {
@@ -75,6 +97,7 @@ export interface Comanda {
     unitPriceCents: number | null;
   }[];
   id: string;
+  inventoryWarnings?: InventoryWarning[];
   items: ComandaItem[];
   name: string | null;
   number: number;
@@ -86,6 +109,15 @@ export interface Comanda {
     number: number;
   } | null;
   totalCents: number;
+}
+
+export interface InventoryWarning {
+  availableQuantity?: number;
+  ingredientName?: string;
+  missingQuantity?: number;
+  productName?: string;
+  type: 'INSUFFICIENT_STOCK' | 'MISSING_RECIPE';
+  unit?: 'UNIT' | 'GRAM' | 'MILLILITER';
 }
 
 function isComandaEvent(value: unknown): value is Comanda['events'][number] {
@@ -107,14 +139,18 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
     (event.previousQuantity === null || Number.isInteger(event.previousQuantity)) &&
     (event.productId === null || typeof event.productId === 'string') &&
     (event.productName === null || typeof event.productName === 'string') &&
-    (event.reason === null || event.reason === 'OPENED_BY_MISTAKE') &&
+    (event.reason === null ||
+      event.reason === 'OPENED_BY_MISTAKE' ||
+      event.reason === 'OPERATOR_CANCELLED') &&
     (event.type === 'OPENED' ||
       event.type === 'CANCELLED' ||
       event.type === 'CLOSED' ||
       event.type === 'ITEM_ADDED' ||
       event.type === 'ITEM_CONFIRMED' ||
       event.type === 'ITEM_QUANTITY_CHANGED' ||
-      event.type === 'ITEM_REMOVED') &&
+      event.type === 'ITEM_REMOVED' ||
+      event.type === 'ITEM_CANCELLED' ||
+      event.type === 'ADDITIONALS_CHANGED') &&
     (event.unitPriceCents === null || Number.isInteger(event.unitPriceCents))
   );
 }
@@ -153,7 +189,9 @@ function isComandaCredit(value: unknown): value is ComandaCreditSummary {
     typeof credit.customerName === 'string' &&
     typeof credit.orderId === 'string' &&
     Number.isInteger(credit.paidCents) &&
-    (credit.source === 'MANUAL' || credit.source === 'TABLE') &&
+    (credit.source === 'MANUAL' ||
+      credit.source === 'TABLE' ||
+      credit.source === 'DELIVERY') &&
     (credit.status === 'DRAFT' ||
       credit.status === 'OPEN' ||
       credit.status === 'SETTLED' ||
@@ -180,7 +218,9 @@ function isPayment(value: unknown): value is Payment {
     typeof payment.comandaId === 'string' &&
     (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
     typeof payment.id === 'string' &&
-    (payment.origin === 'TABLE_CHECKOUT' || payment.origin === 'CREDIT_INSTALLMENT') &&
+    (payment.origin === 'TABLE_CHECKOUT' ||
+      payment.origin === 'CREDIT_INSTALLMENT' ||
+      payment.origin === 'DELIVERY_CHECKOUT') &&
     typeof payment.paidAt === 'string' &&
     (payment.recordedBy === null ||
       (typeof payment.recordedBy?.id === 'string' &&
@@ -289,11 +329,19 @@ export async function loadComanda(apiBaseUrl: string, comandaId: string) {
   );
 }
 
-export async function cancelComanda(apiBaseUrl: string, comandaId: string) {
+export async function cancelComanda(
+  apiBaseUrl: string,
+  comandaId: string,
+  input?: {
+    disposition: 'RETURN_TO_STOCK' | 'LOSS';
+    reason: string;
+    requestId: string;
+  },
+) {
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
-      jsonMutationInit('POST'),
+      jsonMutationInit('POST', input),
     ),
   );
 }
@@ -345,13 +393,78 @@ export async function confirmComandaItem(
   apiBaseUrl: string,
   comandaId: string,
   itemId: string,
+): Promise<Comanda> {
+  const response = await authenticatedFetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
+      jsonMutationInit('POST'),
+    );
+  if (!response.ok) throw new Error('Comanda request failed');
+  const payload: unknown = await response.json();
+  const candidate = payload as { comanda?: unknown; inventoryWarnings?: unknown };
+  if (
+    !isComanda(candidate.comanda) ||
+    (candidate.inventoryWarnings !== undefined &&
+      !isInventoryWarnings(candidate.inventoryWarnings))
+  ) {
+    throw new Error('Invalid comanda response');
+  }
+  return candidate.inventoryWarnings === undefined
+    ? candidate.comanda
+    : { ...candidate.comanda, inventoryWarnings: candidate.inventoryWarnings };
+}
+
+export async function configureComandaItemAdditionals(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  input: {
+    additionals: { additionalId: string; quantityPerUnit: number }[];
+    quantity: number;
+    requestId: string;
+  },
 ) {
   return readComanda(
     await authenticatedFetch(
-      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/confirm`,
-      jsonMutationInit('POST'),
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/additionals`,
+      { ...jsonMutationInit('POST', input), method: 'PUT' },
     ),
   );
+}
+
+export async function cancelComandaItemConfiguration(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  configurationId: string,
+  input: {
+    disposition: 'RETURN_TO_STOCK' | 'LOSS';
+    quantity: number;
+    reason: string;
+    requestId: string;
+  },
+): Promise<Comanda> {
+  const response = await authenticatedFetch(
+    `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}/configurations/${encodeURIComponent(configurationId)}/cancel`,
+    jsonMutationInit('POST', input),
+  );
+  if (!response.ok) throw new Error('Comanda request failed');
+  const payload: unknown = await response.json();
+  const candidate = payload as { comanda?: unknown; inventoryWarnings?: unknown };
+  if (!isComanda(candidate.comanda)) throw new Error('Invalid comanda response');
+  return {
+    ...candidate.comanda,
+    ...(isInventoryWarnings(candidate.inventoryWarnings)
+      ? { inventoryWarnings: candidate.inventoryWarnings }
+      : {}),
+  };
+}
+
+function isInventoryWarnings(value: unknown): value is InventoryWarning[] {
+  return Array.isArray(value) && value.every((warning) => {
+    if (!warning || typeof warning !== 'object') return false;
+    const candidate = warning as Partial<InventoryWarning>;
+    return candidate.type === 'INSUFFICIENT_STOCK' || candidate.type === 'MISSING_RECIPE';
+  });
 }
 
 export async function removeComandaItem(

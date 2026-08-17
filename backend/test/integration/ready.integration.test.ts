@@ -61,16 +61,28 @@ async function cleanupEstablishment(name: string) {
     await transaction.creditCustomer.deleteMany({
       where: { establishmentId },
     });
+    await transaction.deliveryOrder.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryMovementLot.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryMovement.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryOperation.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryLot.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
     await transaction.comandaItem.deleteMany({ where: { establishmentId } });
     await transaction.comandaEvent.deleteMany({ where: { establishmentId } });
     await transaction.comanda.deleteMany({ where: { establishmentId } });
-    await transaction.inventoryMovement.deleteMany({
-      where: { establishmentId },
-    });
     await transaction.inventoryStock.deleteMany({
       where: { establishmentId },
     });
+    await transaction.productAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.additionalIngredient.deleteMany({ where: { establishmentId } });
+    await transaction.productIngredient.deleteMany({ where: { establishmentId } });
     await transaction.ingredient.deleteMany({ where: { establishmentId } });
+    await transaction.deliveryExpense.deleteMany({ where: { establishmentId } });
+    await transaction.delivery.deleteMany({ where: { establishmentId } });
+    await transaction.deliveryDay.deleteMany({ where: { establishmentId } });
+    await transaction.deliveryCourier.deleteMany({ where: { establishmentId } });
     await transaction.auditLog.deleteMany({ where: { establishmentId } });
     await transaction.authSession.deleteMany({
       where: { user: { establishmentId } },
@@ -80,6 +92,7 @@ async function cleanupEstablishment(name: string) {
     });
     await transaction.user.deleteMany({ where: { establishmentId } });
     await transaction.product.deleteMany({ where: { establishmentId } });
+    await transaction.additional.deleteMany({ where: { establishmentId } });
     await transaction.menuCategory.deleteMany({ where: { establishmentId } });
     await transaction.restaurantTable.deleteMany({
       where: { establishmentId },
@@ -584,7 +597,14 @@ void test("comanda items are consolidated, totaled and audited", async () => {
     const firstItem = addResponse.json<{
       comanda: {
         items: {
+          additionalTotalCents: number;
           confirmedQuantity: number;
+          configurations: Array<{
+            additionals: unknown[];
+            configurationKey: string;
+            confirmedQuantity: number;
+            quantity: number;
+          }>;
           createdAt: string;
           id: string;
           productId: string;
@@ -596,7 +616,18 @@ void test("comanda items are consolidated, totaled and audited", async () => {
         totalCents: number;
       };
     }>().comanda.items[0];
-    assert.deepEqual(firstItem, {
+    const { additionalTotalCents, configurations, ...legacyFirstItem } = firstItem;
+    assert.equal(additionalTotalCents, 0);
+    assert.deepEqual(
+      configurations.map(({ additionals, configurationKey, confirmedQuantity, quantity }) => ({
+        additionals,
+        configurationKey,
+        confirmedQuantity,
+        quantity,
+      })),
+      [{ additionals: [], configurationKey: "base", confirmedQuantity: 0, quantity: 1 }],
+    );
+    assert.deepEqual(legacyFirstItem, {
       confirmedQuantity: 0,
       createdAt: firstItem.createdAt,
       id: firstItem.id,
@@ -817,6 +848,307 @@ void test("comanda items are consolidated, totaled and audited", async () => {
     assert.equal(secondCloseResponse.statusCode, 409);
   } finally {
     await app.close();
+  }
+});
+
+void test("inventory consumption uses FEFO, ignores expired lots and keeps deficit idempotent", async () => {
+  const actor = await prisma.user.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, normalizedName: integrationUserName.toLocaleLowerCase("pt-BR") },
+  });
+  const category = await prisma.menuCategory.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      name: "Ficha técnica integração",
+      normalizedName: "ficha técnica integração",
+    },
+  });
+  const product = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "INTEGRATION_RECIPE_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto com receita",
+      priceCents: 1_000,
+    },
+  });
+  const ingredient = await prisma.ingredient.create({
+    data: {
+      code: "INTEGRATION_FLOUR",
+      establishmentId: integrationEstablishmentId,
+      name: "Farinha integração",
+      unit: "GRAM",
+    },
+  });
+  const stock = await prisma.inventoryStock.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      minimumQuantity: 10,
+      quantity: 70,
+    },
+  });
+  const [expiredLot, firstLot, secondLot] = await Promise.all([
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "EXPIRED",
+        currentQuantity: 50,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2025-01-01T00:00:00.000Z"),
+        initialQuantity: 50,
+        origin: "PURCHASE",
+        receivedAt: new Date("2024-01-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 500,
+      },
+    }),
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "FEFO-1",
+        currentQuantity: 10,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+        initialQuantity: 10,
+        origin: "PURCHASE",
+        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 100,
+      },
+    }),
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "FEFO-2",
+        currentQuantity: 10,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2028-01-01T00:00:00.000Z"),
+        initialQuantity: 10,
+        origin: "PURCHASE",
+        receivedAt: new Date("2026-02-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 100,
+      },
+    }),
+  ]);
+  await prisma.productIngredient.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      productId: product.id,
+      quantity: 6,
+    },
+  });
+  const table = await prisma.restaurantTable.create({
+    data: { establishmentId: integrationEstablishmentId, number: 90 },
+  });
+  const app = await createAuthenticatedApp();
+  let comandaId = "";
+
+  try {
+    const opened = await app.inject({ method: "POST", url: `/tables/${table.id}/comandas` });
+    comandaId = opened.json<{ comanda: { id: string } }>().comanda.id;
+    const added = await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const itemId = added.json<{ comanda: { items: Array<{ id: string }> } }>().comanda.items[0].id;
+    await app.inject({
+      method: "PATCH",
+      payload: { delta: 1 },
+      url: `/comandas/${comandaId}/items/${itemId}`,
+    });
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmed.statusCode, 200);
+    assert.deepEqual(confirmed.json<{ inventoryWarnings: unknown[] }>().inventoryWarnings, []);
+    assert.deepEqual(
+      await prisma.inventoryLot.findMany({
+        orderBy: { code: "asc" },
+        select: { code: true, currentQuantity: true },
+        where: { id: { in: [expiredLot.id, firstLot.id, secondLot.id] } },
+      }),
+      [
+        { code: "EXPIRED", currentQuantity: 50 },
+        { code: "FEFO-1", currentQuantity: 0 },
+        { code: "FEFO-2", currentQuantity: 8 },
+      ],
+    );
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(retry.statusCode, 200);
+    assert.equal((await prisma.inventoryMovement.count({ where: { stockId: stock.id } })), 1);
+
+    await prisma.productIngredient.update({
+      data: { quantity: 100 },
+      where: {
+        establishmentId_productId_ingredientId: {
+          establishmentId: integrationEstablishmentId,
+          ingredientId: ingredient.id,
+          productId: product.id,
+        },
+      },
+    });
+    await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const deficitResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(deficitResponse.statusCode, 200);
+    assert.deepEqual(
+      deficitResponse.json<{ inventoryWarnings: Array<{ missingQuantity: number; type: string }> }>().inventoryWarnings.map(({ missingQuantity, type }) => ({ missingQuantity, type })),
+      [{ missingQuantity: 92, type: "INSUFFICIENT_STOCK" }],
+    );
+    const finalStock = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
+    assert.equal(finalStock.quantity, -42);
+    assert.equal(finalStock.deficitQuantity, 92);
+
+    const configurationId = deficitResponse.json<{
+      comanda: { items: Array<{ configurations: Array<{ id: string }> }> };
+    }>().comanda.items[0].configurations[0].id;
+    const returned = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "RETURN_TO_STOCK",
+        quantity: 1,
+        reason: "Cancelamento com devolução",
+        requestId: "inventory-return-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(returned.statusCode, 200);
+    const afterReturn = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
+    assert.equal(afterReturn.quantity, 58);
+    assert.equal(afterReturn.deficitQuantity, 0);
+
+    const loss = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "LOSS",
+        quantity: 1,
+        reason: "Perda confirmada",
+        requestId: "inventory-loss-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(loss.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      58,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      2,
+    );
+    const totalCancellationPayload = {
+      disposition: "RETURN_TO_STOCK",
+      reason: "Cancelamento total solicitado",
+      requestId: "inventory-total-cancel-request",
+    } as const;
+    const totalCancellation = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellation.statusCode, 200);
+    assert.equal(
+      totalCancellation.json<{ comanda: { status: string } }>().comanda.status,
+      "CANCELLED",
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    const totalCancellationReplay = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellationReplay.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      3,
+    );
+    assert.equal(
+      (await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } }))
+        .status,
+      "FREE",
+    );
+  } finally {
+    await app.close();
+    await prisma.$transaction(async (transaction) => {
+      await transaction.restaurantTable.update({
+        data: { activeComandaId: null, status: "FREE" },
+        where: { id: table.id },
+      });
+      const itemIds = comandaId
+        ? (await transaction.comandaItem.findMany({
+            select: { id: true },
+            where: { comandaId },
+          })).map(({ id }) => id)
+        : [];
+      const configurationIds = (await transaction.comandaItemConfiguration.findMany({
+        select: { id: true },
+        where: { comandaItemId: { in: itemIds } },
+      })).map(({ id }) => id);
+      await transaction.comandaItemCancellation.deleteMany({
+        where: { configurationId: { in: configurationIds } },
+      });
+      await transaction.comandaItemAdditional.deleteMany({
+        where: { configurationId: { in: configurationIds } },
+      });
+      await transaction.comandaItemConfiguration.deleteMany({
+        where: { id: { in: configurationIds } },
+      });
+      await transaction.inventoryMovementLot.deleteMany({
+        where: { movement: { stockId: stock.id } },
+      });
+      await transaction.inventoryMovement.deleteMany({ where: { stockId: stock.id } });
+      await transaction.inventoryOperation.deleteMany({
+        where: {
+          OR: [
+            { comandaId },
+            { sourceId: { in: [...itemIds, ...configurationIds] } },
+          ],
+        },
+      });
+      if (comandaId) {
+        await transaction.comandaItem.deleteMany({ where: { comandaId } });
+        await transaction.comandaEvent.deleteMany({ where: { comandaId } });
+        await transaction.comanda.deleteMany({ where: { id: comandaId } });
+      }
+      await transaction.productIngredient.deleteMany({ where: { productId: product.id } });
+      await transaction.product.delete({ where: { id: product.id } });
+      await transaction.menuCategory.delete({ where: { id: category.id } });
+      await transaction.inventoryLot.deleteMany({ where: { stockId: stock.id } });
+      await transaction.inventoryStock.delete({ where: { id: stock.id } });
+      await transaction.ingredient.delete({ where: { id: ingredient.id } });
+      await transaction.restaurantTable.delete({ where: { id: table.id } });
+      await transaction.auditLog.deleteMany({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          resourceId: { in: [...itemIds, comandaId].filter(Boolean) },
+        },
+      });
+    });
   }
 });
 
@@ -1855,6 +2187,497 @@ void test("statements aggregate dated sales, credit additions and settlements", 
   }
 });
 
+void test("delivery orders reuse the catalog, checkout, courier settlement and statements", async () => {
+  const hamburger = await prisma.product.findFirstOrThrow({
+    where: {
+      code: "CLASSIC_HAMBURGER",
+      establishmentId: integrationEstablishmentId,
+    },
+  });
+  const app = await createAuthenticatedApp();
+  let comandaId = "";
+  let courierId = "";
+  let dayId = "";
+  let itemId = "";
+  let orderId = "";
+  let paymentId = "";
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      payload: {
+        address: "Rua do Pedido, 74",
+        customerName: "Cliente Delivery",
+        feeCents: 500,
+        phone: "11999999999",
+      },
+      url: "/delivery/orders",
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const created = createResponse.json<{
+      order: {
+        comandaId: string;
+        id: string;
+        itemCount: number;
+        status: string;
+        totalCents: number;
+      };
+    }>().order;
+    comandaId = created.comandaId;
+    orderId = created.id;
+    assert.equal(created.status, "NEW");
+    assert.equal(created.itemCount, 0);
+    assert.equal(created.totalCents, 500);
+
+    const emptyCheckoutResponse = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 500, method: "PIX" }] },
+      url: `/comandas/${comandaId}/close`,
+    });
+    assert.equal(emptyCheckoutResponse.statusCode, 409);
+
+    const addResponse = await app.inject({
+      method: "POST",
+      payload: { productId: hamburger.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    assert.equal(addResponse.statusCode, 200);
+    itemId = addResponse.json<{
+      comanda: { items: Array<{ id: string }> };
+    }>().comanda.items[0]?.id ?? "";
+    assert.ok(itemId);
+
+    const pendingStatusResponse = await app.inject({
+      method: "POST",
+      payload: { status: "PREPARING" },
+      url: `/delivery/orders/${orderId}/status`,
+    });
+    assert.equal(pendingStatusResponse.statusCode, 409);
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmResponse.statusCode, 200);
+
+    for (const status of ["PREPARING", "READY"] as const) {
+      const statusResponse = await app.inject({
+        method: "POST",
+        payload: { status },
+        url: `/delivery/orders/${orderId}/status`,
+      });
+      assert.equal(statusResponse.statusCode, 200);
+    }
+
+    const courierResponse = await app.inject({
+      method: "POST",
+      payload: { name: "Entregador do pedido" },
+      url: "/delivery/couriers",
+    });
+    assert.equal(courierResponse.statusCode, 201);
+    courierId = courierResponse.json<{
+      courier: { id: string };
+    }>().courier.id;
+
+    const openDayResponse = await app.inject({
+      method: "POST",
+      payload: { dailyRateCents: 8_000 },
+      url: `/delivery/couriers/${courierId}/days`,
+    });
+    assert.equal(openDayResponse.statusCode, 201);
+    dayId = openDayResponse.json<{ day: { id: string } }>().day.id;
+
+    const dispatchResponse = await app.inject({
+      method: "POST",
+      payload: { dayId, status: "OUT_FOR_DELIVERY" },
+      url: `/delivery/orders/${orderId}/status`,
+    });
+    assert.equal(dispatchResponse.statusCode, 200);
+
+    const prematureSettlementResponse = await app.inject({
+      method: "POST",
+      url: `/delivery/days/${dayId}/close`,
+    });
+    assert.equal(prematureSettlementResponse.statusCode, 409);
+
+    const checkoutResponse = await app.inject({
+      method: "POST",
+      payload: { payments: [{ amountCents: 1_599, method: "PIX" }] },
+      url: `/comandas/${comandaId}/close`,
+    });
+    assert.equal(checkoutResponse.statusCode, 200);
+    const checkedOut = checkoutResponse.json<{
+      comanda: {
+        payments: Array<{ id: string; origin: string }>;
+        status: string;
+        totalCents: number;
+      };
+    }>().comanda;
+    assert.equal(checkedOut.status, "CLOSED");
+    assert.equal(checkedOut.totalCents, 1_599);
+    assert.equal(checkedOut.payments[0]?.origin, "DELIVERY_CHECKOUT");
+    paymentId = checkedOut.payments[0]?.id ?? "";
+
+    const deliveredResponse = await app.inject({
+      method: "POST",
+      payload: { status: "DELIVERED" },
+      url: `/delivery/orders/${orderId}/status`,
+    });
+    assert.equal(deliveredResponse.statusCode, 200);
+
+    const dayResponse = await app.inject({
+      method: "GET",
+      url: `/delivery/days/${dayId}`,
+    });
+    assert.equal(dayResponse.statusCode, 200);
+    const day = dayResponse.json<{
+      day: {
+        deliveryCount: number;
+        feesTotalCents: number;
+        payoutCents: number;
+        salesTotalCents: number;
+      };
+    }>().day;
+    assert.deepEqual(
+      {
+        deliveryCount: day.deliveryCount,
+        feesTotalCents: day.feesTotalCents,
+        payoutCents: day.payoutCents,
+        salesTotalCents: day.salesTotalCents,
+      },
+      {
+        deliveryCount: 1,
+        feesTotalCents: 500,
+        payoutCents: 8_500,
+        salesTotalCents: 1_599,
+      },
+    );
+
+    const settlementResponse = await app.inject({
+      method: "POST",
+      url: `/delivery/days/${dayId}/close`,
+    });
+    assert.equal(settlementResponse.statusCode, 200);
+    assert.equal(
+      settlementResponse.json<{ day: { settlementPaidCents: number } }>().day
+        .settlementPaidCents,
+      8_500,
+    );
+
+    const today = Object.fromEntries(
+      new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+      })
+        .formatToParts(new Date())
+        .map((part) => [part.type, part.value]),
+    );
+    const dateKey = `${today.year}-${today.month}-${today.day}`;
+    const statementResponse = await app.inject({
+      method: "GET",
+      url: `/statements?from=${dateKey}&to=${dateKey}`,
+    });
+    assert.equal(statementResponse.statusCode, 200);
+    const deliveryEntry = statementResponse
+      .json<{
+        statement: {
+          entries: Array<{
+            comandaId: string | null;
+            deliveryFeeCents: number | null;
+            event: string;
+            origin: string;
+            receivedCents: number;
+            soldCents: number;
+          }>;
+        };
+      }>()
+      .statement.entries.find((entry) => entry.comandaId === comandaId);
+    assert.ok(deliveryEntry);
+    assert.deepEqual(
+      {
+        comandaId: deliveryEntry.comandaId,
+        deliveryFeeCents: deliveryEntry.deliveryFeeCents,
+        event: deliveryEntry.event,
+        origin: deliveryEntry.origin,
+        receivedCents: deliveryEntry.receivedCents,
+        soldCents: deliveryEntry.soldCents,
+      },
+      {
+        comandaId,
+        deliveryFeeCents: 500,
+        event: "DELIVERY_RECORDED",
+        origin: "DELIVERY",
+        receivedCents: 1_599,
+        soldCents: 1_599,
+      },
+    );
+
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "DELIVERY_ORDER_STATUS_CHANGED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: orderId,
+        },
+      }),
+      4,
+    );
+  } finally {
+    await app.close();
+    if (comandaId) {
+      await prisma.$transaction(async (transaction) => {
+        if (paymentId) {
+          await transaction.paymentAllocation.deleteMany({
+            where: { paymentId },
+          });
+        }
+        await transaction.payment.deleteMany({ where: { comandaId } });
+        if (orderId) {
+          await transaction.deliveryOrder.deleteMany({ where: { id: orderId } });
+        }
+        await transaction.inventoryOperation.updateMany({
+          data: { comandaId: null },
+          where: { comandaId },
+        });
+        const configurationIds = await transaction.comandaItemConfiguration.findMany({
+          select: { id: true },
+          where: { comandaItem: { comandaId } },
+        });
+        await transaction.comandaItemCancellation.deleteMany({
+          where: { configurationId: { in: configurationIds.map(({ id }) => id) } },
+        });
+        await transaction.comandaItemAdditional.deleteMany({
+          where: { configurationId: { in: configurationIds.map(({ id }) => id) } },
+        });
+        await transaction.comandaItemConfiguration.deleteMany({
+          where: { id: { in: configurationIds.map(({ id }) => id) } },
+        });
+        await transaction.comandaItem.deleteMany({ where: { comandaId } });
+        await transaction.comandaEvent.deleteMany({ where: { comandaId } });
+        await transaction.comanda.deleteMany({ where: { id: comandaId } });
+        if (dayId) {
+          await transaction.deliveryDay.deleteMany({ where: { id: dayId } });
+        }
+        if (courierId) {
+          await transaction.deliveryCourier.deleteMany({ where: { id: courierId } });
+        }
+        await transaction.auditLog.deleteMany({
+          where: {
+            establishmentId: integrationEstablishmentId,
+            resourceId: {
+              in: [comandaId, courierId, dayId, itemId, orderId, paymentId].filter(
+                Boolean,
+              ),
+            },
+          },
+        });
+      });
+    }
+  }
+});
+
+void test("delivery lifecycle is persisted, audited and reconciled in statements", async () => {
+  const operator = await prisma.user.findUniqueOrThrow({
+    where: {
+      normalizedName: integrationUserName.toLocaleLowerCase("pt-BR"),
+    },
+  });
+  const app = await createAuthenticatedApp();
+  let courierId = "";
+  let dayId = "";
+
+  try {
+    const courierResponse = await app.inject({
+      method: "POST",
+      payload: { name: "  Entregador de integração  " },
+      url: "/delivery/couriers",
+    });
+    assert.equal(courierResponse.statusCode, 201);
+    const courier = courierResponse.json<{
+      courier: { id: string; name: string };
+    }>().courier;
+    courierId = courier.id;
+    assert.equal(courier.name, "Entregador de integração");
+
+    const openResponse = await app.inject({
+      method: "POST",
+      payload: { dailyRateCents: 8_000 },
+      url: `/delivery/couriers/${courierId}/days`,
+    });
+    assert.equal(openResponse.statusCode, 201);
+    dayId = openResponse.json<{ day: { id: string } }>().day.id;
+
+    await assert.rejects(
+      prisma.delivery.create({
+        data: {
+          actorUserId: operator.id,
+          address: "Rua inválida, 1",
+          customerName: "Cliente inválido",
+          dayId,
+          establishmentId: integrationEstablishmentId,
+          feeCents: 1_001,
+          paymentMethod: "PIX",
+          totalCents: 1_000,
+        },
+      }),
+    );
+    assert.equal(
+      await prisma.delivery.count({
+        where: { dayId },
+      }),
+      0,
+    );
+
+    const deliveryResponse = await app.inject({
+      method: "POST",
+      payload: {
+        address: "Rua das Flores, 120",
+        customerName: "Marina",
+        feeCents: 500,
+        paymentMethod: "PIX",
+        products: "Pizza calabresa",
+        totalCents: 5_000,
+      },
+      url: `/delivery/days/${dayId}/deliveries`,
+    });
+    assert.equal(deliveryResponse.statusCode, 201);
+    const deliveryId = deliveryResponse.json<{
+      day: { deliveries: Array<{ id: string }> };
+    }>().day.deliveries[0]?.id;
+    assert.ok(deliveryId);
+
+    const expenseResponse = await app.inject({
+      method: "POST",
+      payload: { amountCents: 1_000, description: "Combustível" },
+      url: `/delivery/days/${dayId}/expenses`,
+    });
+    assert.equal(expenseResponse.statusCode, 201);
+
+    const dayResponse = await app.inject({
+      method: "GET",
+      url: `/delivery/days/${dayId}`,
+    });
+    assert.equal(dayResponse.statusCode, 200);
+    const openDay = dayResponse.json<{
+      day: {
+        deliveryCount: number;
+        expensesTotalCents: number;
+        feesTotalCents: number;
+        payoutCents: number;
+        recordedBy?: { id: string };
+        salesTotalCents: number;
+      };
+    }>().day;
+    assert.equal(openDay.deliveryCount, 1);
+    assert.equal(openDay.salesTotalCents, 5_000);
+    assert.equal(openDay.feesTotalCents, 500);
+    assert.equal(openDay.expensesTotalCents, 1_000);
+    assert.equal(openDay.payoutCents, 7_500);
+
+    const closeResponse = await app.inject({
+      method: "POST",
+      url: `/delivery/days/${dayId}/close`,
+    });
+    assert.equal(closeResponse.statusCode, 200);
+    const closedDay = closeResponse.json<{
+      day: {
+        settlementPaidCents: number | null;
+        status: string;
+      };
+    }>().day;
+    assert.equal(closedDay.status, "CLOSED");
+    assert.equal(closedDay.settlementPaidCents, 7_500);
+
+    await prisma.delivery.update({
+      data: { deliveredAt: new Date("2032-01-15T15:00:00.000Z") },
+      where: { id: deliveryId },
+    });
+    const statementResponse = await app.inject({
+      method: "GET",
+      url: "/statements?from=2032-01-15&to=2032-01-15",
+    });
+    assert.equal(statementResponse.statusCode, 200);
+    const statement = statementResponse.json<{
+      statement: {
+        entries: Array<{
+          deliveryAddress: string | null;
+          deliveryFeeCents: number | null;
+          event: string;
+          origin: string;
+          receivedCents: number;
+        }>;
+      };
+    }>().statement;
+    assert.equal(statement.entries.length, 1);
+    assert.match(statement.entries[0]?.deliveryAddress ?? "", /Flores/);
+    assert.deepEqual(
+      statement.entries.map((entry) => ({
+        deliveryFeeCents: entry.deliveryFeeCents,
+        event: entry.event,
+        origin: entry.origin,
+        receivedCents: entry.receivedCents,
+      })),
+      [
+        {
+          deliveryFeeCents: 500,
+          event: "DELIVERY_RECORDED",
+          origin: "DELIVERY",
+          receivedCents: 5_000,
+        },
+      ],
+    );
+
+    const auditActions = await prisma.auditLog.groupBy({
+      _count: { _all: true },
+      by: ["action"],
+      where: {
+        action: {
+          in: [
+            "DELIVERY_COURIER_CREATED",
+            "DELIVERY_DAY_OPENED",
+            "DELIVERY_RECORDED",
+            "DELIVERY_EXPENSE_RECORDED",
+            "DELIVERY_DAY_CLOSED",
+          ],
+        },
+        establishmentId: integrationEstablishmentId,
+        userId: operator.id,
+      },
+    });
+    assert.equal(
+      auditActions.reduce((total, action) => total + action._count._all, 0),
+      5,
+    );
+  } finally {
+    await app.close();
+    if (courierId) {
+      await prisma.$transaction(async (transaction) => {
+        await transaction.deliveryExpense.deleteMany({ where: { dayId } });
+        await transaction.delivery.deleteMany({ where: { dayId } });
+        await transaction.deliveryDay.deleteMany({ where: { courierId } });
+        await transaction.deliveryCourier.deleteMany({
+          where: { id: courierId },
+        });
+        await transaction.auditLog.deleteMany({
+          where: {
+            establishmentId: integrationEstablishmentId,
+            resourceType: {
+              in: [
+                "DELIVERY",
+                "DELIVERY_COURIER",
+                "DELIVERY_DAY",
+                "DELIVERY_EXPENSE",
+              ],
+            },
+          },
+        });
+      });
+    }
+  }
+});
+
 void test("establishments isolate data and support multiple owners and employees", async () => {
   const secondaryOwnerName = "Secondary Owner";
   const secondaryOwnerPassword = "secondary-owner-password";
@@ -1884,8 +2707,41 @@ void test("establishments isolate data and support multiple owners and employees
     secondaryOwnerName,
     secondaryOwnerPassword,
   );
+  let primaryDeliveryCourierId = "";
 
   try {
+    const primaryCourierResponse = await primaryApp.inject({
+      method: "POST",
+      payload: { name: "Entregador isolado" },
+      url: "/delivery/couriers",
+    });
+    assert.equal(primaryCourierResponse.statusCode, 201);
+    primaryDeliveryCourierId = primaryCourierResponse.json<{
+      courier: { id: string };
+    }>().courier.id;
+
+    const crossTenantCourierResponse = await secondaryApp.inject({
+      method: "GET",
+      url: `/delivery/couriers/${primaryDeliveryCourierId}`,
+    });
+    assert.equal(crossTenantCourierResponse.statusCode, 404);
+
+    await assert.rejects(
+      prisma.deliveryDay.create({
+        data: {
+          courierId: primaryDeliveryCourierId,
+          dailyRateCents: 8_000,
+          establishmentId: secondary.id,
+          openedByUserId: secondary.users[0].id,
+        },
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2003",
+    );
+
     const [primaryTablesResponse, secondaryTablesResponse] = await Promise.all([
       primaryApp.inject({ method: "GET", url: "/tables" }),
       secondaryApp.inject({ method: "GET", url: "/tables" }),
@@ -1980,7 +2836,8 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: 1_000,
         reason: "Compra de teste",
-        type: "ENTRY",
+        requestId: "legacy-adjustment-request",
+        type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });
@@ -1996,6 +2853,7 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: -250,
         reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2006,12 +2864,34 @@ void test("establishments isolate data and support multiple owners and employees
         .balanceAfter,
       750,
     );
+    const replayedExitResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: -250,
+        reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
+        type: "EXIT",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(replayedExitResponse.statusCode, 200);
+    assert.equal(
+      replayedExitResponse.json<{ replayed: boolean }>().replayed,
+      true,
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({
+        where: { id: primaryStockId },
+      })).quantity,
+      750,
+    );
 
     const negativeBalanceResponse = await primaryApp.inject({
       method: "POST",
       payload: {
         quantityDelta: -751,
         reason: "Consumo invalido",
+        requestId: "legacy-negative-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2040,9 +2920,10 @@ void test("establishments isolate data and support multiple owners and employees
     const crossTenantMovementResponse = await secondaryApp.inject({
       method: "POST",
       payload: {
-        quantityDelta: 10,
-        reason: "Tentativa cruzada",
-        type: "ENTRY",
+          quantityDelta: 10,
+          reason: "Tentativa cruzada",
+          requestId: "cross-tenant-request",
+          type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });
@@ -2053,6 +2934,7 @@ void test("establishments isolate data and support multiple owners and employees
         data: {
           actorUserId: secondary.users[0].id,
           balanceAfter: 10,
+          balanceBefore: 0,
           establishmentId: secondary.id,
           quantityDelta: 10,
           reason: "Tentativa direta cruzada",
@@ -2081,6 +2963,11 @@ void test("establishments isolate data and support multiple owners and employees
   } finally {
     await primaryApp.close();
     await secondaryApp.close();
+    if (primaryDeliveryCourierId) {
+      await prisma.deliveryCourier.deleteMany({
+        where: { id: primaryDeliveryCourierId },
+      });
+    }
     await cleanupEstablishment(secondaryEstablishmentName);
   }
 });
@@ -2130,6 +3017,7 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     assert.equal(await prisma.comandaItem.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.creditCustomer.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.creditOrder.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.deliveryOrder.count({ where: tenantFilter }), 0);
     assert.equal(
       await prisma.payment.count({ where: tenantFilter }),
       0,

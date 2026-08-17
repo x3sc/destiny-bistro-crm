@@ -9,16 +9,20 @@ import { BrandedScreenHeader } from './branded-screen-header';
 export function AdminHomeScreen({
   bottomNavigation,
   canManageMenu,
+  canReadInventory,
   canReadStatements,
   onBack,
   onMenu,
+  onInventory,
   onStatement,
 }: {
   bottomNavigation?: ReactNode;
   canManageMenu: boolean;
+  canReadInventory: boolean;
   canReadStatements: boolean;
   onBack: () => void;
   onMenu: () => void;
+  onInventory: () => void;
   onStatement: () => void;
 }) {
   return (
@@ -42,6 +46,13 @@ export function AdminHomeScreen({
               description="Crie categorias e cadastre os itens e valores de cada uma."
               label="Cardápio"
               onPress={onMenu}
+            />
+          )}
+          {canReadInventory && (
+            <AdminCard
+              description="Acompanhe saldos, déficits, lotes, entradas, perdas e ajustes."
+              label="Estoque"
+              onPress={onInventory}
             />
           )}
         </View>

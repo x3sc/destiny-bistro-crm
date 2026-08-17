@@ -160,6 +160,14 @@ void test("statements separate sales, later credit additions and receipts", () =
         soldCents: 0,
         soldItemCount: 0,
       },
+      {
+        movementCount: 0,
+        origin: "DELIVERY",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
     ],
     paymentMethodSummaries: [
       { method: "CASH", receivedCents: 0 },
@@ -323,6 +331,14 @@ void test("empty statement periods return zero totals and every selected day", (
       {
         movementCount: 0,
         origin: "CREDIT_TABLE",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
+      {
+        movementCount: 0,
+        origin: "DELIVERY",
         receivedCents: 0,
         receivedItemCount: 0,
         soldCents: 0,
@@ -721,5 +737,159 @@ void test("table credit timelines separate checkout payment from later settlemen
         total: 12_300,
       },
     ],
+  );
+});
+
+void test("deliveries enter the statement as sales received at the door", () => {
+  const period = parseStatementPeriod("2026-08-11", "2026-08-11");
+  const source: StatementSourceData = {
+    cancelledComandas: [],
+    closedComandas: [],
+    creditOrders: [],
+    deliveries: [
+      {
+        address: "Rua das Flores, 120",
+        courierName: "Joao",
+        customerName: "Marina",
+        deliveredAt: new Date("2026-08-11T21:00:00.000Z"),
+        feeCents: 500,
+        id: "delivery-1",
+        paymentMethod: "PIX",
+        totalCents: 5_000,
+      },
+      {
+        address: "Avenida Central, 44",
+        courierName: "Joao",
+        customerName: "Bruno",
+        deliveredAt: new Date("2026-08-11T22:30:00.000Z"),
+        feeCents: 700,
+        id: "delivery-2",
+        paymentMethod: "CASH",
+        totalCents: 3_000,
+      },
+    ],
+  };
+
+  const report = buildStatementReport(period, source);
+
+  assert.equal(report.summary.soldCents, 8_000);
+  assert.equal(report.summary.receivedCents, 8_000);
+  assert.equal(report.summary.closedCommandCount, 2);
+  assert.deepEqual(
+    report.entries.map((entry) => ({
+      customerName: entry.customerName,
+      event: entry.event,
+      fee: entry.deliveryFeeCents,
+      number: entry.comandaNumber,
+      origin: entry.origin,
+      received: entry.receivedCents,
+    })),
+    [
+      {
+        customerName: "Marina",
+        event: "DELIVERY_RECORDED",
+        fee: 500,
+        number: null,
+        origin: "DELIVERY",
+        received: 5_000,
+      },
+      {
+        customerName: "Bruno",
+        event: "DELIVERY_RECORDED",
+        fee: 700,
+        number: null,
+        origin: "DELIVERY",
+        received: 3_000,
+      },
+    ],
+  );
+
+  const deliverySummary = report.indicators.originSummaries.find(
+    (summary) => summary.origin === "DELIVERY",
+  );
+  assert.deepEqual(deliverySummary, {
+    movementCount: 2,
+    origin: "DELIVERY",
+    receivedCents: 8_000,
+    receivedItemCount: 0,
+    soldCents: 8_000,
+    soldItemCount: 0,
+  });
+
+  assert.deepEqual(
+    report.indicators.paymentMethodSummaries.filter(
+      (summary) => summary.receivedCents > 0,
+    ),
+    [
+      { method: "CASH", receivedCents: 3_000 },
+      { method: "PIX", receivedCents: 5_000 },
+    ],
+  );
+});
+
+void test("deliveries outside the period stay out of the statement", () => {
+  const period = parseStatementPeriod("2026-08-11", "2026-08-11");
+  const report = buildStatementReport(period, {
+    cancelledComandas: [],
+    closedComandas: [],
+    creditOrders: [],
+    deliveries: [
+      {
+        address: "Rua das Flores, 120",
+        courierName: "Joao",
+        customerName: "Marina",
+        deliveredAt: new Date("2026-08-12T05:00:00.000Z"),
+        feeCents: 500,
+        id: "delivery-late",
+        paymentMethod: "PIX",
+        totalCents: 5_000,
+      },
+    ],
+  });
+
+  assert.equal(report.entries.length, 0);
+  assert.equal(report.summary.receivedCents, 0);
+});
+
+void test("delivery statement entries can be filtered by origin", () => {
+  const period = parseStatementPeriod("2026-08-11", "2026-08-11");
+  const report = buildStatementReport(period, {
+    cancelledComandas: [],
+    closedComandas: [],
+    creditOrders: [],
+    deliveries: [
+      {
+        address: "Rua das Flores, 120",
+        courierName: "Joao",
+        customerName: "Marina",
+        deliveredAt: new Date("2026-08-11T21:00:00.000Z"),
+        feeCents: 500,
+        id: "delivery-1",
+        paymentMethod: "PIX",
+        totalCents: 5_000,
+      },
+    ],
+  });
+
+  assert.equal(
+    filterStatementEntries(report.entries, {
+      movementType: "ALL",
+      origin: "DELIVERY",
+    }).length,
+    1,
+  );
+  assert.equal(
+    filterStatementEntries(report.entries, {
+      movementType: "ALL",
+      origin: "TABLE",
+    }).length,
+    0,
+  );
+  assert.equal(
+    filterStatementEntries(report.entries, {
+      movementType: "CANCELLATIONS",
+      origin: "ALL",
+    }).length,
+    0,
   );
 });

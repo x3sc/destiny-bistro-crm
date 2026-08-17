@@ -8,6 +8,7 @@ import {
 } from "../../src/auth-repository.js";
 import {
   ComandaNotCancellableError,
+  ComandaInventoryPermissionError,
   ComandaNotClosableError,
   ComandaNotFoundError,
   ComandaCreditPermissionError,
@@ -31,13 +32,25 @@ import {
 import type { Payment } from "../../src/payment-types.js";
 import type { Database } from "../../src/database.js";
 import {
+  DeliveryCourierConflictError,
+  DeliveryDayConflictError,
+  type DeliveryCourierDetails,
+  type DeliveryDayDetails,
+  type DeliveryOrder,
+  type DeliveryOrderInput,
+  type DeliveryRepository,
+} from "../../src/delivery-repository.js";
+import {
   InventoryBalanceError,
+  InventoryMovementInputError,
   InventoryStockNotFoundError,
+  quantityToBase,
   type InventoryItem,
   type InventoryMovement,
   type InventoryRepository,
 } from "../../src/inventory-repository.js";
 import type {
+  MenuAdditional,
   MenuCategory,
   Product,
   ProductRepository,
@@ -62,6 +75,8 @@ const authenticatedUser: AuthUser = {
     "comandas.write",
     "credits.read",
     "credits.write",
+    "deliveries.read",
+    "deliveries.write",
     "inventory.read",
     "inventory.write",
     "products.read",
@@ -151,6 +166,7 @@ const creditPayment: Payment = {
 };
 
 const inventoryItem: InventoryItem = {
+  deficitQuantity: 0,
   id: "stock-id",
   ingredient: {
     active: true,
@@ -167,12 +183,63 @@ const inventoryItem: InventoryItem = {
 
 const inventoryMovement: InventoryMovement = {
   balanceAfter: 1250,
+  balanceBefore: 250,
   createdAt: openedAt,
   id: "movement-id",
   quantityDelta: 1000,
   reason: "Compra semanal",
   stockId: "stock-id",
   type: "ENTRY",
+};
+
+const deliveryDay: DeliveryDayDetails = {
+  closedAt: null,
+  courierId: "courier-id",
+  courierName: "Entregador",
+  dailyRateCents: 8000,
+  deliveries: [],
+  deliveryCount: 0,
+  expenses: [],
+  expensesTotalCents: 0,
+  feesTotalCents: 0,
+  id: "day-id",
+  openedAt,
+  payoutCents: 8000,
+  salesTotalCents: 0,
+  settlementPaidCents: null,
+  status: "OPEN",
+};
+
+const deliveryCourier: DeliveryCourierDetails = {
+  activeDayId: "day-id",
+  days: [],
+  id: "courier-id",
+  name: "Entregador",
+  periodPayoutCents: 0,
+  periodSettledCents: 0,
+  settledTotalCents: 0,
+};
+
+const deliveryOrder: DeliveryOrder = {
+  address: "Rua A, 1",
+  comandaId: "delivery-comanda-id",
+  comandaNumber: 43,
+  courierName: null,
+  createdAt: openedAt,
+  customerName: "Cliente",
+  dayId: null,
+  deliveredAt: null,
+  dispatchedAt: null,
+  feeCents: 500,
+  hasPendingItems: false,
+  id: "delivery-order-id",
+  itemCount: 1,
+  paidCents: 0,
+  paymentStatus: "OPEN",
+  phone: "11999999999",
+  status: "NEW",
+  totalCents: 1_500,
+  updatedAt: openedAt,
 };
 
 const menuCategory: MenuCategory = {
@@ -182,12 +249,23 @@ const menuCategory: MenuCategory = {
   products: [
     {
       active: true,
+      additionals: [],
       description: "Copo 300 ml",
       id: "product-id",
       name: "Suco de laranja",
       priceCents: 900,
+      recipe: [],
     },
   ],
+};
+
+const menuAdditional: MenuAdditional = {
+  active: true,
+  code: "ADICIONAL",
+  id: "additional-id",
+  name: "Adicional",
+  priceCents: 100,
+  recipe: [],
 };
 
 const creditCustomerDetails: CreditCustomerDetails = {
@@ -218,6 +296,8 @@ const statementReport: StatementReport = {
       creditPaidBeforeCents: null,
       creditTotalCents: null,
       customerName: null,
+      deliveryAddress: null,
+      deliveryFeeCents: null,
       event: "TABLE_CLOSED",
       id: "entry-id",
       items: [
@@ -314,7 +394,9 @@ const comandaWithItem: Comanda = {
   ],
   items: [
     {
+      additionalTotalCents: 0,
       confirmedQuantity: 0,
+      configurations: [],
       createdAt: openedAt,
       id: "item-id",
       productId: "product-id",
@@ -360,9 +442,13 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
   return {
     addItem: () => Promise.resolve(comandaWithItem),
     cancel: () => Promise.resolve(comanda),
+    cancelItemConfiguration: () =>
+      Promise.resolve({ comanda, inventoryWarnings: [] }),
     changeItemQuantity: () => Promise.resolve(comandaWithItem),
     close: () => Promise.resolve(comanda),
-    confirmItem: () => Promise.resolve(comandaWithItem),
+    configureItemAdditionals: () => Promise.resolve(comandaWithItem),
+    confirmItem: () =>
+      Promise.resolve({ comanda: comandaWithItem, inventoryWarnings: [] }),
     findById: () => Promise.resolve(comanda),
     openForTable: () => Promise.resolve(comanda),
     removeItem: () => Promise.resolve(comanda),
@@ -392,13 +478,21 @@ function createProducts(
   overrides: Partial<ProductRepository> = {},
 ): ProductRepository {
   return {
+    createAdditional: () => Promise.resolve(menuAdditional),
     createCategory: () => Promise.resolve(menuCategory),
     createProduct: () => Promise.resolve(menuCategory.products[0]),
     deactivateCategory: () => Promise.resolve(menuCategory),
+    deactivateAdditional: () => Promise.resolve(menuAdditional),
     deactivateProduct: () => Promise.resolve(menuCategory.products[0]),
+    listAdditionals: () => Promise.resolve([menuAdditional]),
     listActive: () => Promise.resolve([]),
     listMenu: () => Promise.resolve([menuCategory]),
+    listRecipeIngredients: () => Promise.resolve([]),
+    replaceAdditionalRecipe: () => Promise.resolve(menuAdditional),
+    replaceProductAdditionals: () => Promise.resolve(menuCategory.products[0]),
+    replaceProductRecipe: () => Promise.resolve(menuCategory.products[0]),
     updateCategory: () => Promise.resolve(menuCategory),
+    updateAdditional: () => Promise.resolve(menuAdditional),
     updateProduct: () => Promise.resolve(menuCategory.products[0]),
     ...overrides,
   };
@@ -408,9 +502,68 @@ function createInventory(
   overrides: Partial<InventoryRepository> = {},
 ): InventoryRepository {
   return {
+    createEntry: () =>
+      Promise.resolve({
+        inventoryItem,
+        lot: {
+          code: "LOTE-1",
+          createdAt: openedAt,
+          currentQuantity: 1000,
+          expired: false,
+          expiresAt: null,
+          id: "lot-id",
+          initialQuantity: 1000,
+          origin: "PURCHASE",
+          receivedAt: openedAt,
+          stockId: "stock-id",
+          totalCostCents: 2000,
+        },
+        movement: inventoryMovement,
+        replayed: false,
+      }),
     createIngredient: () => Promise.resolve(inventoryItem),
-    createMovement: () => Promise.resolve(inventoryMovement),
+    createMovement: () =>
+      Promise.resolve({ movement: inventoryMovement, replayed: false }),
+    deactivateIngredient: () => Promise.resolve(inventoryItem),
     list: () => Promise.resolve([inventoryItem]),
+    listLots: () => Promise.resolve([]),
+    listMovements: () =>
+      Promise.resolve({ movements: [], page: 1, pageSize: 50, total: 0 }),
+    updateIngredient: () => Promise.resolve(inventoryItem),
+    ...overrides,
+  };
+}
+
+function createDeliveries(
+  overrides: Partial<DeliveryRepository> = {},
+): DeliveryRepository {
+  return {
+    addExpense: () => Promise.resolve(deliveryDay),
+    advanceOrder: () => Promise.resolve(deliveryOrder),
+    closeDay: () => Promise.resolve(deliveryDay),
+    createCourier: () =>
+      Promise.resolve({
+        activeDayId: null,
+        id: deliveryCourier.id,
+        name: deliveryCourier.name,
+        settledTotalCents: 0,
+      }),
+    createOrder: () => Promise.resolve(deliveryOrder),
+    findCourier: () => Promise.resolve(deliveryCourier),
+    findDay: () => Promise.resolve(deliveryDay),
+    findOrder: () => Promise.resolve(deliveryOrder),
+    listCouriers: () =>
+      Promise.resolve([
+        {
+          activeDayId: deliveryCourier.activeDayId,
+          id: deliveryCourier.id,
+          name: deliveryCourier.name,
+          settledTotalCents: 0,
+        },
+      ]),
+    listOrders: () => Promise.resolve([deliveryOrder]),
+    openDay: () => Promise.resolve(deliveryDay),
+    recordDelivery: () => Promise.resolve(deliveryDay),
     ...overrides,
   };
 }
@@ -427,6 +580,7 @@ async function createApp({
   comandas = createComandas(),
   credits = createCredits(),
   database = createDatabase(),
+  deliveries = createDeliveries(),
   inventory = createInventory(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
@@ -436,6 +590,7 @@ async function createApp({
   comandas?: ComandaRepository;
   credits?: CreditRepository;
   database?: Database;
+  deliveries?: DeliveryRepository;
   inventory?: InventoryRepository;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
@@ -446,6 +601,7 @@ async function createApp({
     comandas,
     credits,
     database,
+    deliveries,
     inventory,
     products,
     restaurantTables,
@@ -667,6 +823,7 @@ void test("GET /tables hides database errors from the client", async () => {
 void test("GET /products returns active products ordered by name", async () => {
   const products: Product[] = [
     {
+      additionals: [],
       category: { id: "category-food", name: "Lanches" },
       description: null,
       id: "coffee-id",
@@ -674,6 +831,7 @@ void test("GET /products returns active products ordered by name", async () => {
       priceCents: 600,
     },
     {
+      additionals: [],
       category: { id: "category-drinks", name: "Bebidas" },
       description: "Sem gas",
       id: "water-id",
@@ -911,9 +1069,10 @@ void test("POST /inventory/:stockId/movements records an audited tenant movement
         assert.deepEqual(input, {
           quantityDelta: 1000,
           reason: "Compra semanal",
-          type: "ENTRY",
+          requestId: "movement-request-1",
+          type: "ADJUSTMENT",
         });
-        return Promise.resolve(inventoryMovement);
+        return Promise.resolve({ movement: inventoryMovement, replayed: false });
       },
     }),
   });
@@ -923,14 +1082,45 @@ void test("POST /inventory/:stockId/movements records an audited tenant movement
     payload: {
       quantityDelta: 1000,
       reason: "Compra semanal",
-      type: "ENTRY",
+      requestId: "movement-request-1",
+      type: "ADJUSTMENT",
     },
     url: "/inventory/stock-id/movements",
   });
 
   assert.equal(response.statusCode, 201);
-  assert.deepEqual(response.json(), { movement: inventoryMovement });
+  assert.deepEqual(response.json(), { movement: inventoryMovement, replayed: false });
 
+  await app.close();
+});
+
+void test("GET /inventory/:stockId/movements returns paginated history", async () => {
+  const app = await createApp({
+    inventory: createInventory({
+      listMovements: (establishmentId, stockId, pagination) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(stockId, "stock-id");
+        assert.deepEqual(pagination, { page: 2, pageSize: 25 });
+        return Promise.resolve({
+          movements: [inventoryMovement],
+          page: 2,
+          pageSize: 25,
+          total: 26,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "GET",
+    url: "/inventory/stock-id/movements?page=2&pageSize=25",
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    movements: [inventoryMovement],
+    page: 2,
+    pageSize: 25,
+    total: 26,
+  });
   await app.close();
 });
 
@@ -945,7 +1135,8 @@ void test("inventory movement reports tenant misses and negative balances", asyn
     payload: {
       quantityDelta: 1,
       reason: "Entrada",
-      type: "ENTRY",
+      requestId: "missing-stock-request",
+      type: "ADJUSTMENT",
     },
     url: "/inventory/other-tenant-stock/movements",
   });
@@ -963,6 +1154,7 @@ void test("inventory movement reports tenant misses and negative balances", asyn
     payload: {
       quantityDelta: -300,
       reason: "Consumo",
+      requestId: "negative-balance-request",
       type: "EXIT",
     },
     url: "/inventory/stock-id/movements",
@@ -1275,8 +1467,148 @@ void test("POST /comandas/:comandaId/items/:itemId/confirm confirms item quantit
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { comanda: comandaWithItem });
+  assert.deepEqual(response.json(), {
+    comanda: comandaWithItem,
+    inventoryWarnings: [],
+  });
 
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel validates a total cancellation request", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (establishmentId, id, input, canWriteInventory, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(id, "comanda-id");
+        assert.equal(canWriteInventory, true);
+        assert.equal(actorUserId, "user-id");
+        assert.deepEqual(input, {
+          disposition: "RETURN_TO_STOCK",
+          reason: "Cliente desistiu",
+          requestId: "full-cancel-request",
+        });
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      reason: "  Cliente   desistiu  ",
+      requestId: "full-cancel-request",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+  assert.equal(response.statusCode, 200);
+  await app.close();
+});
+
+void test("confirmed total cancellation reports missing inventory.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () => Promise.resolve({
+        ...authenticatedUser,
+        permissions: authenticatedUser.permissions.filter(
+          (permission) => permission !== "inventory.write",
+        ),
+      }),
+    }),
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, _input, canWriteInventory) => {
+        assert.equal(canWriteInventory, false);
+        return Promise.reject(new ComandaInventoryPermissionError());
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      reason: "Perda autorizada",
+      requestId: "full-cancel-no-inventory",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+  assert.equal(response.statusCode, 403);
+  await app.close();
+});
+
+void test("inventory quantities convert kg/g and L/ml without floating point", () => {
+  assert.equal(quantityToBase("1,250", "KILOGRAM", "GRAM"), 1_250);
+  assert.equal(quantityToBase("0.500", "LITER", "MILLILITER"), 500);
+  assert.equal(quantityToBase("125", "GRAM", "GRAM"), 125);
+  assert.equal(quantityToBase("2", "UNIT", "UNIT"), 2);
+});
+
+void test("inventory quantities reject fractional base units and incompatible units", () => {
+  assert.throws(
+    () => quantityToBase("1.5", "GRAM", "GRAM"),
+    InventoryMovementInputError,
+  );
+  assert.throws(
+    () => quantityToBase("1", "LITER", "GRAM"),
+    InventoryMovementInputError,
+  );
+});
+
+void test("PUT /comandas/:comandaId/items/:itemId/additionals configures pending units", async () => {
+  let captured: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      configureItemAdditionals: (_establishmentId, _comandaId, _itemId, input) => {
+        captured = input;
+        return Promise.resolve(comandaWithItem);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "PUT",
+    payload: {
+      additionals: [{ additionalId: "additional-id", quantityPerUnit: 2 }],
+      quantity: 1,
+      requestId: "request-additional-1",
+    },
+    url: "/comandas/comanda-id/items/item-id/additionals",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(captured, {
+    additionals: [{ additionalId: "additional-id", quantityPerUnit: 2 }],
+    quantity: 1,
+    requestId: "request-additional-1",
+  });
+  await app.close();
+});
+
+void test("confirmed item cancellation requires inventory.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: authenticatedUser.permissions.filter(
+            (permission) => permission !== "inventory.write",
+          ),
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      quantity: 1,
+      reason: "Produto derrubado",
+      requestId: "request-cancel-1",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), { status: "error", message: "Permission denied" });
   await app.close();
 });
 
@@ -1641,6 +1973,236 @@ void test("payment routes reject malformed allocations before persistence", asyn
   assert.equal(settleResponse.statusCode, 400);
   assert.equal(closeCalled, false);
   assert.equal(settleCalled, false);
+
+  await app.close();
+});
+
+void test("GET /delivery/couriers lists couriers with their open day", async () => {
+  const app = await createApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    couriers: [
+      {
+        activeDayId: "day-id",
+        id: "courier-id",
+        name: "Entregador",
+        settledTotalCents: 0,
+      },
+    ],
+  });
+
+  await app.close();
+});
+
+void test("POST /delivery/couriers rejects duplicated couriers", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      createCourier: () => Promise.reject(new DeliveryCourierConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { name: "Joao" },
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 409);
+
+  await app.close();
+});
+
+void test("POST /delivery/couriers/:courierId/days rejects a second open day", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      openDay: () => Promise.reject(new DeliveryDayConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { dailyRateCents: 8_000 },
+    url: "/delivery/couriers/courier-id/days",
+  });
+
+  assert.equal(response.statusCode, 409);
+
+  await app.close();
+});
+
+void test("delivery routes reject malformed values before persistence", async () => {
+  let recorded = false;
+  const app = await createApp({
+    deliveries: createDeliveries({
+      recordDelivery: () => {
+        recorded = true;
+        return Promise.resolve(deliveryDay);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 500,
+      paymentMethod: "BITCOIN",
+      totalCents: 1_000,
+    },
+    url: "/delivery/days/day-id/deliveries",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(recorded, false);
+
+  const invalidFeeResponse = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 1_001,
+      paymentMethod: "PIX",
+      totalCents: 1_000,
+    },
+    url: "/delivery/days/day-id/deliveries",
+  });
+
+  assert.equal(invalidFeeResponse.statusCode, 400);
+  assert.deepEqual(invalidFeeResponse.json(), {
+    status: "error",
+    message: "Invalid delivery",
+  });
+  assert.equal(recorded, false);
+
+  await app.close();
+});
+
+void test("GET /delivery/orders lists active operational orders", async () => {
+  const app = await createApp();
+  const response = await app.inject({ method: "GET", url: "/delivery/orders" });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { orders: [deliveryOrder] });
+  await app.close();
+});
+
+void test("POST /delivery/orders creates a comanda-backed order", async () => {
+  let receivedInput: DeliveryOrderInput | undefined;
+  const app = await createApp({
+    deliveries: createDeliveries({
+      createOrder: (_establishmentId, input) => {
+        receivedInput = input;
+        return Promise.resolve(deliveryOrder);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      address: " Rua A, 1 ",
+      customerName: " Cliente ",
+      feeCents: 500,
+      phone: " 11999999999 ",
+    },
+    url: "/delivery/orders",
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(receivedInput, {
+    address: "Rua A, 1",
+    customerName: "Cliente",
+    feeCents: 500,
+    phone: "11999999999",
+  });
+  assert.deepEqual(response.json(), { order: deliveryOrder });
+
+  const invalidPhoneResponse = await app.inject({
+    method: "POST",
+    payload: {
+      address: "Rua A, 1",
+      customerName: "Cliente",
+      feeCents: 500,
+      phone: "22222222222222222222",
+    },
+    url: "/delivery/orders",
+  });
+  assert.equal(invalidPhoneResponse.statusCode, 400);
+  assert.deepEqual(invalidPhoneResponse.json(), {
+    status: "error",
+    message: "Invalid delivery order",
+  });
+  await app.close();
+});
+
+void test("POST /delivery/orders/:orderId/status assigns the open courier day", async () => {
+  let receivedDayId = "";
+  let receivedStatus = "";
+  const app = await createApp({
+    deliveries: createDeliveries({
+      advanceOrder: (_establishmentId, _orderId, status, dayId) => {
+        receivedDayId = dayId ?? "";
+        receivedStatus = status;
+        return Promise.resolve({
+          ...deliveryOrder,
+          dayId,
+          status,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: { dayId: "day-id", status: "OUT_FOR_DELIVERY" },
+    url: "/delivery/orders/delivery-order-id/status",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedDayId, "day-id");
+  assert.equal(receivedStatus, "OUT_FOR_DELIVERY");
+  await app.close();
+});
+
+void test("delivery routes require the delivery permissions", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: ["comandas.read"],
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/delivery/couriers",
+  });
+
+  assert.equal(response.statusCode, 403);
+
+  await app.close();
+});
+
+void test("closing a delivery day is rejected when it is already closed", async () => {
+  const app = await createApp({
+    deliveries: createDeliveries({
+      closeDay: () => Promise.reject(new DeliveryDayConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/delivery/days/day-id/close",
+  });
+
+  assert.equal(response.statusCode, 409);
 
   await app.close();
 });

@@ -1,5 +1,8 @@
 export type PaymentMethod = "CASH" | "PIX" | "DEBIT_CARD" | "CREDIT_CARD";
-export type PaymentOrigin = "TABLE_CHECKOUT" | "CREDIT_INSTALLMENT";
+export type PaymentOrigin =
+  | "TABLE_CHECKOUT"
+  | "CREDIT_INSTALLMENT"
+  | "DELIVERY_CHECKOUT";
 
 export interface PaymentAllocationInput {
   amountCents: number;

@@ -1,6 +1,6 @@
 import { Alert, Platform, Pressable, Text, View } from 'react-native';
 
-import { type Comanda, type ComandaItem } from '../services/comandas-api';
+import { type Comanda, type ComandaItem, type ComandaItemConfiguration } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
 import { styles } from './comanda-details-screen.styles';
 
@@ -32,12 +32,16 @@ export function ComandaItems({
   disabled,
   onChangeQuantity,
   onConfirmItem,
+  onConfigureAdditionals,
+  onCancelConfiguration,
   onRemoveItem,
 }: {
   comanda: Comanda;
   disabled: boolean;
   onChangeQuantity: (item: ComandaItem, delta: 1 | -1) => void;
   onConfirmItem: (item: ComandaItem) => void;
+  onConfigureAdditionals: (item: ComandaItem) => void;
+  onCancelConfiguration?: (item: ComandaItem, configuration: ComandaItemConfiguration) => void;
   onRemoveItem: (item: ComandaItem) => void;
 }) {
   const newItems = comanda.items.filter(
@@ -46,11 +50,16 @@ export function ComandaItems({
   const confirmedItems = comanda.items.filter((item) => item.confirmedQuantity > 0);
   const newSubtotalCents = newItems.reduce(
     (total, item) =>
-      total + (item.quantity - item.confirmedQuantity) * item.unitPriceCents,
+      total +
+      (item.quantity - item.confirmedQuantity) * item.unitPriceCents +
+      configurationAdditionalTotal(item, 'pending'),
     0,
   );
   const confirmedSubtotalCents = confirmedItems.reduce(
-    (total, item) => total + item.confirmedQuantity * item.unitPriceCents,
+    (total, item) =>
+      total +
+      item.confirmedQuantity * item.unitPriceCents +
+      configurationAdditionalTotal(item, 'confirmed'),
     0,
   );
   const totalQuantity = comanda.items.reduce((total, item) => total + item.quantity, 0);
@@ -90,6 +99,7 @@ export function ComandaItems({
                       item={item}
                       onChangeQuantity={onChangeQuantity}
                       onConfirmItem={onConfirmItem}
+                      onConfigureAdditionals={onConfigureAdditionals}
                       onRemoveItem={onRemoveItem}
                     />
                   </View>
@@ -97,6 +107,7 @@ export function ComandaItems({
                     {newQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                     {formatCentsAsBrl(newQuantity * item.unitPriceCents)}
                   </Text>
+                  <ConfigurationDetails item={item} mode="pending" />
                   <Text style={styles.itemTimestamp}>
                     Adicionado em: {formatItemDateTime(item.createdAt)}
                   </Text>
@@ -131,6 +142,11 @@ export function ComandaItems({
                   {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                   {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
                 </Text>
+                <ConfigurationDetails
+                  item={item}
+                  mode="confirmed"
+                  onCancelConfiguration={onCancelConfiguration}
+                />
                 <Text style={styles.itemTimestamp}>
                   Adicionado em: {formatItemDateTime(item.createdAt)}
                 </Text>
@@ -199,6 +215,77 @@ export function ComandaItems({
   );
 }
 
+function ConfigurationDetails({
+  item,
+  mode,
+  onCancelConfiguration,
+}: {
+  item: ComandaItem;
+  mode: 'confirmed' | 'pending';
+  onCancelConfiguration?: (item: ComandaItem, configuration: ComandaItemConfiguration) => void;
+}) {
+  const configurations = (item.configurations ?? []).filter((configuration) => {
+    const quantity =
+      mode === 'confirmed'
+        ? configuration.confirmedQuantity
+        : configuration.quantity - configuration.confirmedQuantity;
+    return (
+      quantity > 0 &&
+      (configuration.additionals.length > 0 ||
+        (mode === 'confirmed' && Boolean(onCancelConfiguration)))
+    );
+  });
+  return (
+    <>
+      {configurations.map((configuration) => {
+        const quantity =
+          mode === 'confirmed'
+            ? configuration.confirmedQuantity
+            : configuration.quantity - configuration.confirmedQuantity;
+        return (
+          <View key={`${configuration.id}-${mode}`}>
+            <Text style={styles.description}>
+              {quantity} un.{configuration.additionals.length > 0 ? ` com ${configuration.additionals.map((additional) =>
+                `${additional.quantityPerUnit}x ${additional.additionalName}`,
+              ).join(', ')}` : ' sem adicionais'}
+            </Text>
+            {mode === 'confirmed' && onCancelConfiguration ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => onCancelConfiguration(item, configuration)}
+                style={styles.smallButton}
+              >
+                <Text style={styles.smallButtonText}>Cancelar unidades confirmadas</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
+function configurationAdditionalTotal(
+  item: ComandaItem,
+  mode: 'confirmed' | 'pending',
+) {
+  if (!item.configurations) {
+    return mode === 'pending' ? item.additionalTotalCents ?? 0 : 0;
+  }
+  return item.configurations.reduce((total, configuration) => {
+    const quantity =
+      mode === 'confirmed'
+        ? configuration.confirmedQuantity
+        : configuration.quantity - configuration.confirmedQuantity;
+    const perUnit = configuration.additionals.reduce(
+      (sum, additional) =>
+        sum + additional.unitPriceCents * additional.quantityPerUnit,
+      0,
+    );
+    return total + quantity * perUnit;
+  }, 0);
+}
+
 function formatItemDateTime(value: string) {
   return new Date(value).toLocaleString('pt-BR');
 }
@@ -210,6 +297,7 @@ export function ComandaActions({
   credit,
   disabled,
   isClosing,
+  hasItems,
   onAddProducts,
   onCancel,
   onCancelCredit,
@@ -224,6 +312,7 @@ export function ComandaActions({
   credit: Comanda['credit'];
   disabled: boolean;
   isClosing: boolean;
+  hasItems: boolean;
   onAddProducts: () => void;
   onCancel: () => void;
   onCancelCredit: () => void;
@@ -316,13 +405,17 @@ export function ComandaActions({
       {canCancel && (
         <ActionButton
           disabled={disabled}
-          label={disabled ? 'Cancelando...' : 'Cancelar comanda vazia'}
+          label={disabled ? 'Cancelando...' : hasItems ? 'Cancelar comanda' : 'Cancelar comanda vazia'}
           onPress={() => {
-            confirmDestructiveAction({
-              message: 'Deseja cancelar esta comanda vazia e liberar a mesa?',
-              onConfirm: onCancel,
-              title: 'Cancelar comanda',
-            });
+            if (hasItems) {
+              onCancel();
+            } else {
+              confirmDestructiveAction({
+                message: 'Deseja cancelar esta comanda vazia e liberar a mesa?',
+                onConfirm: onCancel,
+                title: 'Cancelar comanda',
+              });
+            }
           }}
           tone="danger"
         />
@@ -336,12 +429,14 @@ function QuantityControls({
   item,
   onChangeQuantity,
   onConfirmItem,
+  onConfigureAdditionals,
   onRemoveItem,
 }: {
   disabled: boolean;
   item: ComandaItem;
   onChangeQuantity: (item: ComandaItem, delta: 1 | -1) => void;
   onConfirmItem: (item: ComandaItem) => void;
+  onConfigureAdditionals: (item: ComandaItem) => void;
   onRemoveItem: (item: ComandaItem) => void;
 }) {
   const minimumQuantity = Math.max(1, item.confirmedQuantity);
@@ -375,6 +470,19 @@ function QuantityControls({
           }}
         />
       </View>
+      <Pressable
+        accessibilityLabel={`Adicionais de ${item.productName}`}
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={() => onConfigureAdditionals(item)}
+        style={({ pressed }) => [
+          styles.confirmDeliveryButton,
+          disabled && styles.disabledButton,
+          pressed && !disabled && styles.pressedButton,
+        ]}
+      >
+        <Text style={styles.confirmDeliveryButtonText}>Adicionais</Text>
+      </Pressable>
       <Pressable
         accessibilityLabel={`Confirmar ${item.productName}`}
         accessibilityRole="button"

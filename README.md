@@ -81,7 +81,9 @@ MySQL. Não existe tela de criação de conta no aplicativo. Um estabelecimento
 pode ter vários owners, e todo usuário pertence obrigatoriamente a um
 estabelecimento. Os cargos iniciais são `OWNER`,
 `MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
-modo que outros poderão ser adicionados posteriormente.
+modo que outros poderão ser adicionados posteriormente. O módulo de delivery é
+liberado para `OWNER`, `MANAGER` e `WAITER` pelas permissões `deliveries.read` e
+`deliveries.write`.
 
 A API fica disponivel em `http://localhost:3333`:
 
@@ -98,14 +100,18 @@ A API fica disponivel em `http://localhost:3333`:
   descricao, categoria e preco em centavos.
 - `GET /inventory`: lista ingredientes, saldo atual e estoque minimo.
 - `POST /ingredients`: cadastra um ingrediente e cria seu saldo inicial zerado.
-- `POST /inventory/:stockId/movements`: registra entrada, saida ou ajuste de
-  estoque com motivo e usuario responsavel.
+- `POST /inventory/:stockId/entries`: registra compra com lote, custo total,
+  validade opcional e `requestId`.
+- `POST /inventory/:stockId/movements`: registra retirada, perda ou ajuste
+  idempotente com motivo e usuario responsavel.
 - `POST /tables/:tableId/comandas`: abre uma comanda para uma mesa livre e aceita
   o campo opcional `name`.
 - `GET /comandas/:comandaId`: consulta os detalhes da comanda, itens e total.
 - `POST /comandas/:comandaId/items`: adiciona produto a uma comanda aberta.
 - `PATCH /comandas/:comandaId/items/:itemId`: ajusta quantidade com `+1` ou `-1`.
 - `POST /comandas/:comandaId/items/:itemId/confirm`: confirma a quantidade atual.
+- `POST /comandas/:comandaId/cancel`: cancela comanda vazia ou, com motivo,
+  `requestId` e destino dos insumos, cancela integralmente uma comanda aberta.
 - `DELETE /comandas/:comandaId/items/:itemId`: remove apenas a quantidade ainda
   nao confirmada.
 - `POST /comandas/:comandaId/close`: recebe `payments` com parcelas em dinheiro,
@@ -124,6 +130,19 @@ A API fica disponivel em `http://localhost:3333`:
   com uma ou mais formas de pagamento, apenas no fiado selecionado.
 - `POST /comandas/:comandaId/credit`: endpoint mantido para compatibilidade com o
   fluxo anterior de conversao integral em fiado.
+- `GET/POST /delivery/couriers`: lista entregadores ativos com o dia em aberto e o
+  total ja recebido, e cadastra um entregador por nome normalizado.
+- `GET /delivery/couriers/:courierId?from=AAAA-MM-DD&to=AAAA-MM-DD`: consulta os
+  dias do entregador, com filtro opcional de periodo e os totais pagos e a pagar.
+- `POST /delivery/couriers/:courierId/days`: inicia um dia informando o valor da
+  diaria em centavos. Cada entregador tem no maximo um dia aberto por vez.
+- `GET /delivery/days/:dayId`: consulta o dia com entregas, despesas e o acerto.
+- `POST /delivery/days/:dayId/deliveries`: registra uma entrega com nome do
+  cliente, endereco, produtos opcionais, valor total, taxa de entrega e forma de
+  pagamento.
+- `POST /delivery/days/:dayId/expenses`: registra uma despesa do dia, como
+  combustivel, que e deduzida do valor a pagar ao entregador.
+- `POST /delivery/days/:dayId/close`: fecha o dia e grava o acerto pago.
 - `GET /statements?from=AAAA-MM-DD&to=AAAA-MM-DD`: consulta indicadores,
   totais diarios e movimentacoes com os produtos historicos do periodo no fuso
   `America/Sao_Paulo`. O resumo inclui os recebimentos conciliados por dinheiro,
@@ -196,7 +215,16 @@ npm.cmd start
 Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
 computador.
 
-O menu principal separa **Mesas**, **Fiados** e **Administrativo**. No modulo
+O menu principal separa **Mesas**, **Fiados**, **Delivery** e
+**Administrativo**. Em Delivery, o gestor cadastra entregadores e inicia um dia
+informando o valor da diaria. Dentro do dia, cada entrega registra nome do
+cliente, endereco, produtos opcionais, valor total, taxa de entrega e forma de
+pagamento; despesas como combustivel sao deduzidas do acerto. O valor a pagar ao
+entregador e a diaria somada as taxas menos as despesas, e o fechamento do dia
+grava esse acerto com data, hora e operador. A tela do entregador mostra o total
+ja recebido e permite filtrar o historico por periodo. A taxa de entrega esta
+incluida no valor total pago pelo cliente, de modo que o liquido do bistro e o
+total menos a taxa. No modulo
 administrativo, o extrato abre no dia atual e o gestor pode criar, editar,
 desativar e reativar categorias e itens do cardapio. Cada item pertence a uma
 categoria do mesmo estabelecimento, e os valores sao persistidos como centavos
@@ -218,10 +246,13 @@ Em Extrato do dia, um unico calendario permite manter o dia atual ou selecionar
 outro dia ou intervalo. A aba **Resumido** apresenta valores vendidos e recebidos,
 diferenca do periodo, ticket medio, comandas, itens e totais por origem e dia. A
 aba **Detalhado** organiza uma linha do tempo por comanda, identifica cada etapa
-como comanda paga parcialmente, fiado aberto, fiado pago parcialmente ou fiado
-fechado. Cada etapa explicita total, valor pago, valor aberto e pagamentos
-anteriores conforme o contexto. A visualizacao pode
-ser filtrada por tipo de movimentacao e origem; os mesmos filtros sao aplicados
+como comanda paga parcialmente, fiado aberto, fiado pago parcialmente, fiado
+fechado ou entrega paga. Cada etapa explicita total, valor pago, valor aberto e
+pagamentos anteriores conforme o contexto. As entregas entram como receita na
+data em que foram registradas, conciliadas pela forma de pagamento informada, e
+exibem total, taxa de entrega e liquido do bistro. A visualizacao pode
+ser filtrada por tipo de movimentacao e origem, incluindo a origem Delivery; os
+mesmos filtros sao aplicados
 ao PDF detalhado. O botao de exportacao gera o PDF correspondente a aba ativa no
 navegador, Android ou iOS, incluindo pagamentos legados sem meio informado.
 
@@ -269,6 +300,23 @@ backup verificado. A limpeza afeta somente o estabelecimento informado e preserv
 seus ingredientes, saldos, movimentos, produtos, mesas, usuarios, cargos e
 permissoes.
 
+## Módulo de estoque
+
+O administrativo possui a área **Estoque** para consultar saldos, estoque baixo,
+déficits, lotes, vencimentos e movimentações. Também permite cadastrar insumos e
+registrar entradas, retiradas, perdas e ajustes. Quantidades de massa e volume são
+armazenadas em gramas e mililitros; custos e preços permanecem em centavos.
+
+Receitas e adicionais são administrados pelas rotas de cardápio. A confirmação de
+um item consome a ficha técnica e os adicionais por FEFO, sem utilizar lotes
+vencidos. Saldo insuficiente não bloqueia a venda: a API devolve
+`inventoryWarnings`, mantém o saldo negativo e registra o déficit. Novas mutações
+de estoque, personalização e cancelamento exigem `requestId` idempotente.
+Saldos anteriores ao ledger são preservados por migration como lotes `LEGACY`.
+
+As decisões de ledger, concorrência, FEFO e cancelamento estão registradas em
+[`docs/adrs/0001-inventory-ledger-fefo.md`](docs/adrs/0001-inventory-ledger-fefo.md).
+
 ## Implantação em VPS
 
 Os arquivos `compose.vps.yaml`, `backend/Dockerfile` e `frontend/Dockerfile`
@@ -299,6 +347,6 @@ npm.cmd test
 
 ## Status
 
-Setima fatia vertical em desenvolvimento: autenticação por usuário, sessões
-revogáveis, cargos e permissões extensíveis, auditoria por `userId`, limpeza
-operacional controlada e preparação para implantação em VPS.
+Módulos operacionais de mesas, crédito, delivery e estoque integrados, com
+autenticação por usuário, permissões, auditoria, ledger por lote e preparação para
+implantação controlada em VPS.
