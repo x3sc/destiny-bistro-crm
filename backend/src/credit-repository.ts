@@ -175,6 +175,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
             },
             items: {
               select: {
+                additionalTotalCents: true,
                 confirmedQuantity: true,
                 quantity: true,
                 unitPriceCents: true,
@@ -346,6 +347,7 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
               select: {
                 items: {
                   select: {
+                    additionalTotalCents: true,
                     confirmedQuantity: true,
                     quantity: true,
                     unitPriceCents: true,
@@ -619,9 +621,12 @@ function hasFinalizedItems(
   );
 }
 
-function totalItems(items: { quantity: number; unitPriceCents: number }[]) {
+function totalItems(
+  items: { additionalTotalCents: number; quantity: number; unitPriceCents: number }[],
+) {
   return items.reduce(
-    (total, item) => total + item.quantity * item.unitPriceCents,
+    (total, item) =>
+      total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
     0,
   );
 }

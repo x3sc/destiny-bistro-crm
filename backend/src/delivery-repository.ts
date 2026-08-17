@@ -61,6 +61,7 @@ const deliveryDaySelect = {
         select: {
           items: {
             select: {
+              additionalTotalCents: true,
               quantity: true,
               unitPriceCents: true,
             },
@@ -108,7 +109,9 @@ function mapDay(day: PersistedDeliveryDay): DeliveryDayDetails {
         order.feeCents +
         order.comanda.items.reduce(
           (itemsTotal, item) =>
-            itemsTotal + item.quantity * item.unitPriceCents,
+            itemsTotal +
+            item.quantity * item.unitPriceCents +
+            item.additionalTotalCents,
           0,
         ),
       0,
@@ -171,6 +174,7 @@ const deliveryOrderSelect = {
       id: true,
       items: {
         select: {
+          additionalTotalCents: true,
           confirmedQuantity: true,
           quantity: true,
           unitPriceCents: true,
@@ -210,7 +214,8 @@ function mapOrder(order: PersistedDeliveryOrder): DeliveryOrder {
     0,
   );
   const itemsTotalCents = order.comanda.items.reduce(
-    (total, item) => total + item.quantity * item.unitPriceCents,
+    (total, item) =>
+      total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
     0,
   );
   const paidCents = order.comanda.payments.reduce(

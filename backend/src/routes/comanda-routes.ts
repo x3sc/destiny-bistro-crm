@@ -1,8 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuthUser } from "../authentication.js";
 import {
+  AdditionalUnavailableError,
+  ComandaItemConfigurationError,
   ComandaItemNotFoundError,
   ComandaItemQuantityError,
+  ComandaCancellationConflictError,
+  ComandaInventoryPermissionError,
   ComandaNotMutableError,
   ComandaNotCancellableError,
   ComandaNotClosableError,
@@ -25,12 +29,35 @@ interface ComandaItemParams extends ComandaParams {
   itemId: string;
 }
 
+interface ComandaConfigurationParams extends ComandaItemParams {
+  configurationId: string;
+}
+
 interface AddComandaItemBody {
   productId?: unknown;
 }
 
 interface ChangeComandaItemBody {
   delta?: unknown;
+}
+
+interface ConfigureAdditionalsBody {
+  additionals?: unknown;
+  quantity?: unknown;
+  requestId?: unknown;
+}
+
+interface CancelConfigurationBody {
+  disposition?: unknown;
+  quantity?: unknown;
+  reason?: unknown;
+  requestId?: unknown;
+}
+
+interface CancelComandaBody {
+  disposition?: unknown;
+  reason?: unknown;
+  requestId?: unknown;
 }
 
 interface CloseComandaBody {
@@ -77,16 +104,29 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     },
   );
 
-  app.post<{ Params: ComandaParams }>(
+  app.post<{ Body: CancelComandaBody; Params: ComandaParams }>(
     "/comandas/:comandaId/cancel",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
+      const body = request.body;
+      const input = body
+        ? parseCancelComandaBody(body)
+        : null;
+      if (body && !input) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid comanda cancellation",
+        });
+      }
       try {
+        const user = requireAuthUser(request);
         return {
           comanda: await comandas.cancel(
-            requireAuthUser(request).establishment.id,
+            user.establishment.id,
             request.params.comandaId,
-            requireAuthUser(request).id,
+            input,
+            user.permissions.includes("inventory.write"),
+            user.id,
           ),
         };
       } catch (error) {
@@ -101,6 +141,20 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
           return reply.code(409).send({
             status: "error",
             message: "Comanda cannot be cancelled",
+          });
+        }
+
+        if (error instanceof ComandaInventoryPermissionError) {
+          return reply.code(403).send({
+            status: "error",
+            message: "Missing required permission",
+          });
+        }
+
+        if (error instanceof ComandaCancellationConflictError) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Idempotency key already used",
           });
         }
 
@@ -279,14 +333,12 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
-        return {
-          comanda: await comandas.confirmItem(
-            requireAuthUser(request).establishment.id,
-            request.params.comandaId,
-            request.params.itemId,
-            requireAuthUser(request).id,
-          ),
-        };
+        return comandas.confirmItem(
+          requireAuthUser(request).establishment.id,
+          request.params.comandaId,
+          request.params.itemId,
+          requireAuthUser(request).id,
+        );
       } catch (error) {
         if (
           error instanceof ComandaNotFoundError ||
@@ -311,6 +363,94 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
           status: "error",
           message: "Comanda unavailable",
         });
+      }
+    },
+  );
+
+  app.put<{ Body: ConfigureAdditionalsBody; Params: ComandaItemParams }>(
+    "/comandas/:comandaId/items/:itemId/additionals",
+    { config: { permission: "comandas.write" } },
+    async (request, reply) => {
+      const body = normalizeConfigureAdditionals(request.body);
+      if (!body) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid item configuration",
+        });
+      }
+      try {
+        return {
+          comanda: await comandas.configureItemAdditionals(
+            requireAuthUser(request).establishment.id,
+            request.params.comandaId,
+            request.params.itemId,
+            body,
+            requireAuthUser(request).id,
+          ),
+        };
+      } catch (error) {
+        if (
+          error instanceof ComandaNotFoundError ||
+          error instanceof ComandaItemNotFoundError
+        ) {
+          return reply.code(404).send({ status: "error", message: "Comanda item not found" });
+        }
+
+        if (
+          error instanceof AdditionalUnavailableError ||
+          error instanceof ComandaItemConfigurationError ||
+          isItemConflict(error)
+        ) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Comanda item cannot be configured",
+          });
+        }
+        app.log.error(error, "Comanda item configuration failed");
+        return reply.code(503).send({ status: "error", message: "Comanda unavailable" });
+      }
+    },
+  );
+
+  app.post<{ Body: CancelConfigurationBody; Params: ComandaConfigurationParams }>(
+    "/comandas/:comandaId/items/:itemId/configurations/:configurationId/cancel",
+    { config: { permission: "comandas.write" } },
+    async (request, reply) => {
+      const user = requireAuthUser(request);
+      if (!user.permissions.includes("inventory.write")) {
+        return reply.code(403).send({ status: "error", message: "Permission denied" });
+      }
+      const body = normalizeCancelConfiguration(request.body);
+      if (!body) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid item cancellation",
+        });
+      }
+      try {
+        return comandas.cancelItemConfiguration(
+          user.establishment.id,
+          request.params.comandaId,
+          request.params.itemId,
+          request.params.configurationId,
+          body,
+          user.id,
+        );
+      } catch (error) {
+        if (
+          error instanceof ComandaNotFoundError ||
+          error instanceof ComandaItemNotFoundError
+        ) {
+          return reply.code(404).send({ status: "error", message: "Comanda item not found" });
+        }
+        if (error instanceof ComandaItemConfigurationError || isItemConflict(error)) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Comanda item cannot be cancelled",
+          });
+        }
+        app.log.error(error, "Comanda item cancellation failed");
+        return reply.code(503).send({ status: "error", message: "Comanda unavailable" });
       }
     },
   );
@@ -351,5 +491,88 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
         });
       }
     },
+  );
+}
+
+function parseCancelComandaBody(body: CancelComandaBody): {
+  disposition: "RETURN_TO_STOCK" | "LOSS";
+  reason: string;
+  requestId: string;
+} | null {
+  if (
+    (body.disposition !== "RETURN_TO_STOCK" && body.disposition !== "LOSS") ||
+    typeof body.reason !== "string" ||
+    body.reason.trim().length < 2 ||
+    body.reason.trim().length > 255 ||
+    typeof body.requestId !== "string" ||
+    body.requestId.length < 8 ||
+    body.requestId.length > 191
+  ) {
+    return null;
+  }
+  const disposition: "RETURN_TO_STOCK" | "LOSS" = body.disposition;
+  return {
+    disposition,
+    reason: body.reason.trim().replace(/\s+/gu, " "),
+    requestId: body.requestId,
+  };
+}
+
+function normalizeConfigureAdditionals(body: ConfigureAdditionalsBody | undefined) {
+  if (
+    !body ||
+    !Array.isArray(body.additionals) ||
+    typeof body.quantity !== "number" ||
+    typeof body.requestId !== "string"
+  ) {
+    return null;
+  }
+  const values: unknown[] = body.additionals;
+  if (!values.every(isAdditionalConfigurationInput)) {
+    return null;
+  }
+  return {
+    additionals: values,
+    quantity: body.quantity,
+    requestId: body.requestId,
+  };
+}
+
+function normalizeCancelConfiguration(
+  body: CancelConfigurationBody | undefined,
+): {
+  disposition: "RETURN_TO_STOCK" | "LOSS";
+  quantity: number;
+  reason: string;
+  requestId: string;
+} | null {
+  if (
+    !body ||
+    (body.disposition !== "RETURN_TO_STOCK" && body.disposition !== "LOSS") ||
+    typeof body.quantity !== "number" ||
+    typeof body.reason !== "string" ||
+    typeof body.requestId !== "string"
+  ) {
+    return null;
+  }
+  const disposition: "RETURN_TO_STOCK" | "LOSS" = body.disposition;
+  return {
+    disposition,
+    quantity: body.quantity,
+    reason: body.reason,
+    requestId: body.requestId,
+  };
+}
+
+function isAdditionalConfigurationInput(
+  value: unknown,
+): value is { additionalId: string; quantityPerUnit: number } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "additionalId" in value &&
+      typeof value.additionalId === "string" &&
+      "quantityPerUnit" in value &&
+      typeof value.quantityPerUnit === "number",
   );
 }

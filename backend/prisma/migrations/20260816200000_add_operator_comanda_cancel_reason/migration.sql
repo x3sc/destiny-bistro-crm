@@ -1,0 +1,2 @@
+ALTER TABLE `Comanda`
+    MODIFY `cancellationReason` ENUM('OPENED_BY_MISTAKE', 'OPERATOR_CANCELLED') NULL;

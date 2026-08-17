@@ -62,15 +62,22 @@ async function cleanupEstablishment(name: string) {
       where: { establishmentId },
     });
     await transaction.deliveryOrder.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryMovementLot.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryMovement.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryOperation.deleteMany({ where: { establishmentId } });
+    await transaction.inventoryLot.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
     await transaction.comandaItem.deleteMany({ where: { establishmentId } });
     await transaction.comandaEvent.deleteMany({ where: { establishmentId } });
     await transaction.comanda.deleteMany({ where: { establishmentId } });
-    await transaction.inventoryMovement.deleteMany({
-      where: { establishmentId },
-    });
     await transaction.inventoryStock.deleteMany({
       where: { establishmentId },
     });
+    await transaction.productAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.additionalIngredient.deleteMany({ where: { establishmentId } });
+    await transaction.productIngredient.deleteMany({ where: { establishmentId } });
     await transaction.ingredient.deleteMany({ where: { establishmentId } });
     await transaction.deliveryExpense.deleteMany({ where: { establishmentId } });
     await transaction.delivery.deleteMany({ where: { establishmentId } });
@@ -85,6 +92,7 @@ async function cleanupEstablishment(name: string) {
     });
     await transaction.user.deleteMany({ where: { establishmentId } });
     await transaction.product.deleteMany({ where: { establishmentId } });
+    await transaction.additional.deleteMany({ where: { establishmentId } });
     await transaction.menuCategory.deleteMany({ where: { establishmentId } });
     await transaction.restaurantTable.deleteMany({
       where: { establishmentId },
@@ -589,7 +597,14 @@ void test("comanda items are consolidated, totaled and audited", async () => {
     const firstItem = addResponse.json<{
       comanda: {
         items: {
+          additionalTotalCents: number;
           confirmedQuantity: number;
+          configurations: Array<{
+            additionals: unknown[];
+            configurationKey: string;
+            confirmedQuantity: number;
+            quantity: number;
+          }>;
           createdAt: string;
           id: string;
           productId: string;
@@ -601,7 +616,18 @@ void test("comanda items are consolidated, totaled and audited", async () => {
         totalCents: number;
       };
     }>().comanda.items[0];
-    assert.deepEqual(firstItem, {
+    const { additionalTotalCents, configurations, ...legacyFirstItem } = firstItem;
+    assert.equal(additionalTotalCents, 0);
+    assert.deepEqual(
+      configurations.map(({ additionals, configurationKey, confirmedQuantity, quantity }) => ({
+        additionals,
+        configurationKey,
+        confirmedQuantity,
+        quantity,
+      })),
+      [{ additionals: [], configurationKey: "base", confirmedQuantity: 0, quantity: 1 }],
+    );
+    assert.deepEqual(legacyFirstItem, {
       confirmedQuantity: 0,
       createdAt: firstItem.createdAt,
       id: firstItem.id,
@@ -822,6 +848,307 @@ void test("comanda items are consolidated, totaled and audited", async () => {
     assert.equal(secondCloseResponse.statusCode, 409);
   } finally {
     await app.close();
+  }
+});
+
+void test("inventory consumption uses FEFO, ignores expired lots and keeps deficit idempotent", async () => {
+  const actor = await prisma.user.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, normalizedName: integrationUserName.toLocaleLowerCase("pt-BR") },
+  });
+  const category = await prisma.menuCategory.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      name: "Ficha técnica integração",
+      normalizedName: "ficha técnica integração",
+    },
+  });
+  const product = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "INTEGRATION_RECIPE_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto com receita",
+      priceCents: 1_000,
+    },
+  });
+  const ingredient = await prisma.ingredient.create({
+    data: {
+      code: "INTEGRATION_FLOUR",
+      establishmentId: integrationEstablishmentId,
+      name: "Farinha integração",
+      unit: "GRAM",
+    },
+  });
+  const stock = await prisma.inventoryStock.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      minimumQuantity: 10,
+      quantity: 70,
+    },
+  });
+  const [expiredLot, firstLot, secondLot] = await Promise.all([
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "EXPIRED",
+        currentQuantity: 50,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2025-01-01T00:00:00.000Z"),
+        initialQuantity: 50,
+        origin: "PURCHASE",
+        receivedAt: new Date("2024-01-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 500,
+      },
+    }),
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "FEFO-1",
+        currentQuantity: 10,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+        initialQuantity: 10,
+        origin: "PURCHASE",
+        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 100,
+      },
+    }),
+    prisma.inventoryLot.create({
+      data: {
+        actorUserId: actor.id,
+        code: "FEFO-2",
+        currentQuantity: 10,
+        establishmentId: integrationEstablishmentId,
+        expiresAt: new Date("2028-01-01T00:00:00.000Z"),
+        initialQuantity: 10,
+        origin: "PURCHASE",
+        receivedAt: new Date("2026-02-01T00:00:00.000Z"),
+        stockId: stock.id,
+        totalCostCents: 100,
+      },
+    }),
+  ]);
+  await prisma.productIngredient.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      productId: product.id,
+      quantity: 6,
+    },
+  });
+  const table = await prisma.restaurantTable.create({
+    data: { establishmentId: integrationEstablishmentId, number: 90 },
+  });
+  const app = await createAuthenticatedApp();
+  let comandaId = "";
+
+  try {
+    const opened = await app.inject({ method: "POST", url: `/tables/${table.id}/comandas` });
+    comandaId = opened.json<{ comanda: { id: string } }>().comanda.id;
+    const added = await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const itemId = added.json<{ comanda: { items: Array<{ id: string }> } }>().comanda.items[0].id;
+    await app.inject({
+      method: "PATCH",
+      payload: { delta: 1 },
+      url: `/comandas/${comandaId}/items/${itemId}`,
+    });
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmed.statusCode, 200);
+    assert.deepEqual(confirmed.json<{ inventoryWarnings: unknown[] }>().inventoryWarnings, []);
+    assert.deepEqual(
+      await prisma.inventoryLot.findMany({
+        orderBy: { code: "asc" },
+        select: { code: true, currentQuantity: true },
+        where: { id: { in: [expiredLot.id, firstLot.id, secondLot.id] } },
+      }),
+      [
+        { code: "EXPIRED", currentQuantity: 50 },
+        { code: "FEFO-1", currentQuantity: 0 },
+        { code: "FEFO-2", currentQuantity: 8 },
+      ],
+    );
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(retry.statusCode, 200);
+    assert.equal((await prisma.inventoryMovement.count({ where: { stockId: stock.id } })), 1);
+
+    await prisma.productIngredient.update({
+      data: { quantity: 100 },
+      where: {
+        establishmentId_productId_ingredientId: {
+          establishmentId: integrationEstablishmentId,
+          ingredientId: ingredient.id,
+          productId: product.id,
+        },
+      },
+    });
+    await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const deficitResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(deficitResponse.statusCode, 200);
+    assert.deepEqual(
+      deficitResponse.json<{ inventoryWarnings: Array<{ missingQuantity: number; type: string }> }>().inventoryWarnings.map(({ missingQuantity, type }) => ({ missingQuantity, type })),
+      [{ missingQuantity: 92, type: "INSUFFICIENT_STOCK" }],
+    );
+    const finalStock = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
+    assert.equal(finalStock.quantity, -42);
+    assert.equal(finalStock.deficitQuantity, 92);
+
+    const configurationId = deficitResponse.json<{
+      comanda: { items: Array<{ configurations: Array<{ id: string }> }> };
+    }>().comanda.items[0].configurations[0].id;
+    const returned = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "RETURN_TO_STOCK",
+        quantity: 1,
+        reason: "Cancelamento com devolução",
+        requestId: "inventory-return-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(returned.statusCode, 200);
+    const afterReturn = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
+    assert.equal(afterReturn.quantity, 58);
+    assert.equal(afterReturn.deficitQuantity, 0);
+
+    const loss = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "LOSS",
+        quantity: 1,
+        reason: "Perda confirmada",
+        requestId: "inventory-loss-request",
+      },
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(loss.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      58,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      2,
+    );
+    const totalCancellationPayload = {
+      disposition: "RETURN_TO_STOCK",
+      reason: "Cancelamento total solicitado",
+      requestId: "inventory-total-cancel-request",
+    } as const;
+    const totalCancellation = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellation.statusCode, 200);
+    assert.equal(
+      totalCancellation.json<{ comanda: { status: string } }>().comanda.status,
+      "CANCELLED",
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    const totalCancellationReplay = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(totalCancellationReplay.statusCode, 200);
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
+      158,
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      3,
+    );
+    assert.equal(
+      (await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } }))
+        .status,
+      "FREE",
+    );
+  } finally {
+    await app.close();
+    await prisma.$transaction(async (transaction) => {
+      await transaction.restaurantTable.update({
+        data: { activeComandaId: null, status: "FREE" },
+        where: { id: table.id },
+      });
+      const itemIds = comandaId
+        ? (await transaction.comandaItem.findMany({
+            select: { id: true },
+            where: { comandaId },
+          })).map(({ id }) => id)
+        : [];
+      const configurationIds = (await transaction.comandaItemConfiguration.findMany({
+        select: { id: true },
+        where: { comandaItemId: { in: itemIds } },
+      })).map(({ id }) => id);
+      await transaction.comandaItemCancellation.deleteMany({
+        where: { configurationId: { in: configurationIds } },
+      });
+      await transaction.comandaItemAdditional.deleteMany({
+        where: { configurationId: { in: configurationIds } },
+      });
+      await transaction.comandaItemConfiguration.deleteMany({
+        where: { id: { in: configurationIds } },
+      });
+      await transaction.inventoryMovementLot.deleteMany({
+        where: { movement: { stockId: stock.id } },
+      });
+      await transaction.inventoryMovement.deleteMany({ where: { stockId: stock.id } });
+      await transaction.inventoryOperation.deleteMany({
+        where: {
+          OR: [
+            { comandaId },
+            { sourceId: { in: [...itemIds, ...configurationIds] } },
+          ],
+        },
+      });
+      if (comandaId) {
+        await transaction.comandaItem.deleteMany({ where: { comandaId } });
+        await transaction.comandaEvent.deleteMany({ where: { comandaId } });
+        await transaction.comanda.deleteMany({ where: { id: comandaId } });
+      }
+      await transaction.productIngredient.deleteMany({ where: { productId: product.id } });
+      await transaction.product.delete({ where: { id: product.id } });
+      await transaction.menuCategory.delete({ where: { id: category.id } });
+      await transaction.inventoryLot.deleteMany({ where: { stockId: stock.id } });
+      await transaction.inventoryStock.delete({ where: { id: stock.id } });
+      await transaction.ingredient.delete({ where: { id: ingredient.id } });
+      await transaction.restaurantTable.delete({ where: { id: table.id } });
+      await transaction.auditLog.deleteMany({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          resourceId: { in: [...itemIds, comandaId].filter(Boolean) },
+        },
+      });
+    });
   }
 });
 
@@ -2110,6 +2437,23 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
         if (orderId) {
           await transaction.deliveryOrder.deleteMany({ where: { id: orderId } });
         }
+        await transaction.inventoryOperation.updateMany({
+          data: { comandaId: null },
+          where: { comandaId },
+        });
+        const configurationIds = await transaction.comandaItemConfiguration.findMany({
+          select: { id: true },
+          where: { comandaItem: { comandaId } },
+        });
+        await transaction.comandaItemCancellation.deleteMany({
+          where: { configurationId: { in: configurationIds.map(({ id }) => id) } },
+        });
+        await transaction.comandaItemAdditional.deleteMany({
+          where: { configurationId: { in: configurationIds.map(({ id }) => id) } },
+        });
+        await transaction.comandaItemConfiguration.deleteMany({
+          where: { id: { in: configurationIds.map(({ id }) => id) } },
+        });
         await transaction.comandaItem.deleteMany({ where: { comandaId } });
         await transaction.comandaEvent.deleteMany({ where: { comandaId } });
         await transaction.comanda.deleteMany({ where: { id: comandaId } });
@@ -2492,7 +2836,8 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: 1_000,
         reason: "Compra de teste",
-        type: "ENTRY",
+        requestId: "legacy-adjustment-request",
+        type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });
@@ -2508,6 +2853,7 @@ void test("establishments isolate data and support multiple owners and employees
       payload: {
         quantityDelta: -250,
         reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2518,12 +2864,34 @@ void test("establishments isolate data and support multiple owners and employees
         .balanceAfter,
       750,
     );
+    const replayedExitResponse = await primaryApp.inject({
+      method: "POST",
+      payload: {
+        quantityDelta: -250,
+        reason: "Consumo de teste",
+        requestId: "legacy-exit-request",
+        type: "EXIT",
+      },
+      url: `/inventory/${primaryStockId}/movements`,
+    });
+    assert.equal(replayedExitResponse.statusCode, 200);
+    assert.equal(
+      replayedExitResponse.json<{ replayed: boolean }>().replayed,
+      true,
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({
+        where: { id: primaryStockId },
+      })).quantity,
+      750,
+    );
 
     const negativeBalanceResponse = await primaryApp.inject({
       method: "POST",
       payload: {
         quantityDelta: -751,
         reason: "Consumo invalido",
+        requestId: "legacy-negative-request",
         type: "EXIT",
       },
       url: `/inventory/${primaryStockId}/movements`,
@@ -2552,9 +2920,10 @@ void test("establishments isolate data and support multiple owners and employees
     const crossTenantMovementResponse = await secondaryApp.inject({
       method: "POST",
       payload: {
-        quantityDelta: 10,
-        reason: "Tentativa cruzada",
-        type: "ENTRY",
+          quantityDelta: 10,
+          reason: "Tentativa cruzada",
+          requestId: "cross-tenant-request",
+          type: "ADJUSTMENT",
       },
       url: `/inventory/${primaryStockId}/movements`,
     });
@@ -2565,6 +2934,7 @@ void test("establishments isolate data and support multiple owners and employees
         data: {
           actorUserId: secondary.users[0].id,
           balanceAfter: 10,
+          balanceBefore: 0,
           establishmentId: secondary.id,
           quantityDelta: 10,
           reason: "Tentativa direta cruzada",

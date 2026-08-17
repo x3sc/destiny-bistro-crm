@@ -54,6 +54,7 @@ export function createStatementRepository(
               id: true,
               items: {
                 select: {
+                  additionalTotalCents: true,
                   confirmedQuantity: true,
                   productId: true,
                   productName: true,
@@ -112,6 +113,7 @@ export function createStatementRepository(
               id: true,
               items: {
                 select: {
+                  additionalTotalCents: true,
                   confirmedQuantity: true,
                   productId: true,
                   productName: true,

@@ -13,9 +13,11 @@ export default function AdminRoute() {
     <AdminHomeScreen
       bottomNavigation={<AppBottomNavigation activeItem="admin" />}
       canManageMenu={canManageMenu(user)}
+      canReadInventory={hasPermission(user, 'inventory.read')}
       canReadStatements={hasPermission(user, 'statements.read')}
       onBack={() => router.replace('/')}
       onMenu={() => router.push('/admin/menu' as Href)}
+      onInventory={() => router.push('/admin/inventory' as Href)}
       onStatement={() => router.push('/admin/statements' as Href)}
     />
   );
