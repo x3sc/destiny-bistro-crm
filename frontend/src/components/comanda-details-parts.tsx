@@ -458,6 +458,7 @@ function QuantityControls({
 
   return (
     <View style={styles.quantityActions}>
+      <Text style={styles.quantityActionsLabel}>Quantidade nova</Text>
       <View style={styles.quantityControls}>
         <SmallButton
           accessibilityLabel={`Remover ${item.productName}`}
@@ -491,11 +492,20 @@ function QuantityControls({
         onPress={() => onConfigureAdditionals(item)}
         style={({ pressed }) => [
           styles.confirmDeliveryButton,
+          styles.additionalButton,
           disabled && styles.disabledButton,
           pressed && !disabled && styles.pressedButton,
         ]}
       >
-        <Text style={styles.confirmDeliveryButtonText}>Adicionais</Text>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.confirmDeliveryButtonText,
+            styles.additionalButtonText,
+          ]}
+        >
+          Configurar adicionais
+        </Text>
       </Pressable>
       <Pressable
         accessibilityLabel={`Confirmar ${item.productName}`}
@@ -510,7 +520,9 @@ function QuantityControls({
           pressed && !disabled && styles.pressedButton,
         ]}
       >
-        <Text style={styles.confirmDeliveryButtonText}>✓  Confirmar entrega</Text>
+        <Text numberOfLines={1} style={styles.confirmDeliveryButtonText}>
+          ✓  Confirmar entrega
+        </Text>
       </Pressable>
     </View>
   );

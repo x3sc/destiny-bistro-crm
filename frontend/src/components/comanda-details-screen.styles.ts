@@ -189,8 +189,17 @@ export const styles = StyleSheet.create({
   },
   quantityActions: {
     alignItems: 'stretch',
-    flexDirection: 'row',
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    flexDirection: 'column',
     gap: 8,
+    paddingTop: 12,
+    width: '100%',
+  },
+  quantityActionsLabel: {
+    color: themeColors.foregroundMuted,
+    fontSize: 12,
+    fontWeight: '700',
   },
   quantityControls: {
     alignItems: 'center',
@@ -200,8 +209,10 @@ export const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 4,
+    justifyContent: 'space-between',
+    minHeight: 52,
     padding: 3,
+    width: '100%',
   },
   quantityText: {
     color: themeColors.foreground,
@@ -232,10 +243,17 @@ export const styles = StyleSheet.create({
     borderColor: themeColors.primary,
     borderRadius: 22,
     borderWidth: 1,
-    flex: 1,
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 12,
+    width: '100%',
+  },
+  additionalButton: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.primary,
+  },
+  additionalButtonText: {
+    color: themeColors.primary,
   },
   confirmDeliveryButtonText: {
     color: themeColors.foregroundOnPrimary,

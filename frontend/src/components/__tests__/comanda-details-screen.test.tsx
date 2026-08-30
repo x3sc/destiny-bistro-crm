@@ -153,6 +153,21 @@ it('keeps stacked comanda actions at full width without flex compression', () =>
   expect(comandaStyles.closeTableAction).not.toHaveProperty('flex');
 });
 
+it('stacks item actions so their labels fit on narrow Android screens', () => {
+  expect(comandaStyles.quantityActions).toEqual(
+    expect.objectContaining({
+      flexDirection: 'column',
+      width: '100%',
+    }),
+  );
+  expect(comandaStyles.confirmDeliveryButton).toEqual(
+    expect.objectContaining({
+      minHeight: 48,
+      width: '100%',
+    }),
+  );
+});
+
 it('shows the comanda name when the table was named', async () => {
   render(
     <ComandaDetailsScreen
@@ -327,6 +342,8 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.getByText('1 x R$ 6,00 = R$ 6,00')).toBeTruthy();
   expect(screen.getByLabelText('Total R$ 6,00')).toBeTruthy();
   expect(screen.queryByText(/Remova todos os itens/)).toBeNull();
+  expect(screen.getByText('Quantidade nova')).toBeTruthy();
+  expect(screen.getByText('Configurar adicionais')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Cancelar comanda vazia' })).toBeNull();
   expect(screen.queryByText(/Confirme todos os itens novos/)).toBeNull();
   expect(screen.getByText('Confirme todos os itens antes de fechar')).toBeTruthy();
