@@ -315,6 +315,7 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.queryByText(/Remova todos os itens/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Cancelar comanda vazia' })).toBeNull();
   expect(screen.queryByText(/Confirme todos os itens novos/)).toBeNull();
+  expect(screen.getByText('Confirme todos os itens antes de fechar')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
   expect(onCheckout).not.toHaveBeenCalled();
 });

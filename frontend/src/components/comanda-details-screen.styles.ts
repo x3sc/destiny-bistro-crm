@@ -1,18 +1,11 @@
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { themeColors } from '../theme/tokens';
-
-const titleFont = Platform.select({
-  android: 'serif',
-  default: 'Georgia',
-  ios: 'Georgia',
-  web: 'Georgia, serif',
-});
 
 export const styles = StyleSheet.create({
   additionalOption: {
     backgroundColor: themeColors.surfaceAccent,
-    borderRadius: 12,
+    borderRadius: 22,
     padding: 12,
   },
   safeArea: {
@@ -25,7 +18,7 @@ export const styles = StyleSheet.create({
     gap: 16,
     maxWidth: 768,
     paddingBottom: 20,
-    paddingHorizontal: 6,
+    paddingHorizontal: 16,
     width: '100%',
   },
   screenHeader: {
@@ -60,11 +53,11 @@ export const styles = StyleSheet.create({
   },
   title: {
     color: themeColors.foreground,
-    fontFamily: titleFont,
     fontSize: 23,
     fontWeight: '700',
   },
   statusBadge: {
+    borderWidth: 1,
     borderRadius: 999,
     fontSize: 12,
     fontWeight: '700',
@@ -74,14 +67,17 @@ export const styles = StyleSheet.create({
   },
   openStatusBadge: {
     backgroundColor: themeColors.statusOpenBadge,
+    borderColor: themeColors.statusOpenBorder,
     color: themeColors.statusOpenText,
   },
   closedStatusBadge: {
     backgroundColor: themeColors.statusFreeBadge,
+    borderColor: themeColors.statusFreeBorder,
     color: themeColors.statusFreeText,
   },
   cancelledStatusBadge: {
     backgroundColor: themeColors.dangerSurface,
+    borderColor: themeColors.dangerBorder,
     color: themeColors.dangerText,
   },
   itemsContainer: {
@@ -90,20 +86,20 @@ export const styles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 17,
+    borderRadius: 22,
     borderWidth: 1,
   },
   openItemsSection: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 17,
+    borderRadius: 22,
     borderWidth: 1,
     overflow: 'hidden',
   },
   confirmedItemsSection: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.borderStrong,
-    borderRadius: 17,
+    borderRadius: 22,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -116,7 +112,6 @@ export const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: themeColors.foreground,
-    fontFamily: titleFont,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -202,7 +197,7 @@ export const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.borderStrong,
-    borderRadius: 10,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 4,
@@ -218,7 +213,7 @@ export const styles = StyleSheet.create({
   smallButton: {
     alignItems: 'center',
     backgroundColor: themeColors.surfaceAccent,
-    borderRadius: 7,
+    borderRadius: 22,
     height: 44,
     justifyContent: 'center',
     width: 44,
@@ -235,7 +230,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 10,
+    borderRadius: 22,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
@@ -265,9 +260,9 @@ export const styles = StyleSheet.create({
   },
   totalCard: {
     alignItems: 'center',
-    backgroundColor: themeColors.surface,
-    borderColor: themeColors.borderStrong,
-    borderRadius: 17,
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
@@ -275,13 +270,12 @@ export const styles = StyleSheet.create({
     padding: 16,
   },
   totalLabel: {
-    color: themeColors.foregroundMuted,
+    color: themeColors.foregroundOnPrimary,
     flex: 1,
     fontSize: 13,
   },
   totalText: {
-    color: themeColors.foreground,
-    fontFamily: titleFont,
+    color: themeColors.foregroundOnPrimary,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -299,12 +293,18 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     gap: 10,
     maxWidth: 768,
-    paddingHorizontal: 6,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     width: '100%',
   },
+  closeHelper: {
+    color: themeColors.statusAwaitingText,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
   primaryActionsRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
   },
   addProductsAction: {
@@ -316,7 +316,7 @@ export const styles = StyleSheet.create({
   error: {
     backgroundColor: themeColors.dangerSurface,
     borderColor: themeColors.dangerBorder,
-    borderRadius: 12,
+    borderRadius: 22,
     borderWidth: 1,
     color: themeColors.dangerText,
     padding: 14,
@@ -324,7 +324,7 @@ export const styles = StyleSheet.create({
   notice: {
     backgroundColor: themeColors.statusAwaitingSurface,
     borderColor: themeColors.statusAwaitingBorder,
-    borderRadius: 12,
+    borderRadius: 22,
     borderWidth: 1,
     color: themeColors.statusAwaitingText,
     padding: 12,
@@ -333,7 +333,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 12,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 50,
@@ -343,6 +343,10 @@ export const styles = StyleSheet.create({
   dangerButton: {
     backgroundColor: themeColors.dangerSurface,
     borderColor: themeColors.dangerBorder,
+  },
+  accentButton: {
+    backgroundColor: themeColors.accent,
+    borderColor: themeColors.accent,
   },
   secondaryButton: {
     backgroundColor: themeColors.surface,
@@ -364,6 +368,9 @@ export const styles = StyleSheet.create({
     color: themeColors.foregroundOnPrimary,
     fontSize: 14,
     fontWeight: '700',
+  },
+  accentButtonText: {
+    color: themeColors.foreground,
   },
   secondaryButtonText: {
     color: themeColors.primary,

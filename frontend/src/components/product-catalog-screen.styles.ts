@@ -1,13 +1,6 @@
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { themeColors } from '../theme/tokens';
-
-const titleFont = Platform.select({
-  android: 'serif',
-  default: 'Georgia',
-  ios: 'Georgia',
-  web: 'Georgia, serif',
-});
 
 export const styles = StyleSheet.create({
   safeArea: {
@@ -41,7 +34,6 @@ export const styles = StyleSheet.create({
   },
   title: {
     color: themeColors.foreground,
-    fontFamily: titleFont,
     fontSize: 21,
     fontWeight: '700',
   },
@@ -54,7 +46,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 13,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,
@@ -122,18 +114,27 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    minHeight: 72,
+    minHeight: 82,
     paddingHorizontal: 15,
     paddingVertical: 11,
   },
   productInfo: {
     flex: 1,
     gap: 3,
+  },
+  productActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  temporaryQuantityLabel: {
+    color: themeColors.statusAwaitingText,
+    fontSize: 11,
+    fontWeight: '700',
   },
   productName: {
     color: themeColors.foreground,
@@ -149,7 +150,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surfaceAccent,
     borderColor: themeColors.primary,
-    borderRadius: 11,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     minHeight: 44,
@@ -192,6 +193,30 @@ export const styles = StyleSheet.create({
   actions: {
     gap: 12,
   },
+  pendingBar: {
+    alignItems: 'center',
+    backgroundColor: themeColors.surface,
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  pendingSummary: {
+    flex: 1,
+    gap: 2,
+  },
+  pendingCount: {
+    color: themeColors.foreground,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  pendingHint: {
+    color: themeColors.foregroundMuted,
+    fontSize: 11,
+    lineHeight: 15,
+  },
   error: {
     backgroundColor: themeColors.dangerSurface,
     borderColor: themeColors.dangerBorder,
@@ -212,10 +237,10 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 11,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 15,
     paddingVertical: 10,
   },

@@ -1,44 +1,37 @@
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { themeColors } from '../theme/tokens';
 
-const titleFont = Platform.select({
-  android: 'serif',
-  default: 'Georgia',
-  ios: 'Georgia',
-  web: 'Georgia, serif',
-});
-
 export const tableStatusBadgeStyles = StyleSheet.create({
   AWAITING_CHECK: {
-    backgroundColor: 'transparent',
-    borderColor: '#ff9d00',
+    backgroundColor: themeColors.statusAwaitingBadge,
+    borderColor: themeColors.statusAwaitingBorder,
     color: themeColors.statusAwaitingText,
   },
   FREE: {
-    backgroundColor: 'transparent',
-    borderColor: '#33ff00',
+    backgroundColor: themeColors.statusFreeBadge,
+    borderColor: themeColors.statusFreeBorder,
     color: themeColors.statusFreeText,
   },
   OPEN: {
-    backgroundColor: 'transparent',
-    borderColor: '#ff0000',
+    backgroundColor: themeColors.statusOpenBadge,
+    borderColor: themeColors.statusOpenBorder,
     color: themeColors.statusOpenText,
   },
 });
 
 export const tableStatusCardStyles = StyleSheet.create({
   AWAITING_CHECK: {
-    backgroundColor: themeColors.surface,
-    borderColor: '#e7e3de',
+    backgroundColor: themeColors.statusAwaitingSurface,
+    borderColor: themeColors.statusAwaitingBorder,
   },
   FREE: {
-    backgroundColor: themeColors.surface,
-    borderColor: '#e7e3de',
+    backgroundColor: themeColors.statusFreeSurface,
+    borderColor: themeColors.statusFreeBorder,
   },
   OPEN: {
-    backgroundColor: themeColors.surface,
-    borderColor: '#e7e3de',
+    backgroundColor: themeColors.statusOpenSurface,
+    borderColor: themeColors.statusOpenBorder,
   },
 });
 
@@ -76,7 +69,6 @@ export const styles = StyleSheet.create({
   },
   title: {
     color: themeColors.foreground,
-    fontFamily: titleFont,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -87,7 +79,7 @@ export const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
     flex: 1,
     gap: 3,
@@ -102,7 +94,6 @@ export const styles = StyleSheet.create({
   },
   summaryValue: {
     color: themeColors.primary,
-    fontFamily: titleFont,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -151,8 +142,8 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   activeFilterChip: {
-    backgroundColor: themeColors.accent,
-    borderColor: themeColors.accent,
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
   },
   filterChipText: {
     color: themeColors.primaryText,
@@ -203,14 +194,14 @@ export const styles = StyleSheet.create({
   tableCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
     flexGrow: 0,
     flexShrink: 0,
     gap: 6,
-    minHeight: 90,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    minHeight: 132,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   tableCardHeading: {
     alignItems: 'flex-start',
@@ -221,8 +212,7 @@ export const styles = StyleSheet.create({
   tableNumber: {
     color: themeColors.foreground,
     flex: 1,
-    fontFamily: titleFont,
-    fontSize: 23,
+    fontSize: 20,
     fontWeight: '700',
   },
   tableStatus: {
@@ -271,7 +261,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 11,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 45,

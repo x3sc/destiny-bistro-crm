@@ -4,10 +4,12 @@ import { themeColors } from '../theme/tokens';
 import { AppIcon } from './app-icon';
 
 export function ScreenBackButton({
+  accessibilityLabel = 'Voltar',
   label = false,
   onPress,
   tone = 'default',
 }: {
+  accessibilityLabel?: string;
   label?: boolean;
   onPress: () => void;
   tone?: 'default' | 'light';
@@ -16,7 +18,7 @@ export function ScreenBackButton({
 
   return (
     <Pressable
-      accessibilityLabel="Voltar"
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       hitSlop={8}
       onPress={onPress}
@@ -45,7 +47,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.border,
-    borderRadius: 11,
+    borderRadius: 22,
     borderWidth: 1,
     height: 44,
     justifyContent: 'center',

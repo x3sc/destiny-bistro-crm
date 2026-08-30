@@ -339,7 +339,11 @@ export function ComandaActions({
   if (credit?.source === 'MANUAL' && credit.status === 'DRAFT') {
     return (
       <View style={styles.actions}>
-        <ActionButton label="Adicionar produtos" onPress={onAddProducts} />
+        <ActionButton
+          label="Adicionar produtos"
+          onPress={onAddProducts}
+          tone="accent"
+        />
         {!canCreateCredit && (
           <Message
             text="Adicione produtos e confirme todos os itens antes de finalizar o fiado."
@@ -370,7 +374,11 @@ export function ComandaActions({
   if (credit?.status === 'OPEN') {
     return (
       <View style={styles.actions}>
-        <ActionButton label="Adicionar produtos" onPress={onAddProducts} />
+        <ActionButton
+          label="Adicionar produtos"
+          onPress={onAddProducts}
+          tone="accent"
+        />
         <Message
           text={
             canCreateCredit
@@ -391,6 +399,7 @@ export function ComandaActions({
             accessibilityLabel="Adicionar produtos"
             label="＋  Adicionar produtos"
             onPress={onAddProducts}
+            tone="accent"
           />
         </View>
         <View style={styles.closeTableAction}>
@@ -402,6 +411,11 @@ export function ComandaActions({
           />
         </View>
       </View>
+      {!canClose && (
+        <Text style={styles.closeHelper}>
+          Confirme todos os itens antes de fechar
+        </Text>
+      )}
       {canCancel && (
         <ActionButton
           disabled={disabled}
@@ -592,7 +606,7 @@ export function ActionButton({
   disabled?: boolean;
   label: string;
   onPress: () => void;
-  tone?: 'danger' | 'primary' | 'secondary' | 'tertiary';
+  tone?: 'accent' | 'danger' | 'primary' | 'secondary' | 'tertiary';
 }) {
   return (
     <Pressable
@@ -602,6 +616,7 @@ export function ActionButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
+        tone === 'accent' && styles.accentButton,
         tone === 'danger' && styles.dangerButton,
         tone === 'secondary' && styles.secondaryButton,
         tone === 'tertiary' && styles.tertiaryButton,
@@ -612,6 +627,7 @@ export function ActionButton({
       <Text
         style={[
           styles.buttonText,
+          tone === 'accent' && styles.accentButtonText,
           tone === 'danger' && styles.dangerButtonText,
           tone === 'secondary' && styles.secondaryButtonText,
           tone === 'tertiary' && styles.tertiaryButtonText,

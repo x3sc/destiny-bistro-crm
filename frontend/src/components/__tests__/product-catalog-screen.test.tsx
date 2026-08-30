@@ -82,6 +82,9 @@ it('shows all products and filters them with category chips', async () => {
   expect(screen.getByText('Água')).toBeTruthy();
   expect(screen.getByText('R$ 6,00')).toBeTruthy();
   expect(screen.getByText('Já lançado: 2')).toBeTruthy();
+  expect(screen.getByText('2 unidades temporárias')).toBeTruthy();
+  expect(screen.getByText('2 itens pendentes')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Voltar à comanda' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Diminuir Café' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Aumentar Café' })).toBeTruthy();
 

@@ -34,6 +34,9 @@ export const creditStyles = StyleSheet.create({
   buttonDanger: {
     backgroundColor: themeColors.dangerSolid,
   },
+  buttonDangerText: {
+    color: themeColors.foregroundOnPrimary,
+  },
   buttonDisabled: {
     opacity: 0.45,
   },
@@ -47,7 +50,7 @@ export const creditStyles = StyleSheet.create({
     color: themeColors.primaryText,
   },
   buttonText: {
-    color: themeColors.foregroundOnPrimary,
+    color: themeColors.foreground,
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'center',
