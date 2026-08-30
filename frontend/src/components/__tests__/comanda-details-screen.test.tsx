@@ -139,6 +139,20 @@ it('uses the shared light theme on the comanda screen', () => {
   );
 });
 
+it('keeps stacked comanda actions at full width without flex compression', () => {
+  expect(comandaStyles.primaryActionsRow).toEqual(
+    expect.objectContaining({ flexDirection: 'column' }),
+  );
+  expect(comandaStyles.addProductsAction).toEqual(
+    expect.objectContaining({ width: '100%' }),
+  );
+  expect(comandaStyles.closeTableAction).toEqual(
+    expect.objectContaining({ width: '100%' }),
+  );
+  expect(comandaStyles.addProductsAction).not.toHaveProperty('flex');
+  expect(comandaStyles.closeTableAction).not.toHaveProperty('flex');
+});
+
 it('shows the comanda name when the table was named', async () => {
   render(
     <ComandaDetailsScreen

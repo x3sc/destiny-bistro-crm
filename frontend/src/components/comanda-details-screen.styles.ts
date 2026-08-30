@@ -308,10 +308,10 @@ export const styles = StyleSheet.create({
     gap: 8,
   },
   addProductsAction: {
-    flex: 1.8,
+    width: '100%',
   },
   closeTableAction: {
-    flex: 1,
+    width: '100%',
   },
   error: {
     backgroundColor: themeColors.dangerSurface,
