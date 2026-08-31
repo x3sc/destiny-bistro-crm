@@ -1,6 +1,10 @@
 import { StyleSheet } from 'react-native';
 
-import { themeColors } from '../theme/tokens';
+import {
+  themeColors,
+  themeRadii,
+  themeSpacing,
+} from '../theme/tokens';
 
 export const creditStyles = StyleSheet.create({
   actions: {
@@ -14,7 +18,7 @@ export const creditStyles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
     backgroundColor: themeColors.surfaceAccent,
-    borderRadius: 999,
+    borderRadius: themeRadii.pill,
     color: themeColors.primary,
     fontSize: 12,
     fontWeight: '700',
@@ -25,7 +29,7 @@ export const creditStyles = StyleSheet.create({
   button: {
     alignItems: 'center',
     backgroundColor: themeColors.accent,
-    borderRadius: 23,
+    borderRadius: themeRadii.standard,
     minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -33,6 +37,9 @@ export const creditStyles = StyleSheet.create({
   },
   buttonDanger: {
     backgroundColor: themeColors.dangerSolid,
+  },
+  buttonDangerText: {
+    color: themeColors.foregroundOnPrimary,
   },
   buttonDisabled: {
     opacity: 0.45,
@@ -47,7 +54,7 @@ export const creditStyles = StyleSheet.create({
     color: themeColors.primaryText,
   },
   buttonText: {
-    color: themeColors.foregroundOnPrimary,
+    color: themeColors.foreground,
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'center',
@@ -55,7 +62,7 @@ export const creditStyles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     gap: 8,
     minHeight: 82,
@@ -77,7 +84,7 @@ export const creditStyles = StyleSheet.create({
     gap: 16,
     maxWidth: 760,
     paddingBottom: 36,
-    paddingHorizontal: 25,
+    paddingHorizontal: themeSpacing.mobileMargin,
     paddingTop: 22,
     width: '100%',
   },
@@ -88,14 +95,14 @@ export const creditStyles = StyleSheet.create({
   },
   empty: {
     backgroundColor: themeColors.surface,
-    borderRadius: 16,
+    borderRadius: themeRadii.compact,
     color: themeColors.foregroundMuted,
     fontSize: 15,
     padding: 18,
   },
   error: {
     backgroundColor: themeColors.dangerSurface,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     color: themeColors.dangerText,
     fontSize: 14,
     padding: 12,
@@ -110,7 +117,7 @@ export const creditStyles = StyleSheet.create({
   field: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     color: themeColors.foreground,
     fontSize: 15,
@@ -137,7 +144,7 @@ export const creditStyles = StyleSheet.create({
   },
   notice: {
     backgroundColor: themeColors.statusAwaitingSurface,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     color: themeColors.statusAwaitingText,
     fontSize: 14,
     padding: 12,
@@ -174,7 +181,7 @@ export const creditStyles = StyleSheet.create({
   formCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     gap: 14,
     padding: 16,
@@ -182,7 +189,7 @@ export const creditStyles = StyleSheet.create({
   summaryCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     gap: 8,
     paddingHorizontal: 20,

@@ -166,6 +166,14 @@ export function ProductCatalogScreen({
               normalizeSearchText(product.name).includes(normalizedSearchQuery)),
         )
       : [];
+  const pendingItemCount =
+    state.kind === 'success'
+      ? state.comanda.items.reduce(
+          (total, item) =>
+            total + Math.max(item.quantity - item.confirmedQuantity, 0),
+          0,
+        )
+      : 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -281,6 +289,24 @@ export function ProductCatalogScreen({
           </>
         )}
       </View>
+      {state.kind === 'success' && (
+        <View style={styles.pendingBar}>
+          <View style={styles.pendingSummary}>
+            <Text style={styles.pendingCount}>
+              {pendingItemCount}{' '}
+              {pendingItemCount === 1 ? 'item pendente' : 'itens pendentes'}
+            </Text>
+            <Text style={styles.pendingHint}>
+              Confirme os itens na comanda antes de fechar.
+            </Text>
+          </View>
+          <ActionButton
+            accessibilityLabel="Voltar à comanda"
+            label="Voltar à comanda"
+            onPress={onBack}
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -353,29 +379,34 @@ function ProductCard({
         )}
       </View>
       {temporaryQuantity > 0 ? (
-        <View style={[styles.quantityControl, disabled && styles.disabledButton]}>
-          <QuantityButton
-            accessibilityLabel={`Diminuir ${product.name}`}
-            disabled={disabled}
-            label="−"
-            onPress={onDecrement}
-          />
-          {submitting ? (
-            <ActivityIndicator color={themeColors.primary} size="small" />
-          ) : (
-            <Text
-              accessibilityLabel={`${temporaryQuantity} unidades temporárias`}
-              style={styles.quantityControlValue}
-            >
-              {temporaryQuantity}
-            </Text>
-          )}
-          <QuantityButton
-            accessibilityLabel={`Aumentar ${product.name}`}
-            disabled={disabled}
-            label="+"
-            onPress={onIncrement}
-          />
+        <View style={styles.productActions}>
+          <Text style={styles.temporaryQuantityLabel}>
+            {temporaryQuantity}{' '}
+            {temporaryQuantity === 1
+              ? 'unidade temporária'
+              : 'unidades temporárias'}
+          </Text>
+          <View style={[styles.quantityControl, disabled && styles.disabledButton]}>
+            <QuantityButton
+              accessibilityLabel={`Diminuir ${product.name}`}
+              disabled={disabled}
+              label="−"
+              onPress={onDecrement}
+            />
+            {submitting ? (
+              <ActivityIndicator color={themeColors.primary} size="small" />
+            ) : (
+              <Text style={styles.quantityControlValue}>
+                {temporaryQuantity}
+              </Text>
+            )}
+            <QuantityButton
+              accessibilityLabel={`Aumentar ${product.name}`}
+              disabled={disabled}
+              label="+"
+              onPress={onIncrement}
+            />
+          </View>
         </View>
       ) : (
         <ActionButton

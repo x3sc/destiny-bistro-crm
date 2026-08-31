@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { Comanda } from '../../services/comandas-api';
 import type { Product } from '../../services/products-api';
-import { themeColors } from '../../theme/tokens';
+import { themeColors, themeSpacing } from '../../theme/tokens';
 import { styles as catalogStyles } from '../product-catalog-screen.styles';
 import { ProductCatalogScreen } from '../product-catalog-screen';
 
@@ -82,6 +82,9 @@ it('shows all products and filters them with category chips', async () => {
   expect(screen.getByText('Água')).toBeTruthy();
   expect(screen.getByText('R$ 6,00')).toBeTruthy();
   expect(screen.getByText('Já lançado: 2')).toBeTruthy();
+  expect(screen.getByText('2 unidades temporárias')).toBeTruthy();
+  expect(screen.getByText('2 itens pendentes')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Voltar à comanda' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Diminuir Café' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Aumentar Café' })).toBeTruthy();
 
@@ -105,6 +108,12 @@ it('uses the shared light theme on the product catalog', () => {
   );
   expect(catalogStyles.button).toEqual(
     expect.objectContaining({ backgroundColor: themeColors.primary }),
+  );
+  expect(catalogStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
+  );
+  expect(catalogStyles.pendingBar).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
   );
 });
 

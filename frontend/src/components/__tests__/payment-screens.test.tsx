@@ -5,7 +5,13 @@ import type {
   CreditCustomerDetails,
   CreditOrder,
 } from '../../services/credits-api';
+import { formatCentsAsBrl } from '../../services/money';
+import {
+  themeRadii,
+  themeSpacing,
+} from '../../theme/tokens';
 import { ComandaCheckoutScreen } from '../comanda-checkout-screen';
+import { creditStyles } from '../credit-screens.styles';
 import { CreditPaymentScreen } from '../credit-payment-screen';
 
 jest.mock('expo-router', () => {
@@ -66,6 +72,15 @@ const order: CreditOrder = {
   totalCents: 2000,
 };
 
+it('uses the Stitch spacing and radius tokens on checkout surfaces', () => {
+  expect(creditStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
+  );
+  expect(creditStyles.button).toEqual(
+    expect.objectContaining({ borderRadius: themeRadii.standard }),
+  );
+});
+
 it('closes a table with mixed partial payment and a selected customer', async () => {
   const closeRequest = jest.fn(() =>
     Promise.resolve({
@@ -112,6 +127,14 @@ it('closes a table with mixed partial payment and a selected customer', async ()
   fireEvent.press(screen.getByRole('button', { name: /Adicionar outra forma/ }));
   fireEvent.changeText(screen.getByLabelText('Valor do pagamento 2'), '1500');
   selectMethod(2, 'Pix');
+  expect(screen.getByText('Total da comanda')).toBeTruthy();
+  expect(screen.getByTestId('checkout-footer')).toBeTruthy();
+  expect(screen.getByText(`Restante: ${formatCentsAsBrl(1500)}`)).toBeTruthy();
+  expect(
+    screen.getByText(
+      'O saldo restante será registrado no fiado e exige uma pessoa responsável.',
+    ),
+  ).toBeTruthy();
   fireEvent.press(
     screen.getByRole('button', { name: 'Confirmar e deixar saldo em fiado' }),
   );
@@ -121,7 +144,13 @@ it('closes a table with mixed partial payment and a selected customer', async ()
   fireEvent.press(screen.getByRole('button', { name: 'Buscar cadastrados' }));
   fireEvent.changeText(screen.getByLabelText('Buscar pessoa cadastrada'), 'mari');
   fireEvent.press(screen.getByText('Maria'));
-  fireEvent.press(screen.getByRole('button', { name: 'Confirmar fiado' }));
+  expect(screen.getByText('Responsável: Maria')).toBeTruthy();
+  expect(
+    screen.getByText(`Novo saldo: ${formatCentsAsBrl(1500)}`),
+  ).toBeTruthy();
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar fiado e fechar mesa' }),
+  );
 
   await waitFor(() => {
     expect(closeRequest).toHaveBeenCalledWith(
@@ -188,11 +217,13 @@ it('creates and selects a new credit without leaving checkout', async () => {
       'Joana',
     );
     expect(
-      screen.getByRole('button', { name: 'Confirmar fiado' }).props
+      screen.getByRole('button', { name: 'Confirmar fiado e fechar mesa' }).props
         .accessibilityState,
     ).toEqual(expect.objectContaining({ disabled: false }));
   });
-  fireEvent.press(screen.getByRole('button', { name: 'Confirmar fiado' }));
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar fiado e fechar mesa' }),
+  );
 
   await waitFor(() => {
     expect(closeRequest).toHaveBeenCalledWith(
