@@ -17,6 +17,7 @@
 - Start from `develop`, the integration branch
 - Create a GitHub issue before implementation
 - Create a short-lived branch from `develop`
+- Keep the implementation branch local until the user has tested it and explicitly authorized publication; do not push the branch or open a pull request before that approval
 - Always use pull requests targeting `develop`; do not merge directly
 - Run all configured quality, security, and test checks before requesting review
 - Rebase the branch against `develop` before the final push
