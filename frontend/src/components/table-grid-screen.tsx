@@ -18,7 +18,7 @@ import {
   type RestaurantTable,
   type RestaurantTableStatus,
 } from '../services/tables-api';
-import { themeColors } from '../theme/tokens';
+import { themeColors, themeSpacing } from '../theme/tokens';
 import {
   styles,
   tableStatusBadgeStyles,
@@ -56,8 +56,8 @@ const filterOptions: { label: string; value: TableFilter }[] = [
 ];
 
 const CONTENT_MAX_WIDTH = 1180;
-const CONTENT_HORIZONTAL_PADDING = 32;
-const TABLE_GRID_GAP = 12;
+const CONTENT_HORIZONTAL_PADDING = themeSpacing.mobileMargin * 2;
+const TABLE_GRID_GAP = themeSpacing.sm;
 
 export function getTableGridMetrics(windowWidth: number) {
   const contentWidth = Math.min(windowWidth, CONTENT_MAX_WIDTH);
@@ -153,7 +153,7 @@ export function TableGridScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <BrandedScreenHeader onBack={onBack} title="Mesas" />
+      <BrandedScreenHeader onBack={onBack} title="Destiny Bistro CRM" />
       <View style={styles.content}>
         {!normalizedApiBaseUrl && (
           <MessageCard

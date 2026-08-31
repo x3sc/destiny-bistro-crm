@@ -1,6 +1,10 @@
 import { StyleSheet } from 'react-native';
 
-import { themeColors } from '../theme/tokens';
+import {
+  themeColors,
+  themeRadii,
+  themeSpacing,
+} from '../theme/tokens';
 
 export const tableStatusBadgeStyles = StyleSheet.create({
   AWAITING_CHECK: {
@@ -44,10 +48,10 @@ export const styles = StyleSheet.create({
     alignSelf: 'center',
     flex: 1,
     backgroundColor: themeColors.background,
-    gap: 10,
+    gap: themeSpacing.sm,
     maxWidth: 1180,
     paddingBottom: 16,
-    paddingHorizontal: 16,
+    paddingHorizontal: themeSpacing.mobileMargin,
     paddingTop: 14,
     width: '100%',
   },
@@ -79,7 +83,7 @@ export const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flex: 1,
     gap: 3,
@@ -101,7 +105,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,
@@ -133,7 +137,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 999,
+    borderRadius: themeRadii.pill,
     borderWidth: 1,
     flexShrink: 0,
     height: 44,
@@ -169,7 +173,7 @@ export const styles = StyleSheet.create({
   messageCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     borderWidth: 1,
     color: themeColors.message,
     padding: 15,
@@ -180,7 +184,7 @@ export const styles = StyleSheet.create({
     color: themeColors.dangerText,
   },
   tableGrid: {
-    gap: 9,
+    gap: themeSpacing.sm,
     paddingBottom: 4,
     paddingTop: 4,
   },
@@ -189,12 +193,12 @@ export const styles = StyleSheet.create({
     minHeight: 0,
   },
   tableRow: {
-    gap: 9,
+    gap: themeSpacing.sm,
   },
   tableCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flexGrow: 0,
     flexShrink: 0,
@@ -216,7 +220,7 @@ export const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tableStatus: {
-    borderRadius: 999,
+    borderRadius: themeRadii.pill,
     borderWidth: 1,
     fontSize: 12,
     fontWeight: '700',
@@ -249,7 +253,7 @@ export const styles = StyleSheet.create({
   },
   emptyResults: {
     borderColor: themeColors.borderStrong,
-    borderRadius: 14,
+    borderRadius: themeRadii.compact,
     borderStyle: 'dashed',
     borderWidth: 1,
     color: themeColors.foregroundSoft,
@@ -261,7 +265,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 45,

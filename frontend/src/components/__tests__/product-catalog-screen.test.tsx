@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { Comanda } from '../../services/comandas-api';
 import type { Product } from '../../services/products-api';
-import { themeColors } from '../../theme/tokens';
+import { themeColors, themeSpacing } from '../../theme/tokens';
 import { styles as catalogStyles } from '../product-catalog-screen.styles';
 import { ProductCatalogScreen } from '../product-catalog-screen';
 
@@ -108,6 +108,12 @@ it('uses the shared light theme on the product catalog', () => {
   );
   expect(catalogStyles.button).toEqual(
     expect.objectContaining({ backgroundColor: themeColors.primary }),
+  );
+  expect(catalogStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
+  );
+  expect(catalogStyles.pendingBar).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
   );
 });
 

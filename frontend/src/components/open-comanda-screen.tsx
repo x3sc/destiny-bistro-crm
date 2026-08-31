@@ -4,7 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openComanda, type Comanda } from '../services/comandas-api';
 import { normalizeApiBaseUrl } from '../services/api-base-url';
-import { themeColors } from '../theme/tokens';
+import {
+  themeColors,
+  themeRadii,
+  themeSpacing,
+  themeTypography,
+} from '../theme/tokens';
 import { ScreenBackButton } from './screen-back-button';
 
 interface OpenComandaScreenProps {
@@ -48,18 +53,18 @@ export function OpenComandaScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header} testID="open-comanda-header">
+        <ScreenBackButton
+          accessibilityLabel="Voltar para mesas"
+          onPress={onBack}
+          tone="light"
+        />
+        <Text numberOfLines={1} style={styles.title}>
+          Abrir comanda
+        </Text>
+        <View style={styles.headerSpacer} />
+      </View>
       <View style={styles.content}>
-        <View style={styles.header}>
-          <ScreenBackButton
-            accessibilityLabel="Voltar para mesas"
-            onPress={onBack}
-          />
-          <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>Destiny Bistro CRM</Text>
-            <Text style={styles.title}>Abrir comanda</Text>
-          </View>
-        </View>
-
         {!normalizedApiBaseUrl && (
           <Text style={styles.error}>
             Configure EXPO_PUBLIC_API_URL antes de iniciar o aplicativo.
@@ -70,7 +75,7 @@ export function OpenComandaScreen({
 
         {normalizedApiBaseUrl && isValidTable && (
           <>
-            <View style={styles.card}>
+            <View style={styles.card} testID="open-comanda-card">
               <View style={styles.tableHeading}>
                 <Text style={styles.table}>Mesa {tableNumber}</Text>
                 <Text style={styles.freeBadge}>Livre</Text>
@@ -153,38 +158,37 @@ function ActionButton({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: themeColors.background,
+    backgroundColor: themeColors.primary,
   },
   content: {
+    backgroundColor: themeColors.background,
     flex: 1,
-    gap: 18,
-    padding: 20,
+    gap: themeSpacing.lg,
+    padding: themeSpacing.mobileMargin,
   },
   header: {
     alignItems: 'center',
+    backgroundColor: themeColors.primary,
+    borderBottomColor: themeColors.accent,
+    borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-  },
-  headerCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  eyebrow: {
-    color: themeColors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    gap: themeSpacing.sm,
+    minHeight: 56,
+    paddingHorizontal: themeSpacing.mobileMargin,
   },
   title: {
-    color: themeColors.foreground,
-    fontSize: 26,
-    fontWeight: '700',
+    color: themeColors.foregroundOnPrimary,
+    flex: 1,
+    textAlign: 'center',
+    ...themeTypography.sectionTitle,
+  },
+  headerSpacer: {
+    width: themeSpacing.touchTargetMin,
   },
   card: {
-    backgroundColor: themeColors.surface,
+    backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     gap: 12,
     padding: 20,
@@ -202,7 +206,7 @@ const styles = StyleSheet.create({
   freeBadge: {
     backgroundColor: themeColors.statusFreeBadge,
     borderColor: themeColors.statusFreeBorder,
-    borderRadius: 999,
+    borderRadius: themeRadii.pill,
     borderWidth: 1,
     color: themeColors.statusFreeText,
     fontSize: 12,
@@ -225,7 +229,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     color: themeColors.foreground,
     fontSize: 15,
@@ -236,7 +240,7 @@ const styles = StyleSheet.create({
   helper: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.divider,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     color: themeColors.foregroundMuted,
     fontSize: 13,
@@ -245,7 +249,7 @@ const styles = StyleSheet.create({
   },
   error: {
     backgroundColor: themeColors.dangerSurface,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     color: themeColors.dangerText,
     padding: 16,
   },
@@ -257,7 +261,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,

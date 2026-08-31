@@ -25,6 +25,7 @@ import { themeColors } from '../theme/tokens';
 import {
   ActionButton,
   ComandaActions,
+  ComandaCancellationAction,
   ComandaItems,
   Message,
   statusLabels,
@@ -77,6 +78,7 @@ export function ComandaDetailsScreen({
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [isMutating, setIsMutating] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [footerHeight, setFooterHeight] = useState(0);
   const [state, setState] = useState<ComandaDetailsState>({ kind: 'loading' });
   const [additionalEditor, setAdditionalEditor] = useState<{
     additionals: NonNullable<Product['additionals']>;
@@ -187,8 +189,15 @@ export function ComandaDetailsScreen({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: footerHeight + 20 },
+        ]}
+        style={styles.scroll}
+        testID="comanda-scroll"
+      >
         <ComandaHeader
           comanda={state.kind === 'success' ? state.comanda : undefined}
           onBack={onBack}
@@ -397,55 +406,69 @@ export function ComandaDetailsScreen({
               }
             }}
             />
+            {!readOnly &&
+              state.comanda.status === 'OPEN' &&
+              !state.comanda.credit &&
+              (!state.comanda.items.some((item) => item.confirmedQuantity > 0) ||
+                canCancelConfirmed) && (
+                <ComandaCancellationAction
+                  disabled={isMutating}
+                  hasItems={state.comanda.items.some((item) => item.quantity > 0)}
+                  onCancel={() => {
+                    if (state.comanda.items.some((item) => item.quantity > 0)) {
+                      setTotalCancellationEditor({
+                        disposition: 'RETURN_TO_STOCK',
+                        reason: '',
+                        requestId: `cancel-comanda-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                      });
+                    } else {
+                      void confirmCancellation();
+                    }
+                  }}
+                />
+              )}
           </>
         )}
       </ScrollView>
 
       {state.kind === 'success' && (
-        <ComandaActions
-          canCancel={
-            !state.comanda.items.some((item) => item.confirmedQuantity > 0) ||
-            canCancelConfirmed
-          }
-          canClose={state.comanda.items.every(
-            (item) => item.quantity === item.confirmedQuantity,
-          )}
-          canCreateCredit={
-            state.comanda.items.length > 0 &&
-            state.comanda.items.every(
+        <SafeAreaView
+          edges={['bottom']}
+          onLayout={({ nativeEvent }) => {
+            setFooterHeight(nativeEvent.layout.height);
+          }}
+          style={styles.fixedFooter}
+          testID="comanda-footer"
+        >
+          <ComandaActions
+            canClose={state.comanda.items.every(
               (item) => item.quantity === item.confirmedQuantity,
-            )
-          }
-          credit={state.comanda.credit}
-          disabled={isMutating}
-          isClosing={isClosing}
-          hasItems={state.comanda.items.some((item) => item.quantity > 0)}
-          onAddProducts={() => {
-            onAddProducts(comandaId);
-          }}
-          onCancel={() => {
-            if (state.comanda.items.some((item) => item.quantity > 0)) {
-              setTotalCancellationEditor({
-                disposition: 'RETURN_TO_STOCK',
-                reason: '',
-                requestId: `cancel-comanda-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              });
-            } else {
-              void confirmCancellation();
+            )}
+            canCreateCredit={
+              state.comanda.items.length > 0 &&
+              state.comanda.items.every(
+                (item) => item.quantity === item.confirmedQuantity,
+              )
             }
-          }}
-          onCancelCredit={() => {
-            void cancelCreditDraft(state.comanda);
-          }}
-          onClose={() => {
-            onCheckout?.(state.comanda);
-          }}
-          onFinalizeCredit={() => {
-            void finalizeCreditDraft(state.comanda);
-          }}
-          status={state.comanda.status}
-          readOnly={readOnly}
-        />
+            credit={state.comanda.credit}
+            disabled={isMutating}
+            isClosing={isClosing}
+            onAddProducts={() => {
+              onAddProducts(comandaId);
+            }}
+            onCancelCredit={() => {
+              void cancelCreditDraft(state.comanda);
+            }}
+            onClose={() => {
+              onCheckout?.(state.comanda);
+            }}
+            onFinalizeCredit={() => {
+              void finalizeCreditDraft(state.comanda);
+            }}
+            status={state.comanda.status}
+            readOnly={readOnly}
+          />
+        </SafeAreaView>
       )}
     </SafeAreaView>
   );

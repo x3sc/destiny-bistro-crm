@@ -1,6 +1,10 @@
 import { StyleSheet } from 'react-native';
 
-import { themeColors } from '../theme/tokens';
+import {
+  themeColors,
+  themeRadii,
+  themeSpacing,
+} from '../theme/tokens';
 
 export const styles = StyleSheet.create({
   safeArea: {
@@ -10,10 +14,10 @@ export const styles = StyleSheet.create({
   content: {
     alignSelf: 'center',
     flex: 1,
-    gap: 12,
+    gap: themeSpacing.sm,
     maxWidth: 768,
     paddingBottom: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: themeSpacing.mobileMargin,
     width: '100%',
   },
   heading: {
@@ -46,7 +50,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,
@@ -82,7 +86,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 999,
+    borderRadius: themeRadii.pill,
     borderWidth: 1,
     justifyContent: 'center',
     flexShrink: 0,
@@ -114,7 +118,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
@@ -150,7 +154,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surfaceAccent,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     flexDirection: 'row',
     minHeight: 44,
@@ -176,11 +180,11 @@ export const styles = StyleSheet.create({
   },
   emptyResults: {
     borderColor: themeColors.borderStrong,
-    borderRadius: 14,
+    borderRadius: themeRadii.compact,
     borderStyle: 'dashed',
     borderWidth: 1,
     color: themeColors.foregroundMuted,
-    paddingHorizontal: 16,
+    paddingHorizontal: themeSpacing.mobileMargin,
     paddingVertical: 30,
     textAlign: 'center',
   },
@@ -200,7 +204,7 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: themeSpacing.mobileMargin,
     paddingVertical: 12,
   },
   pendingSummary: {
@@ -220,7 +224,7 @@ export const styles = StyleSheet.create({
   error: {
     backgroundColor: themeColors.dangerSurface,
     borderColor: themeColors.dangerBorder,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     borderWidth: 1,
     color: themeColors.dangerText,
     padding: 14,
@@ -228,7 +232,7 @@ export const styles = StyleSheet.create({
   messageCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 12,
+    borderRadius: themeRadii.compact,
     borderWidth: 1,
     color: themeColors.foregroundMuted,
     padding: 16,
@@ -237,7 +241,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.standard,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 48,

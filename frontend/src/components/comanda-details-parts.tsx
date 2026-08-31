@@ -1,4 +1,4 @@
-import { Alert, Platform, Pressable, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import { type Comanda, type ComandaItem, type ComandaItemConfiguration } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
@@ -94,15 +94,10 @@ export function ComandaItems({
                 <View key={`${item.id}-new`} style={styles.itemRow}>
                   <View style={styles.itemHeader}>
                     <Text style={styles.itemName}>{item.productName}</Text>
-                    <QuantityControls
-                      disabled={disabled}
-                      item={item}
-                      onChangeQuantity={onChangeQuantity}
-                      onConfirmItem={onConfirmItem}
-                      onConfigureAdditionals={onConfigureAdditionals}
-                      onRemoveItem={onRemoveItem}
-                    />
                   </View>
+                  <Text style={styles.itemUnitPrice}>
+                    {formatCentsAsBrl(item.unitPriceCents)} por unidade
+                  </Text>
                   <Text style={styles.description}>
                     {newQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                     {formatCentsAsBrl(newQuantity * item.unitPriceCents)}
@@ -111,6 +106,14 @@ export function ComandaItems({
                   <Text style={styles.itemTimestamp}>
                     Adicionado em: {formatItemDateTime(item.createdAt)}
                   </Text>
+                  <QuantityControls
+                    disabled={disabled}
+                    item={item}
+                    onChangeQuantity={onChangeQuantity}
+                    onConfirmItem={onConfirmItem}
+                    onConfigureAdditionals={onConfigureAdditionals}
+                    onRemoveItem={onRemoveItem}
+                  />
                 </View>
               );
             })}
@@ -138,6 +141,9 @@ export function ComandaItems({
                   <Text style={styles.itemName}>{item.productName}</Text>
                   <Text style={styles.confirmedBadge}>Confirmado</Text>
                 </View>
+                <Text style={styles.itemUnitPrice}>
+                  {formatCentsAsBrl(item.unitPriceCents)} por unidade
+                </Text>
                 <Text style={styles.description}>
                   {item.confirmedQuantity} x {formatCentsAsBrl(item.unitPriceCents)} ={' '}
                   {formatCentsAsBrl(item.confirmedQuantity * item.unitPriceCents)}
@@ -251,11 +257,14 @@ function ConfigurationDetails({
             </Text>
             {mode === 'confirmed' && onCancelConfiguration ? (
               <Pressable
+                accessibilityLabel="Cancelar unidades confirmadas"
                 accessibilityRole="button"
                 onPress={() => onCancelConfiguration(item, configuration)}
-                style={styles.smallButton}
+                style={styles.cancelConfirmedButton}
               >
-                <Text style={styles.smallButtonText}>Cancelar unidades confirmadas</Text>
+                <Text numberOfLines={1} style={styles.cancelConfirmedButtonText}>
+                  Cancelar unidades confirmadas
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -291,36 +300,33 @@ function formatItemDateTime(value: string) {
 }
 
 export function ComandaActions({
-  canCancel,
   canClose,
   canCreateCredit,
   credit,
   disabled,
   isClosing,
-  hasItems,
   onAddProducts,
-  onCancel,
   onCancelCredit,
   onClose,
   onFinalizeCredit,
   readOnly,
   status,
 }: {
-  canCancel: boolean;
   canClose: boolean;
   canCreateCredit: boolean;
   credit: Comanda['credit'];
   disabled: boolean;
   isClosing: boolean;
-  hasItems: boolean;
   onAddProducts: () => void;
-  onCancel: () => void;
   onCancelCredit: () => void;
   onClose: () => void;
   onFinalizeCredit: () => void;
   readOnly: boolean;
   status: Comanda['status'];
 }) {
+  const { width } = useWindowDimensions();
+  const stackPrimaryActions = width < 360;
+
   if (readOnly) {
     return (
       <View style={styles.actions}>
@@ -392,9 +398,20 @@ export function ComandaActions({
   }
 
   return (
-    <View style={styles.actions}>
-      <View style={styles.primaryActionsRow}>
-        <View style={styles.addProductsAction}>
+    <View style={styles.actions} testID="comanda-primary-actions">
+      <View
+        style={[
+          styles.primaryActionsRow,
+          stackPrimaryActions && styles.primaryActionsColumn,
+        ]}
+      >
+        <View
+          style={
+            stackPrimaryActions
+              ? styles.stackedPrimaryAction
+              : styles.addProductsAction
+          }
+        >
           <ActionButton
             accessibilityLabel="Adicionar produtos"
             label="＋  Adicionar produtos"
@@ -402,7 +419,13 @@ export function ComandaActions({
             tone="accent"
           />
         </View>
-        <View style={styles.closeTableAction}>
+        <View
+          style={
+            stackPrimaryActions
+              ? styles.stackedPrimaryAction
+              : styles.closeTableAction
+          }
+        >
           <ActionButton
             disabled={disabled || !canClose}
             label={isClosing ? 'Fechando...' : 'Fechar mesa'}
@@ -416,24 +439,45 @@ export function ComandaActions({
           Confirme todos os itens antes de fechar
         </Text>
       )}
-      {canCancel && (
-        <ActionButton
-          disabled={disabled}
-          label={disabled ? 'Cancelando...' : hasItems ? 'Cancelar comanda' : 'Cancelar comanda vazia'}
-          onPress={() => {
-            if (hasItems) {
-              onCancel();
-            } else {
-              confirmDestructiveAction({
-                message: 'Deseja cancelar esta comanda vazia e liberar a mesa?',
-                onConfirm: onCancel,
-                title: 'Cancelar comanda',
-              });
-            }
-          }}
-          tone="danger"
-        />
-      )}
+    </View>
+  );
+}
+
+export function ComandaCancellationAction({
+  disabled,
+  hasItems,
+  onCancel,
+}: {
+  disabled: boolean;
+  hasItems: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <View style={styles.cancellationSection} testID="comanda-cancellation-actions">
+      <Text style={styles.sectionTitle}>Ações da comanda</Text>
+      <Text style={styles.cancellationDescription}>
+        O cancelamento exige confirmação e registro do motivo.
+      </Text>
+      <ActionButton
+        disabled={disabled}
+        label={
+          disabled
+            ? 'Cancelando...'
+            : hasItems
+              ? 'Cancelar comanda'
+              : 'Cancelar comanda vazia'
+        }
+        onPress={() => {
+          confirmDestructiveAction({
+            message: hasItems
+              ? 'Deseja continuar com o cancelamento desta comanda? O motivo será solicitado em seguida.'
+              : 'Deseja cancelar esta comanda vazia e liberar a mesa?',
+            onConfirm: onCancel,
+            title: 'Cancelar comanda',
+          });
+        }}
+        tone="danger"
+      />
     </View>
   );
 }

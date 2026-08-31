@@ -18,8 +18,20 @@ export const styles = StyleSheet.create({
     gap: 16,
     maxWidth: 768,
     paddingBottom: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     width: '100%',
+  },
+  scroll: {
+    flex: 1,
+  },
+  fixedFooter: {
+    alignItems: 'center',
+    backgroundColor: themeColors.background,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 10,
   },
   screenHeader: {
     alignItems: 'center',
@@ -196,6 +208,11 @@ export const styles = StyleSheet.create({
     paddingTop: 12,
     width: '100%',
   },
+  itemUnitPrice: {
+    color: themeColors.foregroundMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
   quantityActionsLabel: {
     color: themeColors.foregroundMuted,
     fontSize: 12,
@@ -247,6 +264,24 @@ export const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 12,
     width: '100%',
+  },
+  cancelConfirmedButton: {
+    alignItems: 'center',
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.dangerBorder,
+    borderRadius: 22,
+    borderWidth: 1,
+    justifyContent: 'center',
+    marginTop: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    width: '100%',
+  },
+  cancelConfirmedButtonText: {
+    color: themeColors.dangerText,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   additionalButton: {
     backgroundColor: themeColors.surface,
@@ -311,9 +346,22 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     gap: 10,
     maxWidth: 768,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     width: '100%',
+  },
+  cancellationSection: {
+    backgroundColor: themeColors.surfaceMuted,
+    borderColor: themeColors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  cancellationDescription: {
+    color: themeColors.foregroundSoft,
+    fontSize: 13,
+    lineHeight: 19,
   },
   closeHelper: {
     color: themeColors.statusAwaitingText,
@@ -322,13 +370,21 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
   },
   primaryActionsRow: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     gap: 8,
   },
+  primaryActionsColumn: {
+    flexDirection: 'column',
+  },
   addProductsAction: {
-    width: '100%',
+    flex: 1.27,
+    minWidth: 0,
   },
   closeTableAction: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stackedPrimaryAction: {
     width: '100%',
   },
   error: {
@@ -354,7 +410,7 @@ export const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 50,
+    minHeight: 52,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },

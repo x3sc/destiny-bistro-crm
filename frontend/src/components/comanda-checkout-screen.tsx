@@ -122,10 +122,32 @@ export function ComandaCheckoutScreen({
     state.kind === 'success'
       ? state.customers.find((customer) => customer.id === customerId)
       : undefined;
+  const primaryActionLabel =
+    state.kind !== 'success'
+      ? ''
+      : submitting
+        ? 'Processando...'
+        : paidCents === state.comanda.totalCents
+          ? `Confirmar e fechar ${entityLabel}`
+          : paidCents === 0
+            ? 'Fechar como fiado'
+            : 'Confirmar e deixar saldo em fiado';
+
+  const handlePrimaryAction = () => {
+    if (state.kind !== 'success') return;
+    if (paidCents < state.comanda.totalCents) {
+      setSubmitError(false);
+      setCustomerSearchQuery('');
+      setCustomerSearchVisible(false);
+      setCreditModalVisible(true);
+    } else {
+      void submit();
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} style={styles.scroll}>
         <View style={checkoutStyles.header}>
           <ScreenBackButton onPress={onBack} />
           <View style={styles.heading}>
@@ -174,33 +196,21 @@ export function ComandaCheckoutScreen({
               </Text>
             )}
 
-            <CreditButton
-              disabled={submitting || !paymentsValid}
-              label={
-                submitting
-                  ? 'Processando...'
-                  : paidCents === state.comanda.totalCents
-                    ? `Confirmar e fechar ${entityLabel}`
-                    : paidCents === 0
-                      ? 'Fechar como fiado'
-                      : 'Confirmar e deixar saldo em fiado'
-              }
-              onPress={() => {
-                if (paidCents < state.comanda.totalCents) {
-                  setSubmitError(false);
-                  setCustomerSearchQuery('');
-                  setCustomerSearchVisible(false);
-                  setCreditModalVisible(true);
-                } else {
-                  void submit();
-                }
-              }}
-            />
           </>
         )}
 
         {submitError && <Text style={styles.error}>Confira os valores e selecione a pessoa responsável.</Text>}
       </ScrollView>
+
+      {state.kind === 'success' && (
+        <View style={checkoutStyles.footer} testID="checkout-footer">
+          <CreditButton
+            disabled={submitting || !paymentsValid}
+            label={primaryActionLabel}
+            onPress={handlePrimaryAction}
+          />
+        </View>
+      )}
 
       {state.kind === 'success' && (
         <Modal
@@ -390,6 +400,13 @@ const checkoutStyles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     gap: 12,
+  },
+  footer: {
+    backgroundColor: themeColors.background,
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   totalCard: {
     backgroundColor: themeColors.primary,

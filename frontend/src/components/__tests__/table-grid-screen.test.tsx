@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { RestaurantTable } from '../../services/tables-api';
-import { themeColors } from '../../theme/tokens';
+import { themeColors, themeSpacing } from '../../theme/tokens';
 import { getTableGridMetrics, TableGridScreen } from '../table-grid-screen';
+import { styles as tableStyles } from '../table-grid-screen.styles';
 
 jest.mock('expo-router', () => {
   const react = jest.requireActual<typeof import('react')>('react');
@@ -26,11 +27,23 @@ const tables: RestaurantTable[] = [
 ];
 
 it('adapts the table grid to the available screen width', () => {
-  expect(getTableGridMetrics(320)).toEqual({ cardWidth: 288, columnCount: 1 });
-  expect(getTableGridMetrics(390)).toEqual({ cardWidth: 173, columnCount: 2 });
-  expect(getTableGridMetrics(680)).toEqual({ cardWidth: 318, columnCount: 2 });
-  expect(getTableGridMetrics(800)).toEqual({ cardWidth: 248, columnCount: 3 });
-  expect(getTableGridMetrics(1180)).toEqual({ cardWidth: 278, columnCount: 4 });
+  expect(getTableGridMetrics(320)).toEqual({ cardWidth: 280, columnCount: 1 });
+  expect(getTableGridMetrics(390)).toEqual({ cardWidth: 169, columnCount: 2 });
+  expect(getTableGridMetrics(680)).toEqual({ cardWidth: 314, columnCount: 2 });
+  expect(getTableGridMetrics(800)).toEqual({
+    cardWidth: 245.33333333333334,
+    columnCount: 3,
+  });
+  expect(getTableGridMetrics(1180)).toEqual({ cardWidth: 276, columnCount: 4 });
+  expect(tableStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
+  );
+  expect(tableStyles.tableGrid).toEqual(
+    expect.objectContaining({ gap: themeSpacing.sm }),
+  );
+  expect(tableStyles.tableRow).toEqual(
+    expect.objectContaining({ gap: themeSpacing.sm }),
+  );
 });
 
 it('shows a configuration error when the API URL is absent', () => {

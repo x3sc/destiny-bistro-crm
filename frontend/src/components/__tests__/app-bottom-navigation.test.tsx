@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
+import { themeColors } from '../../theme/tokens';
 import { AppBottomNavigation } from '../app-bottom-navigation';
 
 const mockReplace = jest.fn();
@@ -12,14 +13,19 @@ beforeEach(() => {
   mockReplace.mockClear();
 });
 
-it('shows the three destinations from the Figma navigation bar', () => {
+it('shows the three labeled destinations from the Stitch navigation bar', () => {
   render(<AppBottomNavigation activeItem="credits" />);
 
   expect(screen.getByRole('tab', { name: 'Mesas' })).toBeTruthy();
-  expect(
-    screen.getByRole('tab', { name: 'Fiados', selected: true }),
-  ).toBeTruthy();
+  const activeTab = screen.getByRole('tab', {
+    name: 'Fiados',
+    selected: true,
+  });
+  expect(activeTab).toHaveStyle({ backgroundColor: themeColors.surfaceAccent });
   expect(screen.getByRole('tab', { name: 'Administrativo' })).toBeTruthy();
+  expect(screen.getByText('Mesas')).toBeTruthy();
+  expect(screen.getByText('Fiados')).toHaveStyle({ color: themeColors.primary });
+  expect(screen.getByText('Administrativo')).toBeTruthy();
 });
 
 it('replaces the current route when a destination is selected', () => {
