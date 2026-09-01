@@ -1,7 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { themeColors } from '../theme/tokens';
+import {
+  themeColors,
+  themeSpacing,
+  themeTypography,
+} from '../theme/tokens';
 import { ScreenBackButton } from './screen-back-button';
 
 export function BrandedScreenHeader({
@@ -14,28 +18,33 @@ export function BrandedScreenHeader({
   title: string;
 }) {
   return (
-    <View style={styles.hero}>
+    <View style={styles.hero} testID="branded-screen-header">
       <StatusBar style="light" />
       <View style={styles.content}>
-        <View style={styles.topRow}>
-          {onBack ? (
-            <ScreenBackButton label tone="light" onPress={onBack} />
-          ) : (
-            <View />
-          )}
-          <Text style={styles.brand}>Destiny Bistro CRM</Text>
+        {onBack ? (
+          <ScreenBackButton tone="light" onPress={onBack} />
+        ) : (
+          <View style={styles.sideSpacer} />
+        )}
+        <View style={styles.copy}>
+          {title !== 'Destiny Bistro CRM' ? (
+            <Text style={styles.brand}>Destiny Bistro CRM</Text>
+          ) : null}
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+            numberOfLines={1}
+            style={styles.title}
+          >
+            {title}
+          </Text>
+          {description ? (
+            <Text numberOfLines={2} style={styles.description}>
+              {description}
+            </Text>
+          ) : null}
         </View>
-        <Text
-          adjustsFontSizeToFit
-          minimumFontScale={0.72}
-          numberOfLines={1}
-          style={styles.title}
-        >
-          {title}
-        </Text>
-        {description ? (
-          <Text style={styles.description}>{description}</Text>
-        ) : null}
+        <View style={styles.sideSpacer} />
       </View>
     </View>
   );
@@ -44,43 +53,47 @@ export function BrandedScreenHeader({
 const styles = StyleSheet.create({
   brand: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 15,
-    fontWeight: '300',
+    fontFamily: themeTypography.auxiliary.fontFamily,
+    fontSize: 10,
+    fontWeight: '500',
+    lineHeight: 12,
   },
   content: {
+    alignItems: 'center',
     alignSelf: 'center',
-    gap: 7,
+    flexDirection: 'row',
+    gap: themeSpacing.sm,
     maxWidth: 1180,
-    paddingBottom: 22,
-    paddingHorizontal: 22,
-    paddingTop: 10,
+    minHeight: 56,
+    paddingHorizontal: themeSpacing.mobileMargin,
+    paddingVertical: 6,
     width: '100%',
+  },
+  copy: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 1,
+    minWidth: 0,
   },
   description: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 14,
+    fontFamily: themeTypography.auxiliary.fontFamily,
+    fontSize: 11,
     fontWeight: '500',
-    lineHeight: 19,
-    maxWidth: 620,
+    lineHeight: 13,
+    textAlign: 'center',
   },
   hero: {
     backgroundColor: themeColors.primary,
-    borderBottomLeftRadius: 46,
-    borderBottomRightRadius: 46,
-    overflow: 'hidden',
+    borderBottomColor: themeColors.accent,
+    borderBottomWidth: 1,
+    minHeight: 56,
+  },
+  sideSpacer: {
+    width: themeSpacing.touchTargetMin,
   },
   title: {
     color: themeColors.foregroundOnPrimary,
-    fontSize: 36,
-    fontWeight: '800',
-    letterSpacing: -1,
-    lineHeight: 42,
-    marginTop: 8,
-  },
-  topRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    minHeight: 44,
+    ...themeTypography.sectionTitle,
   },
 });

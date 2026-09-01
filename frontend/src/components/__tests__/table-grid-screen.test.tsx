@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { RestaurantTable } from '../../services/tables-api';
-import { themeColors } from '../../theme/tokens';
+import { themeColors, themeSpacing } from '../../theme/tokens';
 import { getTableGridMetrics, TableGridScreen } from '../table-grid-screen';
+import { styles as tableStyles } from '../table-grid-screen.styles';
 
 jest.mock('expo-router', () => {
   const react = jest.requireActual<typeof import('react')>('react');
@@ -26,10 +27,23 @@ const tables: RestaurantTable[] = [
 ];
 
 it('adapts the table grid to the available screen width', () => {
-  expect(getTableGridMetrics(320)).toEqual({ cardWidth: 288, columnCount: 1 });
-  expect(getTableGridMetrics(680)).toEqual({ cardWidth: 318, columnCount: 2 });
-  expect(getTableGridMetrics(800)).toEqual({ cardWidth: 248, columnCount: 3 });
-  expect(getTableGridMetrics(1180)).toEqual({ cardWidth: 278, columnCount: 4 });
+  expect(getTableGridMetrics(320)).toEqual({ cardWidth: 280, columnCount: 1 });
+  expect(getTableGridMetrics(390)).toEqual({ cardWidth: 169, columnCount: 2 });
+  expect(getTableGridMetrics(680)).toEqual({ cardWidth: 314, columnCount: 2 });
+  expect(getTableGridMetrics(800)).toEqual({
+    cardWidth: 245.33333333333334,
+    columnCount: 3,
+  });
+  expect(getTableGridMetrics(1180)).toEqual({ cardWidth: 276, columnCount: 4 });
+  expect(tableStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
+  );
+  expect(tableStyles.tableGrid).toEqual(
+    expect.objectContaining({ gap: themeSpacing.sm }),
+  );
+  expect(tableStyles.tableRow).toEqual(
+    expect.objectContaining({ gap: themeSpacing.sm }),
+  );
 });
 
 it('shows a configuration error when the API URL is absent', () => {
@@ -79,7 +93,7 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
 });
 
-it('uses white cards and semantic outlined badges for each table status', async () => {
+it('uses semantic surfaces and badges for each table status', async () => {
   render(
     <TableGridScreen
       apiBaseUrl="http://192.168.0.10:3333"
@@ -88,20 +102,34 @@ it('uses white cards and semantic outlined badges for each table status', async 
   );
 
   expect(await screen.findByRole('button', { name: 'Mesa 1 Livre' })).toHaveStyle({
-    backgroundColor: themeColors.surface,
+    backgroundColor: themeColors.statusFreeSurface,
+    borderColor: themeColors.statusFreeBorder,
   });
   expect(
     screen.getByRole('button', {
       name: 'Mesa 2 Ocupada João Comanda #42',
     }),
-  ).toHaveStyle({ backgroundColor: themeColors.surface });
+  ).toHaveStyle({
+    backgroundColor: themeColors.statusOpenSurface,
+    borderColor: themeColors.statusOpenBorder,
+  });
   expect(
     screen.getByRole('button', { name: 'Mesa 3 Aguardando pagamento' }),
-  ).toHaveStyle({ backgroundColor: themeColors.surface });
-  expect(screen.getByText('• Livre')).toHaveStyle({ borderColor: '#33ff00' });
-  expect(screen.getByText('• Ocupada')).toHaveStyle({ borderColor: '#ff0000' });
+  ).toHaveStyle({
+    backgroundColor: themeColors.statusAwaitingSurface,
+    borderColor: themeColors.statusAwaitingBorder,
+  });
+  expect(screen.getByText('• Livre')).toHaveStyle({
+    backgroundColor: themeColors.statusFreeBadge,
+    borderColor: themeColors.statusFreeBorder,
+  });
+  expect(screen.getByText('• Ocupada')).toHaveStyle({
+    backgroundColor: themeColors.statusOpenBadge,
+    borderColor: themeColors.statusOpenBorder,
+  });
   expect(screen.getByText('• Aguardando pagamento')).toHaveStyle({
-    borderColor: '#ff9d00',
+    backgroundColor: themeColors.statusAwaitingBadge,
+    borderColor: themeColors.statusAwaitingBorder,
   });
 });
 
@@ -148,7 +176,7 @@ it('keeps the table filter buttons at a stable touch size', async () => {
   });
 });
 
-it('uses compact cards for the restaurant tables', async () => {
+it('uses large touch-friendly cards for the restaurant tables', async () => {
   render(
     <TableGridScreen
       apiBaseUrl="http://192.168.0.10:3333"
@@ -159,9 +187,9 @@ it('uses compact cards for the restaurant tables', async () => {
   const tableCard = await screen.findByRole('button', { name: /Mesa 1 Livre/ });
 
   expect(tableCard).toHaveStyle({
-    minHeight: 90,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    minHeight: 132,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   });
 });
 

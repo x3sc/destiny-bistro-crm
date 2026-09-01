@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, Platform } from 'react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { Alert, Platform, StyleSheet } from 'react-native';
 
 import type { Comanda } from '../../services/comandas-api';
 import { themeColors } from '../../theme/tokens';
@@ -103,6 +103,25 @@ const comandaWithConfirmedAndNewItem: Comanda = {
   ],
 };
 
+const comandaWithConfirmedConfiguration: Comanda = {
+  ...comandaWithConfirmedItem,
+  items: [
+    {
+      ...comandaWithConfirmedItem.items[0],
+      configurations: [
+        {
+          additionals: [],
+          configurationKey: 'base',
+          confirmedQuantity: 1,
+          id: 'configuration-id',
+          quantity: 1,
+          subtotalCents: 600,
+        },
+      ],
+    },
+  ],
+};
+
 afterEach(() => {
   jest.restoreAllMocks();
 });
@@ -136,6 +155,85 @@ it('uses the shared light theme on the comanda screen', () => {
   );
   expect(comandaStyles.button).toEqual(
     expect.objectContaining({ backgroundColor: themeColors.primary }),
+  );
+});
+
+it('uses the responsive 56/44 footer layout without flex overflow', () => {
+  expect(comandaStyles.primaryActionsRow).toEqual(
+    expect.objectContaining({ flexDirection: 'row', gap: 8 }),
+  );
+  expect(comandaStyles.primaryActionsColumn).toEqual(
+    expect.objectContaining({ flexDirection: 'column' }),
+  );
+  expect(comandaStyles.addProductsAction).toEqual(
+    expect.objectContaining({ flex: 1.27, minWidth: 0 }),
+  );
+  expect(comandaStyles.closeTableAction).toEqual(
+    expect.objectContaining({ flex: 1, minWidth: 0 }),
+  );
+  expect(comandaStyles.stackedPrimaryAction).toEqual(
+    expect.objectContaining({ width: '100%' }),
+  );
+  expect(comandaStyles.fixedFooter).toEqual(
+    expect.objectContaining({
+      bottom: 0,
+      left: 0,
+      position: 'absolute',
+      right: 0,
+    }),
+  );
+  expect(comandaStyles.content).toEqual(
+    expect.objectContaining({ paddingHorizontal: 20 }),
+  );
+});
+
+it('reserves the measured footer height inside the scroll content', async () => {
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  const footer = await screen.findByTestId('comanda-footer');
+  const scroll = screen.getByTestId('comanda-scroll');
+
+  fireEvent(footer, 'layout', {
+    nativeEvent: { layout: { height: 132 } },
+  });
+
+  await waitFor(() => {
+    expect(StyleSheet.flatten(scroll.props.contentContainerStyle)).toEqual(
+      expect.objectContaining({ paddingBottom: 152 }),
+    );
+  });
+});
+
+it('stacks item actions so their labels fit on narrow Android screens', () => {
+  expect(comandaStyles.quantityActions).toEqual(
+    expect.objectContaining({
+      flexDirection: 'column',
+      width: '100%',
+    }),
+  );
+  expect(comandaStyles.confirmDeliveryButton).toEqual(
+    expect.objectContaining({
+      minHeight: 48,
+      width: '100%',
+    }),
+  );
+});
+
+it('uses a full-width target to cancel confirmed units', () => {
+  expect(comandaStyles.cancelConfirmedButton).toEqual(
+    expect.objectContaining({
+      minHeight: 48,
+      width: '100%',
+    }),
   );
 });
 
@@ -311,15 +409,92 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.getByText('Itens confirmados')).toBeTruthy();
   expect(screen.getByText('Nenhum item confirmado.')).toBeTruthy();
   expect(screen.getByText('1 x R$ 6,00 = R$ 6,00')).toBeTruthy();
+  expect(screen.getByText('R$ 6,00 por unidade')).toBeTruthy();
   expect(screen.getByLabelText('Total R$ 6,00')).toBeTruthy();
   expect(screen.queryByText(/Remova todos os itens/)).toBeNull();
+  expect(screen.getByText('Quantidade nova')).toBeTruthy();
+  expect(screen.getByText('Configurar adicionais')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Cancelar comanda vazia' })).toBeNull();
   expect(screen.queryByText(/Confirme todos os itens novos/)).toBeNull();
+  expect(screen.getByText('Confirme todos os itens antes de fechar')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
   expect(onCheckout).not.toHaveBeenCalled();
 });
 
+it('keeps cancellation inside the scroll content and outside the fixed footer', async () => {
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl={'http://192.168.0.10:3333'}
+      comandaId={'comanda-id'}
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  const cancellationSection = await screen.findByTestId('comanda-cancellation-actions');
+  const footer = screen.getByTestId('comanda-primary-actions');
+
+  expect(
+    within(cancellationSection).getByRole('button', { name: 'Cancelar comanda' }),
+  ).toBeTruthy();
+  expect(
+    within(footer).queryByRole('button', { name: 'Cancelar comanda' }),
+  ).toBeNull();
+});
+
+it('asks for confirmation before opening the cancellation form', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+
+  expect(screen.queryByLabelText('Motivo do cancelamento total')).toBeNull();
+  expect(alertSpy).toHaveBeenCalledWith(
+    'Cancelar comanda',
+    'Deseja continuar com o cancelamento desta comanda? O motivo será solicitado em seguida.',
+    expect.any(Array),
+  );
+
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+
+  expect(screen.getByLabelText('Motivo do cancelamento total')).toBeTruthy();
+});
+
+it('renders the confirmed-unit cancellation action with its complete label', async () => {
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl={'http://192.168.0.10:3333'}
+      canCancelConfirmed
+      comandaId={'comanda-id'}
+      loadRequest={() => Promise.resolve(comandaWithConfirmedConfiguration)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  expect(
+    await screen.findByRole('button', { name: 'Cancelar unidades confirmadas' }),
+  ).toBeTruthy();
+});
+
 it('cancels a confirmed comanda with inventory disposition and a stable request', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
   const cancelRequest = jest.fn(() => Promise.resolve({
     ...comandaWithConfirmedItem,
     status: 'CANCELLED' as const,
@@ -339,6 +514,9 @@ it('cancels a confirmed comanda with inventory disposition and a stable request'
   );
 
   fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
   fireEvent.changeText(
     screen.getByLabelText('Motivo do cancelamento total'),
     'Cliente desistiu',

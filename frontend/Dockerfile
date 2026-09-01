@@ -4,6 +4,7 @@ ARG EXPO_PUBLIC_API_URL
 ENV EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY vendor/decode-uri-component ./vendor/decode-uri-component
 RUN npm ci
 COPY . .
 RUN npx expo export --platform web

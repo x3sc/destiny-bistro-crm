@@ -18,7 +18,7 @@ import {
   type RestaurantTable,
   type RestaurantTableStatus,
 } from '../services/tables-api';
-import { themeColors } from '../theme/tokens';
+import { themeColors, themeSpacing } from '../theme/tokens';
 import {
   styles,
   tableStatusBadgeStyles,
@@ -56,24 +56,20 @@ const filterOptions: { label: string; value: TableFilter }[] = [
 ];
 
 const CONTENT_MAX_WIDTH = 1180;
-const CONTENT_HORIZONTAL_PADDING = 32;
-const TABLE_CARD_MIN_WIDTH = 220;
-const TABLE_GRID_GAP = 12;
-const TABLE_GRID_MAX_COLUMNS = 4;
+const CONTENT_HORIZONTAL_PADDING = themeSpacing.mobileMargin * 2;
+const TABLE_GRID_GAP = themeSpacing.sm;
 
 export function getTableGridMetrics(windowWidth: number) {
   const contentWidth = Math.min(windowWidth, CONTENT_MAX_WIDTH);
   const availableWidth = Math.max(contentWidth - CONTENT_HORIZONTAL_PADDING, 0);
-  const columnCount = Math.max(
-    1,
-    Math.min(
-      TABLE_GRID_MAX_COLUMNS,
-      Math.floor(
-        (availableWidth + TABLE_GRID_GAP) /
-          (TABLE_CARD_MIN_WIDTH + TABLE_GRID_GAP),
-      ),
-    ),
-  );
+  const columnCount =
+    availableWidth >= 1000
+      ? 4
+      : availableWidth >= 720
+        ? 3
+        : availableWidth >= 340
+          ? 2
+          : 1;
   const cardWidth =
     (availableWidth - TABLE_GRID_GAP * (columnCount - 1)) / columnCount;
 
@@ -157,7 +153,7 @@ export function TableGridScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <BrandedScreenHeader onBack={onBack} title="Mesas" />
+      <BrandedScreenHeader onBack={onBack} title="Destiny Bistro CRM" />
       <View style={styles.content}>
         {!normalizedApiBaseUrl && (
           <MessageCard
@@ -193,6 +189,7 @@ export function TableGridScreen({
               <SummaryCard
                 count={tables.filter((table) => table.status === 'OPEN').length}
                 label="Ocupadas"
+                status="OPEN"
               />
               <SummaryCard
                 accessibilityLabel="Aguardando pagamento"
@@ -200,10 +197,12 @@ export function TableGridScreen({
                   tables.filter((table) => table.status === 'AWAITING_CHECK').length
                 }
                 label="Aguardando pgto."
+                status="AWAITING_CHECK"
               />
               <SummaryCard
                 count={tables.filter((table) => table.status === 'FREE').length}
                 label="Livres"
+                status="FREE"
               />
             </View>
 
@@ -278,10 +277,12 @@ function SummaryCard({
   accessibilityLabel,
   count,
   label,
+  status,
 }: {
   accessibilityLabel?: string;
   count: number;
   label: string;
+  status: RestaurantTableStatus;
 }) {
   const announcedLabel = accessibilityLabel ?? label;
 
@@ -289,7 +290,7 @@ function SummaryCard({
     <View
       accessibilityLabel={`${announcedLabel}: ${count}`}
       accessible
-      style={styles.summaryCard}
+      style={[styles.summaryCard, tableStatusCardStyles[status]]}
     >
       <Text style={styles.summaryLabel}>{label}</Text>
       <Text style={styles.summaryValue}>{count}</Text>

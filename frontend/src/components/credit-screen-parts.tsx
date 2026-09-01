@@ -29,6 +29,7 @@ export function CreditButton({
       <Text
         style={[
           creditStyles.buttonText,
+          tone === 'danger' && creditStyles.buttonDangerText,
           tone === 'secondary' && creditStyles.buttonSecondaryText,
         ]}
       >

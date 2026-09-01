@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   addButton: {
     alignItems: 'center',
     borderColor: themeColors.primary,
-    borderRadius: 12,
+    borderRadius: 22,
     borderWidth: 1,
     minHeight: 46,
     padding: 12,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     backgroundColor: themeColors.primary,
-    borderRadius: 12,
+    borderRadius: 22,
     minHeight: 48,
     padding: 14,
   },
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 10,
+    borderRadius: 22,
     borderWidth: 1,
     color: themeColors.foreground,
     fontSize: 17,
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
   optionList: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 10,
+    borderRadius: 22,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 10,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   selectText: { color: themeColors.foreground, fontWeight: '700' },
   summary: {
     backgroundColor: themeColors.surfaceMuted,
-    borderRadius: 12,
+    borderRadius: 22,
     gap: 5,
     padding: 14,
   },

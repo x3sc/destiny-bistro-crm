@@ -38,3 +38,60 @@ export const themeColors = {
   titleEyebrow: '#65060c',
   titleIcon: '#65060c',
 } as const;
+
+export const themeSpacing = {
+  base: 4,
+  xs: 8,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
+  xxl: 32,
+  mobileMargin: 20,
+  touchTargetMin: 44,
+} as const;
+
+export const themeRadii = {
+  compact: 16,
+  standard: 22,
+  pill: 999,
+} as const;
+
+export const themeTypography = {
+  display: {
+    fontFamily: 'Roboto',
+    fontSize: 32,
+    fontWeight: '800',
+    lineHeight: 38,
+  },
+  screenTitle: {
+    fontFamily: 'Roboto',
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 34,
+  },
+  sectionTitle: {
+    fontFamily: 'Roboto',
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  body: {
+    fontFamily: 'Roboto',
+    fontSize: 16,
+    fontWeight: '400',
+    lineHeight: 22,
+  },
+  label: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  auxiliary: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+} as const;

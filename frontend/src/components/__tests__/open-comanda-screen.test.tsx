@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { Comanda } from '../../services/comandas-api';
+import { themeColors } from '../../theme/tokens';
 import { OpenComandaScreen } from '../open-comanda-screen';
 
 const comanda: Comanda = {
@@ -24,19 +25,34 @@ const comanda: Comanda = {
 };
 
 it('opens a comanda after explicit confirmation', async () => {
+  const onBack = jest.fn();
   const onOpened = jest.fn();
   const openRequest = jest.fn(() => Promise.resolve(comanda));
 
   render(
     <OpenComandaScreen
       apiBaseUrl="http://192.168.0.10:3333"
-      onBack={jest.fn()}
+      onBack={onBack}
       onOpened={onOpened}
       openRequest={openRequest}
       tableId={1}
       tableNumber={1}
     />,
   );
+
+  expect(screen.getByText('Livre')).toBeTruthy();
+  expect(screen.getByTestId('open-comanda-header')).toHaveStyle({
+    backgroundColor: themeColors.primary,
+    minHeight: 56,
+  });
+  expect(screen.getByTestId('open-comanda-card')).toHaveStyle({
+    backgroundColor: themeColors.surfaceMuted,
+  });
+  expect(
+    screen.getByText('Você poderá adicionar produtos depois de abrir a comanda.'),
+  ).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
+  expect(onBack).toHaveBeenCalledTimes(1);
 
   fireEvent.changeText(
     screen.getByLabelText('Nome da mesa (opcional)'),
