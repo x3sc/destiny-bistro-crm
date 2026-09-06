@@ -26,6 +26,10 @@ import {
   type InventoryRepository,
 } from "./inventory-repository.js";
 import {
+  createKitchenRepository,
+  type KitchenRepository,
+} from "./kitchen-repository.js";
+import {
   createRestaurantTableRepository,
   type RestaurantTableRepository,
 } from "./restaurant-table-repository.js";
@@ -46,6 +50,7 @@ export interface Persistence {
   database: Database;
   deliveries: DeliveryRepository;
   inventory: InventoryRepository;
+  kitchen: KitchenRepository;
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
   statements: StatementRepository;
@@ -91,6 +96,7 @@ export function createPersistence(): Persistence {
     },
     deliveries: createDeliveryRepository(prisma),
     inventory: createInventoryRepository(prisma),
+    kitchen: createKitchenRepository(prisma),
     products: createProductRepository(prisma),
     restaurantTables: createRestaurantTableRepository(prisma),
     statements: createStatementRepository(prisma),

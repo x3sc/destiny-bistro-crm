@@ -11,6 +11,7 @@ import {
   ComandaInventoryPermissionError,
   ComandaNotClosableError,
   ComandaNotFoundError,
+  PrintDocumentEmptyError,
   ComandaCreditPermissionError,
   ComandaItemQuantityError,
   ComandaNotMutableError,
@@ -49,6 +50,12 @@ import {
   type InventoryMovement,
   type InventoryRepository,
 } from "../../src/inventory-repository.js";
+import {
+  type KitchenRepository,
+  type KitchenTicket,
+  KitchenTicketNotFoundError,
+  KitchenTicketStatusConflictError,
+} from "../../src/kitchen-types.js";
 import type {
   MenuAdditional,
   MenuCategory,
@@ -79,8 +86,11 @@ const authenticatedUser: AuthUser = {
     "deliveries.write",
     "inventory.read",
     "inventory.write",
+    "kitchen.read",
+    "kitchen.write",
     "products.read",
     "products.write",
+    "printing.write",
     "statements.read",
     "tables.read",
   ],
@@ -255,6 +265,7 @@ const menuCategory: MenuCategory = {
       name: "Suco de laranja",
       priceCents: 900,
       recipe: [],
+      requiresKitchen: true,
     },
   ],
 };
@@ -266,6 +277,40 @@ const menuAdditional: MenuAdditional = {
   name: "Adicional",
   priceCents: 100,
   recipe: [],
+};
+
+const kitchenTicket: KitchenTicket = {
+  comandaId: "comanda-id",
+  comandaNumber: 42,
+  createdAt: openedAt,
+  id: "ticket-id",
+  items: [
+    {
+      comandaItemId: "item-id",
+      configurations: [
+        {
+          additionals: [
+            {
+              additionalId: "additional-id",
+              additionalName: "Bacon",
+              id: "ticket-additional-id",
+              quantityPerUnit: 1,
+            },
+          ],
+          configurationKey: "with-bacon",
+          id: "ticket-configuration-id",
+          quantity: 2,
+        },
+      ],
+      id: "ticket-item-id",
+      productId: "product-id",
+      productName: "Hamburguer",
+      quantity: 2,
+    },
+  ],
+  status: "PENDING",
+  table: { id: 1, number: 8 },
+  updatedAt: openedAt,
 };
 
 const creditCustomerDetails: CreditCustomerDetails = {
@@ -450,6 +495,23 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
     confirmItem: () =>
       Promise.resolve({ comanda: comandaWithItem, inventoryWarnings: [] }),
     findById: () => Promise.resolve(comanda),
+    findPrintDocument: (_establishmentId, _id, kind, generatedBy) =>
+      Promise.resolve({
+        comandaId: "comanda-id",
+        comandaName: null,
+        comandaNumber: 42,
+        deliveryFeeCents: null,
+        destination: "TABLE",
+        establishmentName: "Destiny Bistro",
+        generatedAt: openedAt,
+        generatedBy,
+        items: [],
+        kind,
+        openedAt,
+        status: "OPEN",
+        tableNumber: 1,
+        totalCents: kind === "CONFIRMED" ? 0 : null,
+      }),
     openForTable: () => Promise.resolve(comanda),
     removeItem: () => Promise.resolve(comanda),
     ...overrides,
@@ -494,6 +556,18 @@ function createProducts(
     updateCategory: () => Promise.resolve(menuCategory),
     updateAdditional: () => Promise.resolve(menuAdditional),
     updateProduct: () => Promise.resolve(menuCategory.products[0]),
+    ...overrides,
+  };
+}
+
+function createKitchen(
+  overrides: Partial<KitchenRepository> = {},
+): KitchenRepository {
+  return {
+    findById: () => Promise.resolve(kitchenTicket),
+    listOperational: () => Promise.resolve([kitchenTicket]),
+    updateStatus: (_establishmentId, _ticketId, status) =>
+      Promise.resolve({ ...kitchenTicket, status }),
     ...overrides,
   };
 }
@@ -582,6 +656,7 @@ async function createApp({
   database = createDatabase(),
   deliveries = createDeliveries(),
   inventory = createInventory(),
+  kitchen = createKitchen(),
   products = createProducts(),
   restaurantTables = createRestaurantTables(),
   statements = createStatements(),
@@ -592,6 +667,7 @@ async function createApp({
   database?: Database;
   deliveries?: DeliveryRepository;
   inventory?: InventoryRepository;
+  kitchen?: KitchenRepository;
   products?: ProductRepository;
   restaurantTables?: RestaurantTableRepository;
   statements?: StatementRepository;
@@ -603,6 +679,7 @@ async function createApp({
     database,
     deliveries,
     inventory,
+    kitchen,
     products,
     restaurantTables,
     statements,
@@ -829,6 +906,7 @@ void test("GET /products returns active products ordered by name", async () => {
       id: "coffee-id",
       name: "Café",
       priceCents: 600,
+      requiresKitchen: true,
     },
     {
       additionals: [],
@@ -837,6 +915,7 @@ void test("GET /products returns active products ordered by name", async () => {
       id: "water-id",
       name: "Água",
       priceCents: 500,
+      requiresKitchen: false,
     },
   ];
   const app = await createApp({
@@ -949,6 +1028,7 @@ void test("POST /admin/products creates an item in a tenant category", async () 
           description: "Copo 300 ml",
           name: "Suco de laranja",
           priceCents: 900,
+          requiresKitchen: true,
         });
         return Promise.resolve(menuCategory.products[0]);
       },
@@ -962,12 +1042,70 @@ void test("POST /admin/products creates an item in a tenant category", async () 
       description: "Copo 300 ml",
       name: "Suco de laranja",
       priceCents: 900,
+      requiresKitchen: true,
     },
     url: "/admin/products",
   });
 
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.json(), { product: menuCategory.products[0] });
+  await app.close();
+});
+
+void test("POST /admin/products accepts requiresKitchen false explicitly", async () => {
+  const app = await createApp({
+    products: createProducts({
+      createProduct: (_establishmentId, input) => {
+        assert.equal(input.requiresKitchen, false);
+        return Promise.resolve({
+          ...menuCategory.products[0],
+          requiresKitchen: false,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      categoryId: "category-id",
+      description: null,
+      name: "Agua",
+      priceCents: 500,
+      requiresKitchen: false,
+    },
+    url: "/admin/products",
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(
+    response.json<{ product: { requiresKitchen: boolean } }>().product
+      .requiresKitchen,
+    false,
+  );
+  await app.close();
+});
+
+void test("POST /admin/products rejects a missing kitchen flag", async () => {
+  let createCalls = 0;
+  const app = await createApp({
+    products: createProducts({
+      createProduct: () => {
+        createCalls += 1;
+        return Promise.resolve(menuCategory.products[0]);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      categoryId: "category-id",
+      description: null,
+      name: "Agua",
+      priceCents: 500,
+    },
+    url: "/admin/products",
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(createCalls, 0);
   await app.close();
 });
 
@@ -989,12 +1127,106 @@ void test("admin menu mutations validate values before persistence", async () =>
       description: null,
       name: "",
       priceCents: 0,
+      requiresKitchen: false,
     },
     url: "/admin/products",
   });
 
   assert.equal(response.statusCode, 400);
   assert.equal(createCalls, 0);
+  await app.close();
+});
+
+void test("kitchen routes list tenant tickets and update status", async () => {
+  let receivedEstablishmentId = "";
+  let receivedActorUserId = "";
+  const app = await createApp({
+    kitchen: createKitchen({
+      listOperational: (establishmentId) => {
+        receivedEstablishmentId = establishmentId;
+        return Promise.resolve([kitchenTicket]);
+      },
+      updateStatus: (establishmentId, ticketId, status, actorUserId) => {
+        assert.equal(establishmentId, "establishment-id");
+        assert.equal(ticketId, "ticket-id");
+        assert.equal(status, "PREPARING");
+        receivedActorUserId = actorUserId;
+        return Promise.resolve({ ...kitchenTicket, status });
+      },
+    }),
+  });
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: "/kitchen/tickets",
+  });
+  assert.equal(listResponse.statusCode, 200);
+  assert.equal(receivedEstablishmentId, "establishment-id");
+  assert.deepEqual(listResponse.json(), { tickets: [kitchenTicket] });
+
+  const updateResponse = await app.inject({
+    method: "PATCH",
+    payload: { status: "PREPARING" },
+    url: "/kitchen/tickets/ticket-id/status",
+  });
+  assert.equal(updateResponse.statusCode, 200);
+  assert.equal(receivedActorUserId, "user-id");
+  assert.equal(
+    updateResponse.json<{ ticket: KitchenTicket }>().ticket.status,
+    "PREPARING",
+  );
+  await app.close();
+});
+
+void test("kitchen routes hide cross-tenant tickets and reject transitions", async () => {
+  const notFoundApp = await createApp({
+    kitchen: createKitchen({
+      findById: () => Promise.reject(new KitchenTicketNotFoundError()),
+    }),
+  });
+  const notFoundResponse = await notFoundApp.inject({
+    method: "GET",
+    url: "/kitchen/tickets/another-tenant-ticket",
+  });
+  assert.equal(notFoundResponse.statusCode, 404);
+  await notFoundApp.close();
+
+  const conflictApp = await createApp({
+    kitchen: createKitchen({
+      updateStatus: () =>
+        Promise.reject(new KitchenTicketStatusConflictError()),
+    }),
+  });
+  const conflictResponse = await conflictApp.inject({
+    method: "PATCH",
+    payload: { status: "DELIVERED" },
+    url: "/kitchen/tickets/ticket-id/status",
+  });
+  assert.equal(conflictResponse.statusCode, 409);
+  await conflictApp.close();
+});
+
+void test("kitchen status requires kitchen.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: ["kitchen.read"],
+        }),
+    }),
+  });
+  const listResponse = await app.inject({
+    method: "GET",
+    url: "/kitchen/tickets",
+  });
+  const updateResponse = await app.inject({
+    method: "PATCH",
+    payload: { status: "PREPARING" },
+    url: "/kitchen/tickets/ticket-id/status",
+  });
+  assert.equal(listResponse.statusCode, 200);
+  assert.equal(updateResponse.statusCode, 403);
   await app.close();
 });
 
@@ -1305,6 +1537,76 @@ void test("GET /comandas/:comandaId reports a missing comanda", async () => {
   await app.close();
 });
 
+void test("GET /comandas/:comandaId/print-document returns a typed document", async () => {
+  let receivedEstablishmentId = "";
+  const app = await createApp({
+    comandas: createComandas({
+      findPrintDocument: (establishmentId, _id, kind, generatedBy) => {
+        receivedEstablishmentId = establishmentId;
+        return createComandas().findPrintDocument(establishmentId, "comanda-id", kind, generatedBy);
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "GET",
+    url: "/comandas/comanda-id/print-document?kind=CONFIRMED",
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedEstablishmentId, "establishment-id");
+  const body = response.json<{
+    document: { generatedBy: string; kind: string };
+  }>();
+  assert.equal(body.document.kind, "CONFIRMED");
+  assert.equal(body.document.generatedBy, "Operador");
+  await app.close();
+});
+
+void test("GET /comandas/:comandaId/print-document rejects empty and invalid documents", async () => {
+  const emptyApp = await createApp({
+    comandas: createComandas({
+      findPrintDocument: () => Promise.reject(new PrintDocumentEmptyError()),
+    }),
+  });
+  const emptyResponse = await emptyApp.inject({
+    method: "GET",
+    url: "/comandas/comanda-id/print-document?kind=KITCHEN_PENDING",
+  });
+  assert.equal(emptyResponse.statusCode, 409);
+  await emptyApp.close();
+
+  const app = await createApp();
+  const invalidResponse = await app.inject({
+    method: "GET",
+    url: "/comandas/comanda-id/print-document?kind=UNKNOWN",
+  });
+  assert.equal(invalidResponse.statusCode, 400);
+  await app.close();
+});
+
+void test("GET /comandas/:comandaId/print-document requires printing.write", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: authenticatedUser.permissions.filter(
+            (permission) => permission !== "printing.write",
+          ),
+        }),
+    }),
+  });
+  const response = await app.inject({
+    method: "GET",
+    url: "/comandas/comanda-id/print-document?kind=CONFIRMED",
+  });
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), {
+    message: "Permission denied",
+    status: "error",
+  });
+  await app.close();
+});
+
 void test("POST /comandas/:comandaId/cancel cancels an open empty comanda", async () => {
   const app = await createApp();
 
@@ -1470,6 +1772,27 @@ void test("POST /comandas/:comandaId/items/:itemId/confirm confirms item quantit
   assert.deepEqual(response.json(), {
     comanda: comandaWithItem,
     inventoryWarnings: [],
+  });
+
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/items/:itemId/confirm maps optimistic conflicts", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      confirmItem: () => Promise.reject(new ComandaItemQuantityError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/comandas/comanda-id/items/item-id/confirm",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    status: "error",
+    message: "Comanda item cannot be changed",
   });
 
   await app.close();

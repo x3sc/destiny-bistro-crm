@@ -1,4 +1,8 @@
 import type { Payment, PaymentAllocationInput } from "./payment-types.js";
+import type {
+  ComandaPrintDocument,
+  ComandaPrintKind,
+} from "./comanda-print-document.js";
 
 export type ComandaStatus = "OPEN" | "CANCELLED" | "CLOSED";
 export type ComandaEventType =
@@ -168,6 +172,12 @@ export interface ComandaRepository {
     actorUserId: string,
   ): Promise<ConfirmItemResult>;
   findById(establishmentId: string, id: string): Promise<Comanda>;
+  findPrintDocument(
+    establishmentId: string,
+    id: string,
+    kind: ComandaPrintKind,
+    generatedBy: string,
+  ): Promise<ComandaPrintDocument>;
   openForTable(
     establishmentId: string,
     tableId: number,
@@ -181,6 +191,8 @@ export interface ComandaRepository {
     actorUserId: string,
   ): Promise<Comanda>;
 }
+
+export { PrintDocumentEmptyError } from "./comanda-print-document.js";
 
 export class TableNotFoundError extends Error {}
 export class TableUnavailableError extends Error {}

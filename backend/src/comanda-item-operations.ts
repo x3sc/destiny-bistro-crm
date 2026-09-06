@@ -13,6 +13,10 @@ import {
   type Transaction,
 } from "./comanda-persistence.js";
 import { consumePendingItemInventory } from "./inventory-consumption.js";
+import {
+  createKitchenTicketForConfirmation,
+  type PendingKitchenConfiguration,
+} from "./kitchen-ticket-operations.js";
 
 const maxItemQuantity = 99;
 
@@ -30,6 +34,7 @@ export async function addComandaItem(
       id: true,
       name: true,
       priceCents: true,
+      requiresKitchen: true,
     },
     where: {
       active: true,
@@ -67,6 +72,7 @@ export async function addComandaItem(
       establishmentId,
       productId: product.id,
       productName: product.name,
+      requiresKitchen: product.requiresKitchen,
       unitPriceCents: product.priceCents,
     });
   }
@@ -201,10 +207,28 @@ export async function confirmComandaItem(
   const item = await transaction.comandaItem.findFirst({
     select: {
       confirmedQuantity: true,
+      configurations: {
+        orderBy: { id: "asc" },
+        select: {
+          additionals: {
+            orderBy: { additionalName: "asc" },
+            select: {
+              additionalId: true,
+              additionalName: true,
+              quantityPerUnit: true,
+            },
+          },
+          configurationKey: true,
+          confirmedQuantity: true,
+          id: true,
+          quantity: true,
+        },
+      },
       id: true,
       productId: true,
       productName: true,
       quantity: true,
+      requiresKitchen: true,
       unitPriceCents: true,
     },
     where: {
@@ -226,6 +250,25 @@ export async function confirmComandaItem(
       ),
       inventoryWarnings: [],
     };
+  }
+
+  const quantityToKitchen = item.quantity - item.confirmedQuantity;
+  const kitchenConfigurations: PendingKitchenConfiguration[] =
+    item.configurations
+      .map((configuration) => ({
+        additionals: configuration.additionals,
+        configurationKey: configuration.configurationKey,
+        quantity: configuration.quantity - configuration.confirmedQuantity,
+        sourceConfigurationId: configuration.id,
+      }))
+      .filter((configuration) => configuration.quantity > 0);
+  if (
+    kitchenConfigurations.reduce(
+      (total, configuration) => total + configuration.quantity,
+      0,
+    ) !== quantityToKitchen
+  ) {
+    throw new ComandaItemQuantityError();
   }
 
   const inventoryWarnings = await consumePendingItemInventory(transaction, {
@@ -267,6 +310,20 @@ export async function confirmComandaItem(
     type: "ITEM_CONFIRMED",
     unitPriceCents: item.unitPriceCents,
   });
+
+  if (item.requiresKitchen) {
+    await createKitchenTicketForConfirmation(transaction, {
+      actorUserId,
+      comandaId,
+      comandaItemId: item.id,
+      confirmationKey: `CONFIRM:${item.id}:${item.confirmedQuantity}:${item.quantity}`,
+      configurations: kitchenConfigurations,
+      establishmentId,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: quantityToKitchen,
+    });
+  }
 
   return {
     comanda: await getComandaAfterItemMutation(
@@ -390,6 +447,7 @@ async function createFirstComandaItem(
     establishmentId: string;
     productId: string;
     productName: string;
+    requiresKitchen: boolean;
     unitPriceCents: number;
   },
 ) {
@@ -400,6 +458,7 @@ async function createFirstComandaItem(
       productId: product.productId,
       productName: product.productName,
       quantity: 1,
+      requiresKitchen: product.requiresKitchen,
       unitPriceCents: product.unitPriceCents,
     },
     select: {

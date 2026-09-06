@@ -31,6 +31,18 @@ export async function resetOperationalData(
       data: { comandaId: null },
       where: { establishmentId, comandaId: { not: null } },
     });
+    await transaction.kitchenTicketItemAdditional.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.kitchenTicketItemConfiguration.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.kitchenTicketItem.deleteMany({
+      where: { establishmentId },
+    });
+    const kitchenTickets = await transaction.kitchenTicket.deleteMany({
+      where: { establishmentId },
+    });
     await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
@@ -53,6 +65,7 @@ export async function resetOperationalData(
             "CREDIT_CUSTOMER",
             "CREDIT_ORDER",
             "DELIVERY_ORDER",
+            "KITCHEN_TICKET",
           ],
         },
       },
@@ -66,6 +79,7 @@ export async function resetOperationalData(
       creditCustomers: creditCustomers.count,
       creditOrders: creditOrders.count,
       deliveryOrders: deliveryOrders.count,
+      kitchenTickets: kitchenTickets.count,
       payments: payments.count,
     };
   });
