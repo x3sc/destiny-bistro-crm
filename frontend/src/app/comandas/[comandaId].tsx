@@ -12,6 +12,7 @@ export default function ComandaDetailsRoute() {
 
   return (
     <ComandaDetailsScreen
+      canPrint={hasPermission(user, 'printing.write')}
       canCancelConfirmed={
         hasPermission(user, 'comandas.write') &&
         hasPermission(user, 'inventory.write')

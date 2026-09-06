@@ -9,11 +9,13 @@ export function MainMenuScreen({
   canAccessAdmin = true,
   canAccessCredits = true,
   canAccessDeliveries = true,
+  canAccessKitchen = true,
   canAccessTables = true,
   establishmentName,
   onAdmin,
   onCredits,
   onDeliveries,
+  onKitchen,
   onLogout,
   onTables,
   userName,
@@ -21,11 +23,13 @@ export function MainMenuScreen({
   canAccessAdmin?: boolean;
   canAccessCredits?: boolean;
   canAccessDeliveries?: boolean;
+  canAccessKitchen?: boolean;
   canAccessTables?: boolean;
   establishmentName?: string;
   onAdmin: () => void;
   onCredits: () => void;
   onDeliveries: () => void;
+  onKitchen: () => void;
   onLogout?: () => void;
   onTables: () => void;
   userName?: string;
@@ -96,6 +100,14 @@ export function MainMenuScreen({
               onPress={onDeliveries}
             />
           )}
+          {canAccessKitchen && (
+            <MenuCard
+              description="Acompanhe os itens enviados para preparo."
+              icon="kitchen"
+              label="Cozinha"
+              onPress={onKitchen}
+            />
+          )}
           {canAccessAdmin && (
             <MenuCard
               description="Consulte o extrato do dia e gerencie categorias, itens e valores."
@@ -119,7 +131,7 @@ function MenuCard({
 }: {
   description: string;
   disabled?: boolean;
-  icon: 'admin' | 'credits' | 'delivery' | 'tables';
+  icon: 'admin' | 'credits' | 'delivery' | 'kitchen' | 'tables';
   label: string;
   onPress?: () => void;
 }) {
