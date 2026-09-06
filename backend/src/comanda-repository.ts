@@ -1,5 +1,6 @@
 import { type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { buildComandaPrintDocument } from "./comanda-print-document.js";
 import {
   addComandaItem,
   changeComandaItemQuantity,
@@ -515,6 +516,61 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
       }
 
       return mapComanda(comanda);
+    },
+    async findPrintDocument(establishmentId, id, kind, generatedBy) {
+      const comanda = await prisma.comanda.findFirst({
+        select: {
+          deliveryOrder: { select: { feeCents: true } },
+          establishment: { select: { name: true } },
+          id: true,
+          items: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              configurations: {
+                orderBy: { createdAt: "asc" },
+                select: {
+                  additionals: {
+                    orderBy: { additionalName: "asc" },
+                    select: {
+                      additionalName: true,
+                      quantityPerUnit: true,
+                      unitPriceCents: true,
+                    },
+                  },
+                  confirmedQuantity: true,
+                  quantity: true,
+                },
+                where: { quantity: { gt: 0 } },
+              },
+              productName: true,
+              requiresKitchen: true,
+              unitPriceCents: true,
+            },
+            where: { quantity: { gt: 0 } },
+          },
+          name: true,
+          number: true,
+          openedAt: true,
+          status: true,
+          table: { select: { number: true } },
+        },
+        where: { establishmentId, id },
+      });
+
+      if (!comanda) {
+        throw new ComandaNotFoundError();
+      }
+
+      return buildComandaPrintDocument(
+        {
+          ...comanda,
+          deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
+          establishmentName: comanda.establishment.name,
+          tableNumber: comanda.table?.number ?? null,
+        },
+        kind,
+        generatedBy,
+      );
     },
     async openForTable(establishmentId, tableId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {

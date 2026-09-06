@@ -7,6 +7,7 @@ import type { CreditRepository } from "./credit-repository.js";
 import type { Database } from "./database.js";
 import type { DeliveryRepository } from "./delivery-repository.js";
 import type { InventoryRepository } from "./inventory-repository.js";
+import type { KitchenRepository } from "./kitchen-types.js";
 import type { ProductRepository } from "./product-repository.js";
 import type { RestaurantTableRepository } from "./restaurant-table-repository.js";
 import type { StatementRepository } from "./statement-repository.js";
@@ -15,6 +16,7 @@ import { registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerCreditRoutes } from "./routes/credit-routes.js";
 import { registerDeliveryRoutes } from "./routes/delivery-routes.js";
 import { registerInventoryRoutes } from "./routes/inventory-routes.js";
+import { registerKitchenRoutes } from "./routes/kitchen-routes.js";
 import { registerProductRoutes } from "./routes/product-routes.js";
 import { registerRestaurantTableRoutes } from "./routes/restaurant-table-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
@@ -28,6 +30,7 @@ interface BuildAppOptions {
   database: Database;
   deliveries: DeliveryRepository;
   inventory: InventoryRepository;
+  kitchen: KitchenRepository;
   logger?: FastifyServerOptions["logger"];
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
@@ -42,6 +45,7 @@ export async function buildApp({
   database,
   deliveries,
   inventory,
+  kitchen,
   logger = false,
   products,
   restaurantTables,
@@ -64,6 +68,7 @@ export async function buildApp({
   registerCreditRoutes(app, credits);
   registerDeliveryRoutes(app, deliveries);
   registerInventoryRoutes(app, inventory);
+  registerKitchenRoutes(app, kitchen);
   registerStatementRoutes(app, statements);
 
   app.addHook("onClose", async () => {

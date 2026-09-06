@@ -18,6 +18,7 @@ const category = {
       id: 'product-id',
       name: 'Agua',
       priceCents: 500,
+      requiresKitchen: true,
     },
   ],
 };
@@ -33,6 +34,7 @@ const secondCategory = {
       id: 'second-product-id',
       name: 'Brigadeiro',
       priceCents: 700,
+      requiresKitchen: false,
     },
   ],
 };
@@ -54,6 +56,7 @@ it('starts collapsed and keeps only one category expanded', async () => {
     screen.getByRole('button', { name: 'Expandir categoria Bebidas' }),
   );
   expect(screen.getByText('Agua')).toBeTruthy();
+  expect(screen.getByText('Preparado na cozinha')).toBeTruthy();
 
   fireEvent.press(
     screen.getByRole('button', { name: 'Expandir categoria Sobremesas' }),
@@ -100,6 +103,7 @@ it('opens menu editors in modals and exposes recipe only while editing an item',
 
   fireEvent.press(screen.getByRole('button', { name: 'Novo item em Bebidas' }));
   expect(screen.getByLabelText('Janela de novo item')).toBeTruthy();
+  expect(screen.getByLabelText('Preparado na cozinha').props.value).toBe(false);
   expect(screen.queryByRole('button', { name: 'Receita' })).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
 
@@ -196,6 +200,7 @@ it('creates a category, expands it and adds a priced item inside its card', asyn
     'R$ 0,123',
   );
   expect(screen.getByDisplayValue('R$ 1,23')).toBeTruthy();
+  fireEvent(screen.getByLabelText('Preparado na cozinha'), 'valueChange', true);
   fireEvent.press(
     screen.getByRole('button', { name: 'Salvar item' }),
   );
@@ -208,6 +213,7 @@ it('creates a category, expands it and adds a priced item inside its card', asyn
         description: null,
         name: 'Suco',
         priceCents: 123,
+        requiresKitchen: true,
       },
     ),
   );
@@ -273,6 +279,12 @@ it('edits products inside the category and keeps lifecycle actions working', asy
   await waitFor(() => expect(updateCategoryRequest).toHaveBeenCalled());
 
   fireEvent.press(screen.getByRole('button', { name: 'Editar item Agua' }));
+  expect(screen.getByLabelText('Preparado na cozinha').props.value).toBe(true);
+  fireEvent(
+    screen.getByLabelText('Preparado na cozinha'),
+    'valueChange',
+    false,
+  );
   fireEvent.changeText(
     screen.getByLabelText('Preço do item'),
     '650',
@@ -282,6 +294,11 @@ it('edits products inside the category and keeps lifecycle actions working', asy
     screen.getByRole('button', { name: 'Salvar item' }),
   );
   await waitFor(() => expect(updateProductRequest).toHaveBeenCalled());
+  expect(updateProductRequest).toHaveBeenCalledWith(
+    'http://localhost:3333',
+    'product-id',
+    expect.objectContaining({ requiresKitchen: false }),
+  );
 
   fireEvent(screen.getByLabelText('Desativar item Agua'), 'valueChange', false);
   await waitFor(() => expect(deleteProductRequest).toHaveBeenCalled());
@@ -292,4 +309,42 @@ it('edits products inside the category and keeps lifecycle actions working', asy
     screen.getByRole('button', { name: 'Desativar categoria Bebidas' }),
   );
   await waitFor(() => expect(deleteCategoryRequest).toHaveBeenCalled());
+});
+
+it('preserves the kitchen flag when reactivating a product', async () => {
+  const inactiveCategory = {
+    ...category,
+    products: [{ ...category.products[0], active: false }],
+  };
+  const updateProductRequest = jest
+    .fn()
+    .mockResolvedValue({ ...inactiveCategory.products[0], active: true });
+  render(
+    <MenuManagementScreen
+      apiBaseUrl="http://localhost:3333"
+      loadRequest={jest.fn().mockResolvedValue([inactiveCategory])}
+      onBack={jest.fn()}
+      updateProductRequest={updateProductRequest}
+    />,
+  );
+
+  fireEvent.press(
+    await screen.findByRole('button', { name: 'Expandir categoria Bebidas' }),
+  );
+  fireEvent(
+    screen.getByLabelText('Ativar item Agua'),
+    'valueChange',
+    true,
+  );
+
+  await waitFor(() =>
+    expect(updateProductRequest).toHaveBeenCalledWith(
+      'http://localhost:3333',
+      'product-id',
+      expect.objectContaining({
+        active: true,
+        requiresKitchen: true,
+      }),
+    ),
+  );
 });

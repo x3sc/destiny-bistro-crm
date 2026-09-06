@@ -32,10 +32,12 @@ import {
 } from './comanda-details-parts';
 import { styles } from './comanda-details-screen.styles';
 import { ScreenBackButton } from './screen-back-button';
+import { ThermalPrintSection } from './thermal-print-section';
 
 interface ComandaDetailsScreenProps {
   apiBaseUrl?: string;
   cancelCreditRequest?: typeof cancelCreditOrder;
+  canPrint?: boolean;
   cancelRequest?: typeof cancelComanda;
   canCancelConfirmed?: boolean;
   changeItemQuantityRequest?: typeof changeComandaItemQuantity;
@@ -62,6 +64,7 @@ export function ComandaDetailsScreen({
   cancelCreditRequest = cancelCreditOrder,
   cancelRequest = cancelComanda,
   canCancelConfirmed = false,
+  canPrint = false,
   changeItemQuantityRequest = changeComandaItemQuantity,
   comandaId,
   confirmItemRequest = confirmComandaItem,
@@ -406,6 +409,13 @@ export function ComandaDetailsScreen({
               }
             }}
             />
+            {normalizedApiBaseUrl ? (
+              <ThermalPrintSection
+                apiBaseUrl={normalizedApiBaseUrl}
+                canPrint={canPrint}
+                comandaId={comandaId}
+              />
+            ) : null}
             {!readOnly &&
               state.comanda.status === 'OPEN' &&
               !state.comanda.credit &&

@@ -18,6 +18,7 @@ export default function HomeScreen() {
         }
         canAccessCredits={hasPermission(user, 'credits.read')}
         canAccessDeliveries={hasPermission(user, 'deliveries.read')}
+        canAccessKitchen={hasPermission(user, 'kitchen.read')}
         canAccessTables={hasPermission(user, 'tables.read')}
         establishmentName={user?.establishment.name}
         onAdmin={() => {
@@ -28,6 +29,9 @@ export default function HomeScreen() {
         }}
         onDeliveries={() => {
           router.push('/deliveries' as Href);
+        }}
+        onKitchen={() => {
+          router.push('/kitchen' as Href);
         }}
         onTables={() => {
           router.push('/tables' as Href);

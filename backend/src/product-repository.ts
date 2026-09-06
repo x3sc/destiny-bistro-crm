@@ -14,6 +14,7 @@ export interface Product {
   id: string;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 }
 
 export interface MenuProduct {
@@ -24,6 +25,7 @@ export interface MenuProduct {
   name: string;
   priceCents: number;
   recipe: RecipeIngredient[];
+  requiresKitchen: boolean;
 }
 
 export interface RecipeIngredient {
@@ -82,6 +84,7 @@ export interface CreateProductInput {
   description: string | null;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 }
 
 export interface UpdateProductInput extends CreateProductInput {
@@ -191,6 +194,7 @@ const menuProductSelect = {
   id: true,
   name: true,
   priceCents: true,
+  requiresKitchen: true,
   ingredients: {
     orderBy: { ingredient: { name: "asc" as const } },
     select: recipeSelect,
@@ -279,6 +283,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
               establishmentId,
               name: input.name,
               priceCents: input.priceCents,
+              requiresKitchen: input.requiresKitchen,
             },
             select: menuProductSelect,
           });
@@ -291,6 +296,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
                 description: input.description,
                 name: input.name,
                 priceCents: input.priceCents,
+                requiresKitchen: input.requiresKitchen,
               },
               resourceId: product.id,
               resourceType: "PRODUCT",
@@ -388,6 +394,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
           id: true,
           name: true,
           priceCents: true,
+          requiresKitchen: true,
         },
         where: {
           active: true,
@@ -404,6 +411,7 @@ export function createProductRepository(prisma: PrismaClient): ProductRepository
         id: product.id,
         name: product.name,
         priceCents: product.priceCents,
+        requiresKitchen: product.requiresKitchen,
       }));
     },
     async listMenu(establishmentId) {
@@ -673,11 +681,18 @@ function normalizeProductInput(input: CreateProductInput) {
     (description !== null && description.length > 255) ||
     !Number.isInteger(input.priceCents) ||
     input.priceCents <= 0 ||
-    input.priceCents > 99_999_999
+    input.priceCents > 99_999_999 ||
+    typeof input.requiresKitchen !== "boolean"
   ) {
     throw new MenuInputError();
   }
-  return { categoryId, description, name, priceCents: input.priceCents };
+  return {
+    categoryId,
+    description,
+    name,
+    priceCents: input.priceCents,
+    requiresKitchen: input.requiresKitchen,
+  };
 }
 
 function normalizeUpdateProductInput(input: UpdateProductInput) {
