@@ -25,18 +25,18 @@
     "@prisma/adapter-mariadb": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "fastify": "^5.12.1",
-    "pdfkit": "^0.20.1"
+    "fastify": "^5.12.4",
+    "pdfkit": "^0.20.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.1",
     "@types/pdfkit": "^0.17.6",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "prisma": "^7.10.0",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.70.0"
   },
   "overrides": {
     "@prisma/config": {
