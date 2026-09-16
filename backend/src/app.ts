@@ -1,3 +1,5 @@
+import type { UserRepository } from "./user-types.js";
+import { registerUserRoutes } from "./routes/user-routes.js";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import type { AuthRepository } from "./auth-repository.js";
@@ -23,6 +25,7 @@ import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerStatementRoutes } from "./routes/statement-routes.js";
 
 interface BuildAppOptions {
+  users: UserRepository;
   auth: AuthRepository;
   comandas: ComandaRepository;
   credits: CreditRepository;
@@ -38,6 +41,7 @@ interface BuildAppOptions {
 }
 
 export async function buildApp({
+  users,
   auth,
   comandas,
   credits,
@@ -61,6 +65,7 @@ export async function buildApp({
 
   registerAuthentication(app, auth);
   registerAuthRoutes(app, auth);
+  registerUserRoutes(app, users);
   registerSystemRoutes(app, database);
   registerProductRoutes(app, products);
   registerRestaurantTableRoutes(app, restaurantTables, comandas);

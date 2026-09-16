@@ -30,6 +30,7 @@ type State =
 export function ComandaCheckoutScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL,
   closeRequest = closeComanda,
+  canCreateCredit = false,
   comandaId,
   createCustomerRequest = createCreditCustomer,
   loadComandaRequest = loadComanda,
@@ -41,6 +42,7 @@ export function ComandaCheckoutScreen({
 }: {
   apiBaseUrl?: string;
   closeRequest?: typeof closeComanda;
+  canCreateCredit?: boolean;
   comandaId: string;
   createCustomerRequest?: typeof createCreditCustomer;
   loadComandaRequest?: typeof loadComanda;
@@ -71,7 +73,7 @@ export function ComandaCheckoutScreen({
     setState({ kind: 'loading' });
     void Promise.all([
       loadComandaRequest(normalizedApiBaseUrl, comandaId),
-      loadCustomersRequest(normalizedApiBaseUrl, true).catch(() => []),
+      canCreateCredit ? loadCustomersRequest(normalizedApiBaseUrl, true).catch(() => []) : Promise.resolve([]),
     ]).then(
       ([comanda, customers]) => {
         setNewName(comanda.name ?? '');
@@ -79,14 +81,14 @@ export function ComandaCheckoutScreen({
       },
       () => setState({ kind: 'error' }),
     );
-  }, [comandaId, loadComandaRequest, loadCustomersRequest, normalizedApiBaseUrl]);
+  }, [canCreateCredit, comandaId, loadComandaRequest, loadCustomersRequest, normalizedApiBaseUrl]);
 
   useFocusEffect(refresh);
 
   const submit = async (selectedCustomerId = customerId) => {
     if (!normalizedApiBaseUrl || state.kind !== 'success') return;
     const needsCredit = paidCents < state.comanda.totalCents;
-    if (needsCredit && !selectedCustomerId) {
+    if (needsCredit && (!canCreateCredit || !selectedCustomerId)) {
       setSubmitError(true);
       return;
     }
@@ -127,7 +129,7 @@ export function ComandaCheckoutScreen({
       ? ''
       : submitting
         ? 'Processando...'
-        : paidCents === state.comanda.totalCents
+        : !canCreateCredit || paidCents === state.comanda.totalCents
           ? `Confirmar e fechar ${entityLabel}`
           : paidCents === 0
             ? 'Fechar como fiado'
@@ -136,6 +138,7 @@ export function ComandaCheckoutScreen({
   const handlePrimaryAction = () => {
     if (state.kind !== 'success') return;
     if (paidCents < state.comanda.totalCents) {
+      if (!canCreateCredit) return;
       setSubmitError(false);
       setCustomerSearchQuery('');
       setCustomerSearchVisible(false);
@@ -189,7 +192,13 @@ export function ComandaCheckoutScreen({
               />
             </View>
 
-            {remainingCents > 0 && (
+            {remainingCents > 0 && !canCreateCredit && (
+              <Text style={checkoutStyles.creditWarning}>
+                Informe o pagamento integral para fechar a comanda.
+              </Text>
+            )}
+
+            {remainingCents > 0 && canCreateCredit && (
               <Text style={checkoutStyles.creditWarning}>
                 O saldo restante será registrado no fiado e exige uma pessoa
                 responsável.
@@ -205,14 +214,14 @@ export function ComandaCheckoutScreen({
       {state.kind === 'success' && (
         <View style={checkoutStyles.footer} testID="checkout-footer">
           <CreditButton
-            disabled={submitting || !paymentsValid}
+            disabled={submitting || !paymentsValid || (!canCreateCredit && remainingCents > 0)}
             label={primaryActionLabel}
             onPress={handlePrimaryAction}
           />
         </View>
       )}
 
-      {state.kind === 'success' && (
+      {state.kind === 'success' && canCreateCredit && (
         <Modal
           animationType="fade"
           onRequestClose={() => setCreditModalVisible(false)}

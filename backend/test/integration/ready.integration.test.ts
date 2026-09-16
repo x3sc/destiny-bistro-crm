@@ -1,3 +1,4 @@
+import type { AdminUser, AdminUsers } from "../../src/user-types.js";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { buildApp } from "../../src/app.js";
@@ -2196,6 +2197,21 @@ void test("mixed checkout supports installments, later additions and concurrent 
     };
 
     const mixed = await openAndConfirm(table.id);
+    await provisionUser(prisma, { establishmentName: integrationEstablishmentName, name: "Credit Restricted Waiter", password: integrationUserPassword, roleCodes: ["WAITER"] });
+    const waiterApp = await createAuthenticatedApp("Credit Restricted Waiter", integrationUserPassword);
+    try {
+      const beforeAudit = await prisma.auditLog.count({ where: { establishmentId: integrationEstablishmentId } });
+      for (const payments of [[], [{ amountCents: 500, method: "PIX" }]]) {
+        const forbidden = await waiterApp.inject({ method: "POST", url: `/comandas/${mixed.comandaId}/close`, payload: { customerId, payments } });
+        assert.equal(forbidden.statusCode, 403, forbidden.body);
+      }
+      assert.equal(await prisma.payment.count({ where: { comandaId: mixed.comandaId } }), 0);
+      assert.equal(await prisma.creditOrder.count({ where: { comandaId: mixed.comandaId } }), 0);
+      assert.equal(await prisma.auditLog.count({ where: { establishmentId: integrationEstablishmentId } }), beforeAudit);
+      const unchanged = await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } });
+      assert.equal(unchanged.activeComandaId, mixed.comandaId);
+    } finally { await waiterApp.close(); }
+
     const overpayment = await app.inject({
       method: "POST",
       payload: { payments: [{ amountCents: 1_100, method: "PIX" }] },
@@ -3793,4 +3809,95 @@ void test("operational reset preserves catalog, tables and provisioned users", a
   } finally {
     await cleanupEstablishment(secondaryEstablishmentName);
   }
+});
+
+void test("admin users: owner creates roles with tenant isolation and atomic audit", async () => {
+  const app = await createAuthenticatedApp();
+  const password = "admin-users-test-password";
+  try {
+    const list = await app.inject({ method: "GET", url: "/admin/users" });
+    assert.equal(list.statusCode, 200);
+    assert.deepEqual(list.json<AdminUsers>().roles.map((role: { code: string }) => role.code), ["OWNER", "MANAGER", "WAITER", "KITCHEN"]);
+    const owner = await prisma.user.findUniqueOrThrow({ where: { normalizedName: integrationUserName.toLowerCase() } });
+    for (const roleCode of ["OWNER", "MANAGER", "WAITER", "KITCHEN"]) {
+      const name = `Admin Integration ${roleCode}`;
+      const response = await app.inject({ method: "POST", url: "/admin/users", payload: { name, password, roleCode } });
+      assert.equal(response.statusCode, 201, response.body);
+      const { user } = response.json<{ user: AdminUser }>();
+      assert.deepEqual(Object.keys(user).sort(), ["active", "id", "name", "roles"]);
+      assert.equal(user.active, true);
+      assert.equal(user.roles.length, 1);
+      assert.equal(user.roles[0].code, roleCode);
+      const persisted = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { roles: true } });
+      assert.equal(persisted.establishmentId, integrationEstablishmentId);
+      assert.notEqual(persisted.passwordHash, password);
+      assert.equal(persisted.roles[0]?.assignedByUserId, owner.id);
+      const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "USER_CREATED", resourceId: user.id } });
+      assert.equal(audit.userId, owner.id);
+      assert.equal(audit.establishmentId, integrationEstablishmentId);
+      assert.ok(!JSON.stringify(audit).includes(password));
+      assert.ok(!JSON.stringify(audit).includes(persisted.passwordHash));
+      const login = await app.inject({ method: "POST", url: "/auth/login", payload: { name, password } });
+      assert.equal(login.statusCode, 200);
+      const token = login.json<{ session: { token: string } }>().session.token;
+      const creditHeaders = { authorization: `Bearer ${token}` };
+      const creditList = await app.inject({ method: "GET", url: "/credit-customers", headers: creditHeaders });
+      assert.equal(creditList.statusCode, ["OWNER", "MANAGER"].includes(roleCode) ? 200 : 403);
+      if (["OWNER", "MANAGER"].includes(roleCode)) {
+        const createdCredit = await app.inject({ method: "POST", url: "/credit-customers", headers: creditHeaders, payload: { name: `Allowed Credit ${roleCode}` } });
+        assert.equal(createdCredit.statusCode, 201, createdCredit.body);
+      }
+      if (["WAITER", "KITCHEN"].includes(roleCode)) {
+        const before = await prisma.creditCustomer.count({ where: { establishmentId: integrationEstablishmentId } });
+        const denied = await app.inject({ method: "POST", url: "/credit-customers", headers: creditHeaders, payload: { name: "Forbidden Credit" } });
+        assert.equal(denied.statusCode, 403);
+        assert.equal(await prisma.creditCustomer.count({ where: { establishmentId: integrationEstablishmentId } }), before);
+      }
+      if (roleCode !== "OWNER") {
+        for (const method of ["GET", "POST"] as const) {
+          const forbidden = await app.inject({ method, url: "/admin/users", headers: { authorization: `Bearer ${token}` }, ...(method === "POST" ? { payload: { name: "Forbidden Creation", password, roleCode: "OWNER" } } : {}) });
+          assert.equal(forbidden.statusCode, 403);
+        }
+      }
+    }
+    for (const method of ["GET", "POST"] as const) {
+      const unauthenticated = await app.inject({ method, url: "/admin/users", headers: { authorization: "" }, ...(method === "POST" ? { payload: {} } : {}) });
+      assert.equal(unauthenticated.statusCode, 401);
+    }
+    const duplicate = await app.inject({ method: "POST", url: "/admin/users", payload: { name: "  ADMIN   INTEGRATION waiter  ", password, roleCode: "WAITER" } });
+    assert.equal(duplicate.statusCode, 409);
+    for (const invalid of [
+      { name: "A", password, roleCode: "WAITER" },
+      { name: "Invalid Name", password: "short", roleCode: "WAITER" },
+      { name: "Invalid Name", password: "x".repeat(129), roleCode: "WAITER" },
+      { name: "Invalid Name", password, roleCode: "CASHIER" },
+      { name: "Invalid Name", password, roleCode: ["WAITER", "OWNER"] },
+      { name: "Invalid Name", password, roleCode: "WAITER", establishmentId: "another-establishment" },
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/admin/users", payload: invalid });
+      assert.equal(response.statusCode, 400);
+    }
+    await provisionEstablishment(prisma, { name: secondaryEstablishmentName, ownerName: "Admin Secondary Owner", ownerPassword: password });
+    const otherApp = await createAuthenticatedApp("Admin Secondary Owner", password);
+    try {
+      const otherList = await otherApp.inject({ method: "GET", url: "/admin/users" });
+      assert.equal(otherList.statusCode, 200);
+      assert.equal(otherList.json<AdminUsers>().users.length, 1);
+      assert.equal(otherList.json<AdminUsers>().users[0].name, "Admin Secondary Owner");
+      const conflicting = await otherApp.inject({ method: "POST", url: "/admin/users", payload: { name: "Admin Integration WAITER", password, roleCode: "WAITER" } });
+      assert.equal(conflicting.statusCode, 409);
+      assert.ok(!conflicting.body.includes(integrationEstablishmentId));
+      // A different establishment's audit actor violates the real composite FK.
+      const persistence = createPersistence();
+      try {
+        const session = await persistence.auth.login("Admin Secondary Owner", password);
+        await assert.rejects(persistence.users.create({ ...session.user, establishment: { id: integrationEstablishmentId, name: "Integration Bistro" } }, { name: "Atomic Failed User", password, roleCode: "WAITER" }));
+        assert.equal(await prisma.user.count({ where: { normalizedName: "atomic failed user" } }), 0);
+      } finally { await persistence.database.close(); }
+    } finally { await otherApp.close(); await cleanupEstablishment(secondaryEstablishmentName); }
+    const concurrent = await Promise.all([1, 2].map(() => app.inject({ method: "POST", url: "/admin/users", payload: { name: "Concurrent Admin User", password, roleCode: "WAITER" } })));
+    assert.deepEqual(concurrent.map((response) => response.statusCode).sort(), [201, 409]);
+    const concurrentUser = await prisma.user.findUniqueOrThrow({ where: { normalizedName: "concurrent admin user" } });
+    assert.equal(await prisma.auditLog.count({ where: { action: "USER_CREATED", resourceId: concurrentUser.id } }), 1);
+  } finally { await app.close(); }
 });

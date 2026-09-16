@@ -76,14 +76,12 @@ export const systemRoleDefinitions = [
   },
   {
     code: "WAITER",
-    description: "Opera mesas, comandas e fiados.",
+    description: "Opera mesas e comandas.",
     managerAssignable: true,
     name: "Garçom",
     permissions: [
       permissions.COMANDAS_READ,
       permissions.COMANDAS_WRITE,
-      permissions.CREDITS_READ,
-      permissions.CREDITS_WRITE,
       permissions.DELIVERIES_READ,
       permissions.DELIVERIES_WRITE,
       permissions.PRODUCTS_READ,

@@ -3,6 +3,12 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { themeColors } from '../../theme/tokens';
 import { AppBottomNavigation } from '../app-bottom-navigation';
 
+const mockUser = { permissions: ['credits.read'], roles: [{ code: 'OWNER' }] };
+jest.mock('../../auth/auth-context', () => ({
+  useAuth: () => ({ user: mockUser }),
+  hasPermission: (user: unknown, permission: string) => jest.requireActual('../../services/authorization').hasAppPermission(user, permission),
+}));
+
 const mockReplace = jest.fn();
 
 jest.mock('expo-router', () => ({
@@ -11,6 +17,7 @@ jest.mock('expo-router', () => ({
 
 beforeEach(() => {
   mockReplace.mockClear();
+  mockUser.roles = [{ code: 'OWNER' }];
 });
 
 it('shows the three labeled destinations from the Stitch navigation bar', () => {
@@ -38,4 +45,11 @@ it('replaces the current route when a destination is selected', () => {
   expect(mockReplace).toHaveBeenNthCalledWith(1, '/credits');
   expect(mockReplace).toHaveBeenNthCalledWith(2, '/admin');
   expect(mockReplace).toHaveBeenNthCalledWith(3, '/tables');
+});
+
+it('hides credits for waiter even with a legacy grant', () => {
+  mockUser.roles = [{ code: 'WAITER' }];
+  render(<AppBottomNavigation activeItem="tables" />);
+  expect(screen.queryByRole('tab', { name: 'Fiados' })).toBeNull();
+  expect(screen.getByRole('tab', { name: 'Mesas' })).toBeTruthy();
 });
