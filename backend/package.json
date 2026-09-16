@@ -42,6 +42,7 @@
     "@prisma/config": {
       "deepmerge-ts": "8.0.0"
     },
-    "mariadb": "3.5.3"
+    "mariadb": "3.5.3",
+    "mysql2": "3.24.4"
   }
 }
