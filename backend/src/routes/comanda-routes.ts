@@ -1,3 +1,4 @@
+import { hasAppPermission } from "../authentication.js";
 import type { FastifyInstance } from "fastify";
 import { requireAuthUser } from "../authentication.js";
 import {
@@ -246,7 +247,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
             request.params.comandaId,
             payments,
             customerId,
-            user.permissions.includes("credits.write"),
+            hasAppPermission(user, "credits.write"),
             user.id,
           ),
         };

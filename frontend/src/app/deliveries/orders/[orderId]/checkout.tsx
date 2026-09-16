@@ -23,6 +23,7 @@ export default function DeliveryOrderCheckoutRoute() {
     >
       {(comandaId) => (
         <ComandaCheckoutScreen
+          canCreateCredit={hasPermission(user, 'credits.write')}
           comandaId={comandaId}
           entityLabel="pedido"
           headingTitle="Pagamento do pedido"

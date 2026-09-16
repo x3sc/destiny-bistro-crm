@@ -1,3 +1,4 @@
+import { hasAppPermission } from '../services/authorization';
 import {
   createContext,
   type ReactNode,
@@ -138,5 +139,5 @@ export function hasPermission(
   user: AuthUser | null,
   permission: string,
 ) {
-  return user?.permissions.includes(permission) === true;
+  return hasAppPermission(user, permission);
 }

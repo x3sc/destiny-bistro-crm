@@ -673,6 +673,7 @@ async function createApp({
   statements?: StatementRepository;
 } = {}) {
   const app = await buildApp({
+    users: { list: () => Promise.resolve({ users: [], roles: [] }), create: () => Promise.reject(new Error("Unexpected user creation")) },
     auth,
     comandas,
     credits,
@@ -2528,4 +2529,28 @@ void test("closing a delivery day is rejected when it is already closed", async 
   assert.equal(response.statusCode, 409);
 
   await app.close();
+});
+
+void test("credit endpoints reject operational roles even with legacy permissions", async () => {
+  for (const code of ["WAITER", "KITCHEN"]) {
+    const app = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, roles: [{ id: "role", name: code, code }] }) }) });
+    try {
+      for (const [method, url] of [["GET", "/credit-customers"], ["GET", "/credit-customers/customer"], ["POST", "/credit-customers"], ["POST", "/credit-customers/customer/orders"], ["POST", "/credit-orders/order/finalize"], ["POST", "/credit-orders/order/cancel"], ["POST", "/credit-orders/order/settle"], ["POST", "/comandas/comanda/credit"]] as const) {
+        const response = await app.inject({ method, url, ...(method === "POST" ? { payload: {} } : {}) });
+        assert.equal(response.statusCode, 403, `${code} ${url}`);
+      }
+    } finally { await app.close(); }
+  }
+});
+void test("checkout passes no credit authority for waiter with legacy permissions", async () => {
+  let allowed: boolean | undefined;
+  const app = await createApp({
+    auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, roles: [{ id: "role", name: "Waiter", code: "WAITER" }] }) }),
+    comandas: createComandas({ close: (_tenant, _id, _payments, _customer, canCredit) => { allowed = canCredit; return Promise.resolve(comanda); } }),
+  });
+  try {
+    const response = await app.inject({ method: "POST", url: "/comandas/comanda/close", payload: { payments: [] } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(allowed, false);
+  } finally { await app.close(); }
 });

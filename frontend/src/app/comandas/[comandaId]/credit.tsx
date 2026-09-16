@@ -1,14 +1,18 @@
-import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
+import { hasPermission, useAuth } from '@/auth/auth-context';
+import { Redirect, type Href, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { CreditCustomerPickerScreen } from '@/components/credit-customer-picker-screen';
 import { convertComandaToCredit } from '@/services/credits-api';
 
 export default function ConvertComandaCreditRoute() {
   const router = useRouter();
+  const { user } = useAuth();
   const { comandaId = '', name = '' } = useLocalSearchParams<{
     comandaId?: string;
     name?: string;
   }>();
+
+  if (!hasPermission(user, 'credits.write')) return <Redirect href="/" />;
 
   return (
     <CreditCustomerPickerScreen

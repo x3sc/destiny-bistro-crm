@@ -78,7 +78,15 @@ Remove-Item Env:\USER_PROVISION_PASSWORD
 ```
 
 O comando solicita o estabelecimento, o nome e os cargos e grava diretamente no
-MySQL. Não existe tela de criação de conta no aplicativo. Um estabelecimento
+MySQL. No aplicativo, o dono pode usar **Administrativo → Usuários → Novo usuário**
+para listar a equipe e criar acessos com nome, senha e um perfil: Dono, Gerente,
+Garçom ou Cozinha. Esse fluxo é exclusivo de OWNER, mesmo que o Gerente tenha
+`users.manage`. A senha deve ter de 8 a 128 caracteres; o nome de acesso deve
+ter de 2 a 80 e ser único no sistema. O novo acesso funciona no login atual.
+Criação e atribuição do perfil são auditadas na mesma transação. Consulte os
+[contratos e limites](docs/specs/user-administration.md).
+
+Um estabelecimento
 pode ter vários owners, e todo usuário pertence obrigatoriamente a um
 estabelecimento. Os cargos iniciais são `OWNER`,
 `MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
@@ -380,3 +388,9 @@ npm.cmd test
 Módulos operacionais de mesas, crédito, delivery e estoque integrados, com
 autenticação por usuário, permissões, auditoria, ledger por lote e preparação para
 implantação controlada em VPS.
+
+Fiados: somente os perfis `OWNER` e `MANAGER`, com as respectivas permissões,
+podem acessar clientes/fiados e fechar comandas com saldo em fiado. `WAITER` e
+`KITCHEN` não veem a navegação nem acessam as rotas de fiados. O garçom
+continua podendo fechar comandas com pagamento integral, inclusive misto.
+A API aplica a restrição mesmo se o banco ainda contiver permissões antigas.

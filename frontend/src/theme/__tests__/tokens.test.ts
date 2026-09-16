@@ -23,3 +23,16 @@ it('exposes the mobile layout tokens defined by the Stitch design system', () =>
     expect.objectContaining({ fontFamily: 'Roboto', fontSize: 16 }),
   );
 });
+
+it('uses a sans-serif fallback on web when Roboto is not installed', () => {
+  try {
+    jest.isolateModules(() => {
+      jest.doMock('react-native', () => ({ Platform: { OS: 'web' } }));
+      const { themeTypography: webTypography } = jest.requireActual<typeof import('../tokens')>('../tokens');
+      expect(webTypography.body.fontFamily).toContain('sans-serif');
+      expect(webTypography.body.fontFamily).toContain('Roboto');
+    });
+  } finally {
+    jest.dontMock('react-native');
+  }
+});
