@@ -22,6 +22,7 @@ export interface ComandaPrintSource {
   number: number;
   openedAt: Date;
   status: "OPEN" | "CLOSED" | "CANCELLED";
+  tableName?: string | null;
   tableNumber: number | null;
 }
 
@@ -30,7 +31,7 @@ export interface ComandaPrintDocument {
   comandaName: string | null;
   comandaNumber: number;
   deliveryFeeCents: number | null;
-  destination: "COUNTER" | "DELIVERY" | "TABLE";
+  destination: "QUICK_SALE" | "COUNTER" | "DELIVERY" | "TABLE";
   establishmentName: string;
   generatedAt: string;
   generatedBy: string;
@@ -38,6 +39,7 @@ export interface ComandaPrintDocument {
   kind: ComandaPrintKind;
   openedAt: string;
   status: ComandaPrintSource["status"];
+  tableName?: string | null;
   tableNumber: number | null;
   totalCents: number | null;
 }
@@ -122,7 +124,7 @@ export function buildComandaPrintDocument(
         ? "TABLE"
         : source.deliveryFeeCents !== null
           ? "DELIVERY"
-          : "COUNTER",
+          : source.tableName === "Venda rápida" ? "QUICK_SALE" : "COUNTER",
     establishmentName: source.establishmentName,
     generatedAt: generatedAt.toISOString(),
     generatedBy,

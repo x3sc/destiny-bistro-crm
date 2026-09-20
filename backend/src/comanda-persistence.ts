@@ -1,5 +1,6 @@
 import { type Prisma } from "./generated/prisma/client.js";
 import {
+  QUICK_SALE_TABLE_NAME,
   ComandaNotFoundError,
   ComandaNotMutableError,
   type Comanda,
@@ -96,6 +97,7 @@ export const comandaSelect = {
     },
   },
   name: true,
+  tableName: true,
   number: true,
   openedAt: true,
   payments: {
@@ -196,6 +198,8 @@ export async function findOpenComanda(
         select: { id: true },
       },
       status: true,
+      tableName: true,
+      tableId: true,
     },
     where: { establishmentId, id },
   });
@@ -210,7 +214,8 @@ export async function findOpenComanda(
 
   if (
     comanda.status !== "OPEN" ||
-    (!comanda.activeForTable && !isMutableCreditOrder && !comanda.deliveryOrder)
+    (!comanda.activeForTable && !isMutableCreditOrder && !comanda.deliveryOrder &&
+      !(comanda.tableId === null && comanda.tableName === QUICK_SALE_TABLE_NAME && !comanda.creditOrder))
   ) {
     throw new ComandaNotMutableError();
   }

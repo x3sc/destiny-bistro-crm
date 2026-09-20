@@ -37,6 +37,7 @@ enum ComandaCancellationReason {
 }
 
 enum CreditOrderSource {
+  QUICK_SALE
   MANUAL
   TABLE
   DELIVERY
@@ -57,6 +58,7 @@ enum PaymentMethod {
 }
 
 enum PaymentOrigin {
+  QUICK_SALE_CHECKOUT
   TABLE_CHECKOUT
   CREDIT_INSTALLMENT
   DELIVERY_CHECKOUT
@@ -188,6 +190,7 @@ model Comanda {
   establishment      Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   number             Int                        @unique @default(autoincrement())
   name               String?                    @db.VarChar(80)
+  tableName          String?                    @db.VarChar(80)
   tableId            Int?
   table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")

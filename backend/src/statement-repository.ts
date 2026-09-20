@@ -63,6 +63,7 @@ export function createStatementRepository(
                 },
               },
               name: true,
+              tableName: true,
               number: true,
               payments: {
                 select: {
@@ -122,6 +123,7 @@ export function createStatementRepository(
                 },
               },
               name: true,
+              tableName: true,
               number: true,
               status: true,
               table: {
@@ -168,6 +170,7 @@ export function createStatementRepository(
                   },
                   id: true,
                   name: true,
+                  tableName: true,
                   number: true,
                   status: true,
                   table: {
@@ -284,6 +287,7 @@ export function createStatementRepository(
                   id: comanda.id,
                   items: comanda.items,
                   name: comanda.name,
+                  tableName: comanda.tableName,
                   number: comanda.number,
                   status: comanda.status,
                   tableNumber: comanda.table?.number ?? null,
@@ -311,6 +315,7 @@ export function createStatementRepository(
                   id: comanda.id,
                   items: comanda.items,
                   name: comanda.name,
+                  tableName: comanda.tableName,
                   number: comanda.number,
                   payments: comanda.payments,
                   status: comanda.status,
@@ -351,6 +356,7 @@ export function createStatementRepository(
                 events,
                 id: order.comanda.id,
                 name: order.comanda.name,
+                tableName: order.comanda.tableName,
                 number: order.comanda.number,
                 status: order.comanda.status,
                 tableNumber: order.comanda.table?.number ?? null,

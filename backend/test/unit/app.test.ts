@@ -513,6 +513,8 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
         totalCents: kind === "CONFIRMED" ? 0 : null,
       }),
     openForTable: () => Promise.resolve(comanda),
+    openQuickSale: () => Promise.resolve(comanda),
+    listQuickSales: () => Promise.resolve([]),
     removeItem: () => Promise.resolve(comanda),
     ...overrides,
   };
@@ -2553,4 +2555,45 @@ void test("checkout passes no credit authority for waiter with legacy permission
     assert.equal(response.statusCode, 200);
     assert.equal(allowed, false);
   } finally { await app.close(); }
+});
+
+void test("quick sales validate customer name and use authenticated tenant and actor", async () => {
+  const calls: unknown[][] = [];
+  const app = await createApp({
+    comandas: createComandas({
+      openQuickSale: (...args) => {
+        calls.push(args);
+        return Promise.resolve({ ...comanda, name: args[1], table: null, tableName: "Venda rápida" });
+      },
+      listQuickSales: (tenant) => { calls.push([tenant]); return Promise.resolve([]); },
+    }),
+  });
+  try {
+    for (const name of [undefined, null, 42, "", "   ", "x".repeat(81)]) {
+      const response = await app.inject({ method: "POST", url: "/quick-sales", payload: { name } });
+      assert.equal(response.statusCode, 400);
+    }
+    assert.equal(calls.length, 0);
+    const response = await app.inject({ method: "POST", url: "/quick-sales", payload: { name: "  Maria  ", establishmentId: "other" } });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json<{ comanda: Comanda }>().comanda.name, "Maria");
+    assert.equal(response.json<{ comanda: Comanda }>().comanda.table, null);
+    assert.equal(response.json<{ comanda: Comanda }>().comanda.tableName, "Venda rápida");
+    assert.deepEqual(calls[0], ["establishment-id", "Maria", "user-id"]);
+    const list = await app.inject({ method: "GET", url: "/quick-sales" });
+    assert.equal(list.statusCode, 200);
+    assert.deepEqual(list.json(), { comandas: [] });
+    assert.deepEqual(calls[1], ["establishment-id"]);
+  } finally { await app.close(); }
+});
+
+void test("quick sales require authenticated read and write permissions", async () => {
+  for (const permissions of [[], ["comandas.read"]]) {
+    const app = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, permissions }) }) });
+    try {
+      assert.equal((await app.inject({ method: "POST", url: "/quick-sales", payload: { name: "Maria" } })).statusCode, 403);
+      assert.equal((await app.inject({ method: "GET", url: "/quick-sales" })).statusCode, permissions.length ? 200 : 403);
+      assert.equal((await app.inject({ method: "POST", url: "/quick-sales", headers: { authorization: "" }, payload: { name: "Maria" } })).statusCode, 401);
+    } finally { await app.close(); }
+  }
 });
