@@ -2,11 +2,13 @@ const STATEMENT_TIME_ZONE = "America/Sao_Paulo";
 const dateKeyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export type StatementOrigin =
+  | "QUICK_SALE"
   | "TABLE"
   | "CREDIT_MANUAL"
   | "CREDIT_TABLE"
   | "DELIVERY";
 export type StatementEvent =
+  | "QUICK_SALE_CLOSED"
   | "TABLE_CLOSED"
   | "CREDIT_FINALIZED"
   | "CREDIT_ADDITION"
@@ -69,6 +71,7 @@ export interface StatementEntry {
 }
 
 export type StatementPaymentOrigin =
+  | "QUICK_SALE_CHECKOUT"
   | "TABLE_CHECKOUT"
   | "CREDIT_INSTALLMENT"
   | "DELIVERY_PAYMENT";
@@ -127,6 +130,7 @@ export interface StatementPeriod {
 }
 
 interface SourceComandaIdentity {
+  tableName?: string | null;
   deliveryOrder?: {
     address: string;
     feeCents: number;
@@ -140,7 +144,7 @@ interface SourceComandaIdentity {
 
 interface SourceCreditIdentity {
   customerName: string;
-  source: "MANUAL" | "TABLE" | "DELIVERY";
+  source: "MANUAL" | "TABLE" | "DELIVERY" | "QUICK_SALE";
 }
 
 interface SourcePayment {
@@ -295,13 +299,13 @@ export function buildStatementReport(
       entries.push(
         createEntry({
           comanda,
-          customerName: comanda.deliveryOrder ? comanda.name : null,
+          customerName: comanda.deliveryOrder || comanda.tableName === "Venda rápida" ? comanda.name : null,
           deliveryAddress: comanda.deliveryOrder?.address ?? null,
           deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
-          event: comanda.deliveryOrder ? "DELIVERY_RECORDED" : "TABLE_CLOSED",
+          event: comanda.deliveryOrder ? "DELIVERY_RECORDED" : comanda.tableName === "Venda rápida" ? "QUICK_SALE_CLOSED" : "TABLE_CLOSED",
           items: entryItems(comanda.items, "confirmedQuantity"),
           occurredAt: comanda.closedAt,
-          origin: comanda.deliveryOrder ? "DELIVERY" : "TABLE",
+          origin: comanda.deliveryOrder ? "DELIVERY" : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
           payments: comandaPayments.flatMap((payment) => payment.allocations),
           receivedCents,
           receivedItemCount: itemCount,
@@ -326,7 +330,7 @@ export function buildStatementReport(
         occurredAt: comanda.cancelledAt,
         origin: comanda.creditOrder
           ? creditOrigin(comanda.creditOrder.source)
-          : "TABLE",
+          : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
       }),
     );
   }
@@ -339,6 +343,7 @@ export function buildStatementReport(
     const tableCheckoutPaidCents = (order.payments ?? [])
       .filter(
         (payment) =>
+          payment.origin === "QUICK_SALE_CHECKOUT" ||
           payment.origin === "TABLE_CHECKOUT" ||
           payment.origin === "DELIVERY_CHECKOUT",
       )
@@ -601,6 +606,7 @@ function addEntryToSummary(summary: StatementSummary, entry: StatementEntry) {
   summary.soldItemCount += entry.soldItemCount;
 
   if (
+    entry.event === "QUICK_SALE_CLOSED" ||
     entry.event === "TABLE_CLOSED" ||
     entry.event === "CREDIT_SETTLED" ||
     entry.event === "DELIVERY_RECORDED"
@@ -689,6 +695,7 @@ function statementEventRank(event: StatementEvent) {
   return {
     CREDIT_FINALIZED: 0,
     CREDIT_ADDITION: 1,
+    QUICK_SALE_CLOSED: 2,
     TABLE_CLOSED: 2,
     CREDIT_PAYMENT: 3,
     CREDIT_SETTLED: 4,
@@ -742,7 +749,7 @@ function buildIndicators(
   summary: StatementSummary,
 ): StatementIndicators {
   const originSummaries: StatementOriginSummary[] = (
-    ["TABLE", "CREDIT_MANUAL", "CREDIT_TABLE", "DELIVERY"] as const
+    ["TABLE", "CREDIT_MANUAL", "CREDIT_TABLE", "DELIVERY", "QUICK_SALE"] as const
   ).map((origin) => ({
     movementCount: 0,
     origin,
@@ -806,7 +813,8 @@ function buildIndicators(
   };
 }
 
-function creditOrigin(source: "MANUAL" | "TABLE" | "DELIVERY"): StatementOrigin {
+function creditOrigin(source: "MANUAL" | "TABLE" | "DELIVERY" | "QUICK_SALE"): StatementOrigin {
+  if (source === "QUICK_SALE") return "QUICK_SALE";
   if (source === "MANUAL") return "CREDIT_MANUAL";
   if (source === "DELIVERY") return "DELIVERY";
   return "CREDIT_TABLE";

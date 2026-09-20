@@ -1,3 +1,4 @@
+import { hasAppPermission } from "../authentication.js";
 import type { FastifyInstance } from "fastify";
 import { requireAuthUser } from "../authentication.js";
 import {
@@ -13,6 +14,7 @@ import {
   ComandaNotFoundError,
   ComandaCreditPermissionError,
   ComandaPaymentError,
+  PrintDocumentEmptyError,
   ProductUnavailableError,
   type ComandaRepository,
 } from "../comanda-repository.js";
@@ -20,6 +22,7 @@ import {
   normalizePaymentAllocations,
   PaymentInputError,
 } from "../payment-types.js";
+import type { ComandaPrintKind } from "../comanda-print-document.js";
 
 interface ComandaParams {
   comandaId: string;
@@ -27,6 +30,9 @@ interface ComandaParams {
 
 interface ComandaItemParams extends ComandaParams {
   itemId: string;
+}
+interface PrintDocumentQuery {
+  kind?: unknown;
 }
 
 interface ComandaConfigurationParams extends ComandaItemParams {
@@ -75,6 +81,27 @@ function isItemConflict(error: unknown) {
 }
 
 export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRepository) {
+  app.get("/quick-sales", { config: { permission: "comandas.read" } }, async (request, reply) => {
+    try {
+      return { comandas: await comandas.listQuickSales(requireAuthUser(request).establishment.id) };
+    } catch (error) {
+      app.log.error(error, "Quick sales query failed");
+      return reply.code(503).send({ status: "error", message: "Quick sales unavailable" });
+    }
+  });
+  app.post<{ Body: { name?: unknown } }>("/quick-sales", { config: { permission: "comandas.write" } }, async (request, reply) => {
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+    if (!name || name.length > 80) {
+      return reply.code(400).send({ status: "error", message: "Invalid customer name" });
+    }
+    try {
+      const user = requireAuthUser(request);
+      return reply.code(201).send({ comanda: await comandas.openQuickSale(user.establishment.id, name, user.id) });
+    } catch (error) {
+      app.log.error(error, "Quick sale opening failed");
+      return reply.code(503).send({ status: "error", message: "Quick sale unavailable" });
+    }
+  });
   app.get<{ Params: ComandaParams }>(
     "/comandas/:comandaId",
     { config: { permission: "comandas.read" } },
@@ -101,6 +128,49 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
         message: "Comanda unavailable",
       });
     }
+    },
+  );
+
+  app.get<{ Params: ComandaParams; Querystring: PrintDocumentQuery }>(
+    "/comandas/:comandaId/print-document",
+    { config: { permission: "printing.write" } },
+    async (request, reply) => {
+      if (!isComandaPrintKind(request.query.kind)) {
+        return reply.code(400).send({
+          status: "error",
+          message: "Invalid print document kind",
+        });
+      }
+
+      try {
+        const user = requireAuthUser(request);
+        return {
+          document: await comandas.findPrintDocument(
+            user.establishment.id,
+            request.params.comandaId,
+            request.query.kind,
+            user.name,
+          ),
+        };
+      } catch (error) {
+        if (error instanceof ComandaNotFoundError) {
+          return reply.code(404).send({
+            status: "error",
+            message: "Comanda not found",
+          });
+        }
+        if (error instanceof PrintDocumentEmptyError) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Nothing to print",
+          });
+        }
+        app.log.error(error, "Comanda print document failed");
+        return reply.code(503).send({
+          status: "error",
+          message: "Print document unavailable",
+        });
+      }
     },
   );
 
@@ -198,7 +268,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
             request.params.comandaId,
             payments,
             customerId,
-            user.permissions.includes("credits.write"),
+            hasAppPermission(user, "credits.write"),
             user.id,
           ),
         };
@@ -333,7 +403,7 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
       try {
-        return comandas.confirmItem(
+        return await comandas.confirmItem(
           requireAuthUser(request).establishment.id,
           request.params.comandaId,
           request.params.itemId,
@@ -492,6 +562,10 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
       }
     },
   );
+}
+
+function isComandaPrintKind(value: unknown): value is ComandaPrintKind {
+  return value === "CONFIRMED" || value === "KITCHEN_PENDING";
 }
 
 function parseCancelComandaBody(body: CancelComandaBody): {

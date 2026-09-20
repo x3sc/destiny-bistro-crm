@@ -1,5 +1,6 @@
 import { type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { buildComandaPrintDocument } from "./comanda-print-document.js";
 import {
   addComandaItem,
   changeComandaItemQuantity,
@@ -17,6 +18,7 @@ import {
   type Transaction,
 } from "./comanda-persistence.js";
 import {
+  QUICK_SALE_TABLE_NAME,
   ComandaNotCancellableError,
   ComandaCancellationConflictError,
   ComandaInventoryPermissionError,
@@ -35,6 +37,32 @@ export * from "./comanda-types.js";
 
 export function createComandaRepository(prisma: PrismaClient): ComandaRepository {
   return {
+    async openQuickSale(establishmentId, name, actorUserId) {
+      return prisma.$transaction(async (transaction) => {
+        const comanda = await transaction.comanda.create({
+          data: {
+            establishmentId, name, tableId: null, tableName: QUICK_SALE_TABLE_NAME,
+            events: { create: { actorUserId, type: "OPENED" } },
+          },
+          select: comandaSelect,
+        });
+        await transaction.auditLog.create({ data: createAuditData({
+          action: "COMANDA_OPENED", establishmentId,
+          metadata: { name, tableId: null, tableName: QUICK_SALE_TABLE_NAME },
+          resourceId: comanda.id, resourceType: "COMANDA", userId: actorUserId,
+        }) });
+        return mapComanda(comanda);
+      });
+    },
+    async listQuickSales(establishmentId) {
+      const comandas = await prisma.comanda.findMany({
+        where: { establishmentId, status: "OPEN", tableId: null, tableName: QUICK_SALE_TABLE_NAME,
+          creditOrder: { is: null }, deliveryOrder: { is: null } },
+        orderBy: [{ openedAt: "desc" }, { id: "desc" }],
+        select: comandaSelect,
+      });
+      return comandas.map(mapComanda);
+    },
     async addItem(establishmentId, comandaId, productId, actorUserId) {
       return prisma.$transaction((transaction) =>
         addComandaItem(
@@ -92,6 +120,8 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             },
             status: true,
             tableId: true,
+            tableName: true,
+            creditOrder: { select: { id: true } },
           },
           where: { establishmentId, id },
         });
@@ -102,8 +132,8 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         if (
           activeComanda.status !== "OPEN" ||
-          !activeComanda.activeForTable ||
-          activeComanda.tableId === null ||
+          (!activeComanda.activeForTable &&
+            !(activeComanda.tableId === null && activeComanda.tableName === QUICK_SALE_TABLE_NAME && !activeComanda.creditOrder)) ||
           (activeComanda.items.length > 0 && !input)
         ) {
           throw new ComandaNotCancellableError();
@@ -163,6 +193,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           });
         }
 
+        if (activeComanda.tableId !== null) {
         await releaseActiveTable(
           transaction,
           establishmentId,
@@ -170,6 +201,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           activeComanda.tableId,
           () => new ComandaNotCancellableError(),
         );
+        }
         await cancelOpenComanda(
           transaction,
           establishmentId,
@@ -323,6 +355,8 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             openedAt: true,
             status: true,
             tableId: true,
+            tableName: true,
+            creditOrder: { select: { id: true } },
           },
           where: { establishmentId, id },
         });
@@ -337,7 +371,9 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
 
         if (
           activeComanda.status !== "OPEN" ||
-          (!activeComanda.activeForTable && !activeComanda.deliveryOrder) ||
+          (!activeComanda.activeForTable && !activeComanda.deliveryOrder &&
+            !(activeComanda.tableId === null && activeComanda.tableName === QUICK_SALE_TABLE_NAME)) ||
+          !!activeComanda.creditOrder ||
           (activeComanda.deliveryOrder && activeComanda.items.length === 0) ||
           hasPendingItems
         ) {
@@ -389,7 +425,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               establishmentId,
               finalizedAt: paidAt,
               orderedAt: activeComanda.openedAt,
-              source: activeComanda.deliveryOrder ? "DELIVERY" : "TABLE",
+              source: activeComanda.deliveryOrder ? "DELIVERY" : activeComanda.tableName === QUICK_SALE_TABLE_NAME ? "QUICK_SALE" : "TABLE",
               status: "OPEN",
               totalCents,
             },
@@ -406,7 +442,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
               establishmentId,
               origin: activeComanda.deliveryOrder
                 ? "DELIVERY_CHECKOUT"
-                : "TABLE_CHECKOUT",
+                : activeComanda.tableName === QUICK_SALE_TABLE_NAME ? "QUICK_SALE_CHECKOUT" : "TABLE_CHECKOUT",
               paidAt,
             });
           }
@@ -443,7 +479,7 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
             establishmentId,
             origin: activeComanda.deliveryOrder
               ? "DELIVERY_CHECKOUT"
-              : "TABLE_CHECKOUT",
+              : activeComanda.tableName === QUICK_SALE_TABLE_NAME ? "QUICK_SALE_CHECKOUT" : "TABLE_CHECKOUT",
             paidAt,
           });
         }
@@ -515,6 +551,62 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
       }
 
       return mapComanda(comanda);
+    },
+    async findPrintDocument(establishmentId, id, kind, generatedBy) {
+      const comanda = await prisma.comanda.findFirst({
+        select: {
+          deliveryOrder: { select: { feeCents: true } },
+          establishment: { select: { name: true } },
+          id: true,
+          items: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              configurations: {
+                orderBy: { createdAt: "asc" },
+                select: {
+                  additionals: {
+                    orderBy: { additionalName: "asc" },
+                    select: {
+                      additionalName: true,
+                      quantityPerUnit: true,
+                      unitPriceCents: true,
+                    },
+                  },
+                  confirmedQuantity: true,
+                  quantity: true,
+                },
+                where: { quantity: { gt: 0 } },
+              },
+              productName: true,
+              requiresKitchen: true,
+              unitPriceCents: true,
+            },
+            where: { quantity: { gt: 0 } },
+          },
+          name: true,
+          tableName: true,
+          number: true,
+          openedAt: true,
+          status: true,
+          table: { select: { number: true } },
+        },
+        where: { establishmentId, id },
+      });
+
+      if (!comanda) {
+        throw new ComandaNotFoundError();
+      }
+
+      return buildComandaPrintDocument(
+        {
+          ...comanda,
+          deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
+          establishmentName: comanda.establishment.name,
+          tableNumber: comanda.table?.number ?? null,
+        },
+        kind,
+        generatedBy,
+      );
     },
     async openForTable(establishmentId, tableId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {

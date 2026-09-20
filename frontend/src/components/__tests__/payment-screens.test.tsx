@@ -102,6 +102,7 @@ it('closes a table with mixed partial payment and a selected customer', async ()
 
   render(
     <ComandaCheckoutScreen
+      canCreateCredit
       apiBaseUrl="http://localhost:3333"
       closeRequest={closeRequest}
       comandaId="comanda-id"
@@ -194,6 +195,7 @@ it('creates and selects a new credit without leaving checkout', async () => {
 
   render(
     <ComandaCheckoutScreen
+      canCreateCredit
       apiBaseUrl="http://localhost:3333"
       closeRequest={closeRequest}
       comandaId="comanda-id"
@@ -238,6 +240,7 @@ it('creates and selects a new credit without leaving checkout', async () => {
 it('searches only customers who already have an open credit', async () => {
   render(
     <ComandaCheckoutScreen
+      canCreateCredit
       apiBaseUrl="http://localhost:3333"
       comandaId="comanda-id"
       loadComandaRequest={() => Promise.resolve(comanda)}
@@ -293,6 +296,7 @@ it('allows a full table payment when credit customers are unavailable', async ()
 
   render(
     <ComandaCheckoutScreen
+      canCreateCredit
       apiBaseUrl="http://localhost:3333"
       closeRequest={closeRequest}
       comandaId="comanda-id"
@@ -361,4 +365,23 @@ it('registers a mixed installment only on the selected credit order', async () =
     );
     expect(onFinished).toHaveBeenCalled();
   });
+});
+
+it('requires full payment and never loads credit customers for a waiter', async () => {
+  const loadCustomers = jest.fn();
+  const closeRequest = jest.fn(() => Promise.resolve({ ...comanda, status: 'CLOSED' as const }));
+  render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
+    canCreateCredit={false} loadCustomersRequest={loadCustomers}
+    loadComandaRequest={() => Promise.resolve(comanda)} closeRequest={closeRequest}
+    onBack={jest.fn()} onFinished={jest.fn()} />);
+  const amount = await screen.findByLabelText('Valor do pagamento 1');
+  fireEvent.changeText(amount, '2000');
+  selectMethod(1, 'Pix');
+  expect(screen.queryByText('Fechar como fiado')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Confirmar e fechar mesa' })).toBeDisabled();
+  expect(loadCustomers).not.toHaveBeenCalled();
+  expect(closeRequest).not.toHaveBeenCalled();
+  fireEvent.changeText(amount, '5000');
+  fireEvent.press(screen.getByRole('button', { name: 'Confirmar e fechar mesa' }));
+  await waitFor(() => expect(closeRequest).toHaveBeenCalledWith('http://localhost:3333', 'comanda-id', [{ amountCents: 5000, method: 'PIX' }], undefined));
 });

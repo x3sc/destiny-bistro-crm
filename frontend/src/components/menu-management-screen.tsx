@@ -36,8 +36,8 @@ type CategoryEditor =
   | { kind: 'create'; name: string }
   | { category: MenuCategory; kind: 'edit'; name: string };
 type ProductEditor =
-  | { category: MenuCategory; description: string; kind: 'create'; name: string; price: string }
-  | { category: MenuCategory; description: string; kind: 'edit'; name: string; price: string; product: MenuProduct };
+  | { category: MenuCategory; description: string; kind: 'create'; name: string; price: string; requiresKitchen: boolean }
+  | { category: MenuCategory; description: string; kind: 'edit'; name: string; price: string; product: MenuProduct; requiresKitchen: boolean };
 type RecipeValues = Record<string, string>;
 
 type ScreenState =
@@ -154,6 +154,7 @@ export function MenuManagementScreen({
       description: productEditor.description.trim() || null,
       name: productEditor.name,
       priceCents,
+      requiresKitchen: productEditor.requiresKitchen,
     };
     const request = productEditor.kind === 'create'
       ? () => createProductRequest(normalizedApiBaseUrl, input)
@@ -292,6 +293,7 @@ export function MenuManagementScreen({
                 kind: 'create',
                 name: '',
                 price: centsInput(0),
+                requiresKitchen: false,
               });
               setMessage(undefined);
             }}
@@ -316,6 +318,7 @@ export function MenuManagementScreen({
                 name: product.name,
                 price: centsInput(product.priceCents),
                 product,
+                requiresKitchen: product.requiresKitchen,
               });
             }}
             onProductActiveChange={(product, active) => {
@@ -329,6 +332,7 @@ export function MenuManagementScreen({
                     description: product.description,
                     name: product.name,
                     priceCents: product.priceCents,
+                    requiresKitchen: product.requiresKitchen,
                   })
                 : () => deleteProductRequest(normalizedApiBaseUrl, product.id);
               void mutate(request, active ? 'Item ativado.' : 'Item desativado.');
@@ -473,6 +477,9 @@ function CategoryCard({
                 <Text style={styles.price}>
                   {formatCentsAsBrl(product.priceCents)}
                 </Text>
+                {product.requiresKitchen ? (
+                  <Text style={styles.kitchenBadge}>Preparado na cozinha</Text>
+                ) : null}
                 {product.recipe?.length ? (
                   <Text style={styles.meta}>
                     Ficha técnica · {product.recipe.length} {product.recipe.length === 1 ? 'insumo' : 'insumos'}
@@ -618,6 +625,26 @@ function ProductEditorForm({
         placeholder="R$ 0,00"
         value={editor.price}
       />
+      <View style={styles.kitchenField}>
+        <View style={styles.headingCopy}>
+          <Text style={styles.fieldLabel}>Preparado na cozinha</Text>
+          <Text style={styles.meta}>
+            Ative para itens que precisam ser enviados para preparo.
+          </Text>
+        </View>
+        <Switch
+          accessibilityLabel="Preparado na cozinha"
+          disabled={disabled}
+          onValueChange={(requiresKitchen) =>
+            onChange({ ...editor, requiresKitchen })
+          }
+          trackColor={{
+            false: themeColors.border,
+            true: themeColors.primary,
+          }}
+          value={editor.requiresKitchen}
+        />
+      </View>
       {onRecipe ? (
         <ActionButton label="Receita" onPress={onRecipe} tone="secondary" />
       ) : null}
@@ -771,6 +798,8 @@ const styles = StyleSheet.create({
   headingRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 16, justifyContent: 'space-between' },
   inactive: { opacity: 0.58 },
   input: { backgroundColor: themeColors.surface, borderColor: themeColors.borderStrong, borderRadius: 12, borderWidth: 1, color: themeColors.foreground, fontSize: 15, minHeight: 48, paddingHorizontal: 14 },
+  kitchenBadge: { alignSelf: 'flex-start', backgroundColor: themeColors.surfaceAccent, borderRadius: 999, color: themeColors.primary, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  kitchenField: { alignItems: 'center', backgroundColor: themeColors.surface, borderColor: themeColors.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 12, justifyContent: 'space-between', padding: 14 },
   loading: { alignItems: 'center', gap: 12, paddingVertical: 32 },
   message: { backgroundColor: themeColors.surfaceAccent, borderRadius: 12, color: themeColors.foregroundBody, fontSize: 14, padding: 12 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(30, 22, 16, 0.48)', flex: 1, justifyContent: 'center', padding: 18 },

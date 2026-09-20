@@ -1,4 +1,10 @@
 import type { Payment, PaymentAllocationInput } from "./payment-types.js";
+import type {
+  ComandaPrintDocument,
+  ComandaPrintKind,
+} from "./comanda-print-document.js";
+
+export const QUICK_SALE_TABLE_NAME = "Venda rápida";
 
 export type ComandaStatus = "OPEN" | "CANCELLED" | "CLOSED";
 export type ComandaEventType =
@@ -85,7 +91,7 @@ export interface Comanda {
     customerName: string;
     orderId: string;
     paidCents: number;
-    source: "MANUAL" | "TABLE" | "DELIVERY";
+    source: "MANUAL" | "TABLE" | "DELIVERY" | "QUICK_SALE";
     status: "DRAFT" | "OPEN" | "SETTLED" | "CANCELLED";
     totalCents: number;
   } | null;
@@ -97,6 +103,7 @@ export interface Comanda {
   openedAt: string;
   payments: Payment[];
   status: ComandaStatus;
+  tableName?: string | null;
   table: {
     id: number;
     number: number;
@@ -105,6 +112,8 @@ export interface Comanda {
 }
 
 export interface ComandaRepository {
+  openQuickSale(establishmentId: string, name: string, actorUserId: string): Promise<Comanda>;
+  listQuickSales(establishmentId: string): Promise<Comanda[]>;
   addItem(
     establishmentId: string,
     comandaId: string,
@@ -168,6 +177,12 @@ export interface ComandaRepository {
     actorUserId: string,
   ): Promise<ConfirmItemResult>;
   findById(establishmentId: string, id: string): Promise<Comanda>;
+  findPrintDocument(
+    establishmentId: string,
+    id: string,
+    kind: ComandaPrintKind,
+    generatedBy: string,
+  ): Promise<ComandaPrintDocument>;
   openForTable(
     establishmentId: string,
     tableId: number,
@@ -181,6 +196,8 @@ export interface ComandaRepository {
     actorUserId: string,
   ): Promise<Comanda>;
 }
+
+export { PrintDocumentEmptyError } from "./comanda-print-document.js";
 
 export class TableNotFoundError extends Error {}
 export class TableUnavailableError extends Error {}

@@ -1,3 +1,5 @@
+import type { UserRepository } from "./user-types.js";
+import { registerUserRoutes } from "./routes/user-routes.js";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import type { AuthRepository } from "./auth-repository.js";
@@ -7,6 +9,7 @@ import type { CreditRepository } from "./credit-repository.js";
 import type { Database } from "./database.js";
 import type { DeliveryRepository } from "./delivery-repository.js";
 import type { InventoryRepository } from "./inventory-repository.js";
+import type { KitchenRepository } from "./kitchen-types.js";
 import type { ProductRepository } from "./product-repository.js";
 import type { RestaurantTableRepository } from "./restaurant-table-repository.js";
 import type { StatementRepository } from "./statement-repository.js";
@@ -15,12 +18,14 @@ import { registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerCreditRoutes } from "./routes/credit-routes.js";
 import { registerDeliveryRoutes } from "./routes/delivery-routes.js";
 import { registerInventoryRoutes } from "./routes/inventory-routes.js";
+import { registerKitchenRoutes } from "./routes/kitchen-routes.js";
 import { registerProductRoutes } from "./routes/product-routes.js";
 import { registerRestaurantTableRoutes } from "./routes/restaurant-table-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerStatementRoutes } from "./routes/statement-routes.js";
 
 interface BuildAppOptions {
+  users: UserRepository;
   auth: AuthRepository;
   comandas: ComandaRepository;
   credits: CreditRepository;
@@ -28,6 +33,7 @@ interface BuildAppOptions {
   database: Database;
   deliveries: DeliveryRepository;
   inventory: InventoryRepository;
+  kitchen: KitchenRepository;
   logger?: FastifyServerOptions["logger"];
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
@@ -35,6 +41,7 @@ interface BuildAppOptions {
 }
 
 export async function buildApp({
+  users,
   auth,
   comandas,
   credits,
@@ -42,6 +49,7 @@ export async function buildApp({
   database,
   deliveries,
   inventory,
+  kitchen,
   logger = false,
   products,
   restaurantTables,
@@ -57,6 +65,7 @@ export async function buildApp({
 
   registerAuthentication(app, auth);
   registerAuthRoutes(app, auth);
+  registerUserRoutes(app, users);
   registerSystemRoutes(app, database);
   registerProductRoutes(app, products);
   registerRestaurantTableRoutes(app, restaurantTables, comandas);
@@ -64,6 +73,7 @@ export async function buildApp({
   registerCreditRoutes(app, credits);
   registerDeliveryRoutes(app, deliveries);
   registerInventoryRoutes(app, inventory);
+  registerKitchenRoutes(app, kitchen);
   registerStatementRoutes(app, statements);
 
   app.addHook("onClose", async () => {

@@ -42,7 +42,7 @@ export function registerAuthentication(
 
     const permission = request.routeOptions.config.permission;
 
-    if (permission && !user.permissions.includes(permission)) {
+    if (permission && !hasAppPermission(user, permission)) {
       return reply.code(403).send({
         message: "Permission denied",
         status: "error",
@@ -80,3 +80,11 @@ function readBearerToken(value: string | undefined) {
 }
 
 export type AuthorizationReply = FastifyReply;
+
+export function hasAppPermission(user: AuthUser | null, permission: string): boolean {
+  if (!user?.permissions.includes(permission)) return false;
+  if (permission === 'credits.read' || permission === 'credits.write') {
+    return user.roles.some(({ code }) => code === 'OWNER' || code === 'MANAGER');
+  }
+  return true;
+}

@@ -23,6 +23,7 @@ it('loads active products', async () => {
       id: 'coffee-id',
       name: 'Café',
       priceCents: 600,
+      requiresKitchen: true,
     },
     {
       category: { id: 'drinks-id', name: 'Bebidas' },
@@ -30,6 +31,7 @@ it('loads active products', async () => {
       id: 'water-id',
       name: 'Água',
       priceCents: 500,
+      requiresKitchen: false,
     },
   ];
   mockFetch.mockResolvedValueOnce({
@@ -52,6 +54,28 @@ it('rejects unsuccessful responses', async () => {
 it('rejects malformed responses', async () => {
   mockFetch.mockResolvedValueOnce({
     json: () => Promise.resolve({ products: [{ id: 'invalid' }] }),
+    ok: true,
+  });
+
+  await expect(loadProducts('http://192.168.0.10:3333')).rejects.toThrow(
+    'Invalid products response',
+  );
+});
+
+it('rejects catalog products without the kitchen flag', async () => {
+  mockFetch.mockResolvedValueOnce({
+    json: () =>
+      Promise.resolve({
+        products: [
+          {
+            category: { id: 'food-id', name: 'Lanches' },
+            description: null,
+            id: 'product-id',
+            name: 'Produto legado',
+            priceCents: 500,
+          },
+        ],
+      }),
     ok: true,
   });
 

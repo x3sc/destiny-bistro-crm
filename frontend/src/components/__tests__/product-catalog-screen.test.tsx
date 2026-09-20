@@ -54,6 +54,7 @@ const products: Product[] = [
     id: 'coffee-id',
     name: 'Café',
     priceCents: 600,
+    requiresKitchen: true,
   },
   {
     category: { id: 'drinks-id', name: 'Bebidas' },
@@ -61,6 +62,7 @@ const products: Product[] = [
     id: 'water-id',
     name: 'Água',
     priceCents: 500,
+    requiresKitchen: false,
   },
 ];
 

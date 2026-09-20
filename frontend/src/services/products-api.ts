@@ -14,6 +14,7 @@ export interface Product {
   id: string;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 }
 
 function isProduct(value: unknown): value is Product {
@@ -31,8 +32,9 @@ function isProduct(value: unknown): value is Product {
     (product.description === null || typeof product.description === 'string') &&
     typeof product.id === 'string' &&
     typeof product.name === 'string' &&
-    Number.isInteger(product.priceCents)
-    && (product.additionals === undefined ||
+    Number.isInteger(product.priceCents) &&
+    typeof product.requiresKitchen === 'boolean' &&
+    (product.additionals === undefined ||
       (Array.isArray(product.additionals) && product.additionals.every(
         (additional) =>
           additional &&

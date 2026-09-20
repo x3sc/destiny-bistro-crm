@@ -12,6 +12,8 @@ it('opens the daily statement and menu management', () => {
   render(
     <AdminHomeScreen
       bottomNavigation={<Text>Navbar administrativa</Text>}
+      canManageUsers
+      onUsers={jest.fn()}
       canManageMenu
       canReadInventory
       canReadStatements
@@ -38,6 +40,8 @@ it('opens the daily statement and menu management', () => {
 it('hides administrative areas without their permissions', () => {
   render(
     <AdminHomeScreen
+      canManageUsers={false}
+      onUsers={jest.fn()}
       canManageMenu={false}
       canReadInventory={false}
       canReadStatements
@@ -50,4 +54,11 @@ it('hides administrative areas without their permissions', () => {
 
   expect(screen.getByText('Extrato do dia')).toBeTruthy();
   expect(screen.queryByText('Cardápio')).toBeNull();
+});
+
+it('opens user management for an authorized owner', () => {
+  const onUsers = jest.fn();
+  render(<AdminHomeScreen canManageMenu canManageUsers canReadInventory canReadStatements onBack={jest.fn()} onMenu={jest.fn()} onInventory={jest.fn()} onStatement={jest.fn()} onUsers={onUsers} />);
+  fireEvent.press(screen.getByRole('button', { name: 'Usuários' }));
+  expect(onUsers).toHaveBeenCalledTimes(1);
 });

@@ -7,23 +7,27 @@ const port = Number(process.env.PORT ?? 3333);
 const corsOrigins = parseCorsOrigins();
 const {
   auth,
+  users,
   comandas,
   credits,
   database,
   deliveries,
   inventory,
+  kitchen,
   products,
   restaurantTables,
   statements,
 } = createPersistence();
 const app = await buildApp({
   auth,
+  users,
   comandas,
   credits,
   corsOrigins,
   database,
   deliveries,
   inventory,
+  kitchen,
   logger: true,
   products,
   restaurantTables,

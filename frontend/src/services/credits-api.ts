@@ -233,6 +233,7 @@ function isCreditOrder(value: unknown): value is CreditOrder {
     order.payments.every(isPayment) &&
     (order.settledAt === null || typeof order.settledAt === 'string') &&
     (order.source === 'MANUAL' ||
+      order.source === 'QUICK_SALE' ||
       order.source === 'TABLE' ||
       order.source === 'DELIVERY') &&
     (order.status === 'DRAFT' ||
@@ -265,7 +266,8 @@ function isPayment(value: unknown): value is Payment {
     Number.isInteger(payment.amountCents) &&
     (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
     typeof payment.id === 'string' &&
-    (payment.origin === 'TABLE_CHECKOUT' ||
+    (payment.origin === 'QUICK_SALE_CHECKOUT' ||
+      payment.origin === 'TABLE_CHECKOUT' ||
       payment.origin === 'CREDIT_INSTALLMENT' ||
       payment.origin === 'DELIVERY_CHECKOUT') &&
     typeof payment.paidAt === 'string' &&

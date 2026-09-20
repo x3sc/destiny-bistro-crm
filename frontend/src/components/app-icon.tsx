@@ -6,6 +6,8 @@ export type AppIconName =
   | 'credits'
   | 'delivery'
   | 'external'
+  | 'printer'
+  | 'kitchen'
   | 'search'
   | 'tables'
   | 'user';
@@ -20,15 +22,19 @@ const iconNames: Record<
   | 'magnifying-glass'
   | 'motorcycle'
   | 'table-cells-large'
+  | 'print'
+  | 'utensils'
 > = {
   admin: 'laptop',
   back: 'caret-left',
   credits: 'table-cells-large',
   delivery: 'motorcycle',
   external: 'arrow-up-right-from-square',
+  kitchen: 'utensils',
   search: 'magnifying-glass',
   tables: 'house',
   user: 'circle-user',
+  printer: 'print',
 };
 
 export function AppIcon({

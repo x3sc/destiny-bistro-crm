@@ -6,6 +6,8 @@ import {
   confirmComandaItem,
   loadComanda,
   openComanda,
+  openQuickSale,
+  loadQuickSales,
   removeComandaItem,
 } from '../comandas-api';
 
@@ -267,4 +269,22 @@ it('rejects malformed responses', async () => {
   await expect(openComanda('http://192.168.0.10:3333', 1)).rejects.toThrow(
     'Invalid comanda response',
   );
+});
+
+it('opens and reloads quick sales with customer name and no table', async () => {
+  const sale = { ...comanda, name: 'Maria', table: null, tableName: 'Venda rápida' };
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ comanda: sale }) });
+  await expect(openQuickSale('http://localhost:3333', '  Maria  ')).resolves.toEqual(sale);
+  expect(mockFetch).toHaveBeenCalledWith('http://localhost:3333/quick-sales', expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'Maria' }) }));
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ comandas: [sale] }) });
+  await expect(loadQuickSales('http://localhost:3333')).resolves.toEqual([sale]);
+});
+it('rejects an unnamed quick sale before making a request', async () => {
+  await expect(openQuickSale('http://localhost:3333', ' ')).rejects.toThrow('Invalid customer name');
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+it('accepts checkout and cancellation contracts for quick sales', async () => {
+  const sale = { ...comanda, table: null, tableName: 'Venda rápida', status: 'CANCELLED', cancellationReason: 'OPERATOR_CANCELLED' };
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ comanda: sale }) });
+  await expect(loadComanda('http://localhost:3333', sale.id)).resolves.toEqual(sale);
 });

@@ -1,3 +1,6 @@
+import { Platform } from 'react-native';
+
+const fontFamily = Platform.OS === 'web' ? 'Roboto, Arial, sans-serif' : 'Roboto';
 export const themeColors = {
   accent: '#d4a853',
   accentPressed: '#bd9140',
@@ -59,37 +62,37 @@ export const themeRadii = {
 
 export const themeTypography = {
   display: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 32,
     fontWeight: '800',
     lineHeight: 38,
   },
   screenTitle: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 28,
     fontWeight: '800',
     lineHeight: 34,
   },
   sectionTitle: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 20,
     fontWeight: '700',
     lineHeight: 24,
   },
   body: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
   },
   label: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 18,
   },
   auxiliary: {
-    fontFamily: 'Roboto',
+    fontFamily,
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 16,

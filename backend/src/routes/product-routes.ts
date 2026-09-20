@@ -24,6 +24,7 @@ interface ProductBody {
   description?: unknown;
   name?: unknown;
   priceCents?: unknown;
+  requiresKitchen?: unknown;
 }
 
 interface AdditionalBody {
@@ -449,6 +450,7 @@ function isProductBody(
   description: string | null;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 } {
   return Boolean(
     body &&
@@ -459,6 +461,7 @@ function isProductBody(
       typeof body.priceCents === "number" &&
       Number.isInteger(body.priceCents) &&
       body.priceCents > 0 &&
+      typeof body.requiresKitchen === "boolean" &&
       (!requiresActive || typeof body.active === "boolean"),
   );
 }
@@ -468,12 +471,14 @@ function productInput(body: ProductBody & {
   description: string | null;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 }) {
   return {
     categoryId: body.categoryId,
     description: body.description,
     name: body.name,
     priceCents: body.priceCents,
+    requiresKitchen: body.requiresKitchen,
   };
 }
 

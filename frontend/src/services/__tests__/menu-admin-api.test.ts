@@ -31,6 +31,7 @@ const category = {
       id: 'product-id',
       name: 'Suco de laranja',
       priceCents: 900,
+      requiresKitchen: true,
     },
   ],
 };
@@ -64,6 +65,7 @@ it('creates categories and products using integer cents', async () => {
     description: 'Copo 300 ml',
     name: 'Suco de laranja',
     priceCents: 900,
+    requiresKitchen: true,
   });
 
   expect(mockFetch).toHaveBeenNthCalledWith(
@@ -80,6 +82,7 @@ it('creates categories and products using integer cents', async () => {
         description: 'Copo 300 ml',
         name: 'Suco de laranja',
         priceCents: 900,
+        requiresKitchen: true,
       }),
       method: 'POST',
     }),
@@ -97,5 +100,26 @@ it('deactivates a product through the delete contract', async () => {
   expect(mockFetch).toHaveBeenCalledWith(
     'http://localhost:3333/admin/products/product-id',
     { method: 'DELETE' },
+  );
+});
+
+it('rejects administrative products without the kitchen flag', async () => {
+  const { requiresKitchen: _requiresKitchen, ...invalidProduct } =
+    category.products[0];
+  mockFetch.mockResolvedValueOnce({
+    json: () =>
+      Promise.resolve({
+        categories: [
+          {
+            ...category,
+            products: [invalidProduct],
+          },
+        ],
+      }),
+    ok: true,
+  });
+
+  await expect(loadAdminMenu('http://localhost:3333')).rejects.toThrow(
+    'Resposta inv\u00e1lida do card\u00e1pio.',
   );
 });

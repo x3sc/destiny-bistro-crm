@@ -37,6 +37,7 @@ enum ComandaCancellationReason {
 }
 
 enum CreditOrderSource {
+  QUICK_SALE
   MANUAL
   TABLE
   DELIVERY
@@ -57,6 +58,7 @@ enum PaymentMethod {
 }
 
 enum PaymentOrigin {
+  QUICK_SALE_CHECKOUT
   TABLE_CHECKOUT
   CREDIT_INSTALLMENT
   DELIVERY_CHECKOUT
@@ -73,6 +75,14 @@ enum DeliveryOrderStatus {
   READY
   OUT_FOR_DELIVERY
   DELIVERED
+}
+
+enum KitchenTicketStatus {
+  PENDING
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
 }
 
 enum IngredientUnit {
@@ -142,6 +152,10 @@ model Establishment {
   comandaItemConfigurations ComandaItemConfiguration[]
   comandaItemAdditionals ComandaItemAdditional[]
   comandaItemCancellations ComandaItemCancellation[]
+  kitchenTickets     KitchenTicket[]
+  kitchenTicketItems KitchenTicketItem[]
+  kitchenTicketItemConfigurations KitchenTicketItemConfiguration[]
+  kitchenTicketItemAdditionals KitchenTicketItemAdditional[]
   deliveryCouriers   DeliveryCourier[]
   deliveryDays       DeliveryDay[]
   deliveryOrders     DeliveryOrder[]
@@ -176,6 +190,7 @@ model Comanda {
   establishment      Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
   number             Int                        @unique @default(autoincrement())
   name               String?                    @db.VarChar(80)
+  tableName          String?                    @db.VarChar(80)
   tableId            Int?
   table              RestaurantTable?           @relation("TableComandas", fields: [tableId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   activeForTable     RestaurantTable?           @relation("ActiveComanda")
@@ -189,6 +204,7 @@ model Comanda {
   cancellationReason ComandaCancellationReason?
   items              ComandaItem[]
   events             ComandaEvent[]
+  kitchenTickets     KitchenTicket[]
   inventoryOperations InventoryOperation[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
@@ -307,7 +323,9 @@ model Product {
   description     String?       @db.VarChar(255)
   priceCents      Int
   active          Boolean         @default(true)
+  requiresKitchen Boolean         @default(false)
   comandaItems    ComandaItem[]
+  kitchenTicketItems KitchenTicketItem[]
   ingredients     ProductIngredient[]
   allowedAdditionals ProductAdditional[]
   createdAt       DateTime        @default(now())
@@ -331,8 +349,10 @@ model ComandaItem {
   unitPriceCents    Int
   quantity          Int
   confirmedQuantity Int           @default(0)
+  requiresKitchen   Boolean       @default(false)
   additionalTotalCents Int         @default(0)
   configurations    ComandaItemConfiguration[]
+  kitchenTicketItems KitchenTicketItem[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -365,6 +385,80 @@ model ComandaEvent {
   @@index([comandaId])
   @@index([type, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+model KitchenTicket {
+  id              String              @id @default(cuid())
+  establishmentId String
+  establishment   Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId       String
+  comanda         Comanda             @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  status          KitchenTicketStatus @default(PENDING)
+  confirmationKey String              @db.VarChar(191)
+  items           KitchenTicketItem[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([id, establishmentId])
+  @@unique([establishmentId, confirmationKey])
+  @@index([establishmentId, status, createdAt])
+  @@index([comandaId, establishmentId])
+}
+
+model KitchenTicketItem {
+  id              String        @id @default(cuid())
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  kitchenTicketId String
+  kitchenTicket   KitchenTicket @relation(fields: [kitchenTicketId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  comandaItemId   String
+  comandaItem     ComandaItem   @relation(fields: [comandaItemId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  productId       String
+  product         Product       @relation(fields: [productId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  productName     String        @db.VarChar(100)
+  quantity        Int
+  configurations  KitchenTicketItemConfiguration[]
+  createdAt       DateTime      @default(now())
+
+  @@unique([id, establishmentId])
+  @@unique([kitchenTicketId, comandaItemId])
+  @@index([establishmentId, createdAt])
+  @@index([comandaItemId, establishmentId])
+  @@index([productId, establishmentId])
+}
+
+model KitchenTicketItemConfiguration {
+  id                    String                       @id @default(cuid())
+  establishmentId       String
+  establishment         Establishment                @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  kitchenTicketItemId   String
+  kitchenTicketItem     KitchenTicketItem            @relation(fields: [kitchenTicketItemId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  sourceConfigurationId String
+  sourceConfiguration   ComandaItemConfiguration     @relation(fields: [sourceConfigurationId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  configurationKey      String                       @db.VarChar(191)
+  quantity              Int
+  additionals            KitchenTicketItemAdditional[]
+  createdAt              DateTime                     @default(now())
+
+  @@unique([id, establishmentId])
+  @@unique([kitchenTicketItemId, sourceConfigurationId])
+  @@index([establishmentId, createdAt])
+  @@index([sourceConfigurationId, establishmentId])
+}
+
+model KitchenTicketItemAdditional {
+  id                               String                          @id @default(cuid())
+  establishmentId                  String
+  establishment                    Establishment                   @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  kitchenTicketItemConfigurationId String
+  kitchenTicketItemConfiguration   KitchenTicketItemConfiguration @relation(fields: [kitchenTicketItemConfigurationId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  additionalId                     String
+  additionalName                   String                          @db.VarChar(100)
+  quantityPerUnit                  Int                             @default(1)
+  createdAt                        DateTime                        @default(now())
+
+  @@unique([kitchenTicketItemConfigurationId, additionalId])
+  @@index([establishmentId, createdAt])
 }
 
 model User {
@@ -679,6 +773,7 @@ model ComandaItemConfiguration {
   confirmedQuantity Int           @default(0)
   additionals       ComandaItemAdditional[]
   cancellations     ComandaItemCancellation[]
+  kitchenTicketConfigurations KitchenTicketItemConfiguration[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 

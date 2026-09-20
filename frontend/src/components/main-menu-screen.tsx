@@ -9,11 +9,15 @@ export function MainMenuScreen({
   canAccessAdmin = true,
   canAccessCredits = true,
   canAccessDeliveries = true,
+  canAccessKitchen = true,
   canAccessTables = true,
+  canAccessQuickSales = false,
+  onQuickSales,
   establishmentName,
   onAdmin,
   onCredits,
   onDeliveries,
+  onKitchen,
   onLogout,
   onTables,
   userName,
@@ -21,11 +25,15 @@ export function MainMenuScreen({
   canAccessAdmin?: boolean;
   canAccessCredits?: boolean;
   canAccessDeliveries?: boolean;
+  canAccessKitchen?: boolean;
   canAccessTables?: boolean;
+  canAccessQuickSales?: boolean;
+  onQuickSales?: () => void;
   establishmentName?: string;
   onAdmin: () => void;
   onCredits: () => void;
   onDeliveries: () => void;
+  onKitchen: () => void;
   onLogout?: () => void;
   onTables: () => void;
   userName?: string;
@@ -80,6 +88,9 @@ export function MainMenuScreen({
               onPress={onTables}
             />
           )}
+          {canAccessQuickSales && (
+            <MenuCard description="Abra uma comanda pelo nome do cliente, sem mesa." icon="credits" label="Venda rápida" onPress={onQuickSales} />
+          )}
           {canAccessCredits && (
             <MenuCard
               description="Registre pedidos e acompanhe valores a receber."
@@ -94,6 +105,14 @@ export function MainMenuScreen({
               icon="delivery"
               label="Delivery"
               onPress={onDeliveries}
+            />
+          )}
+          {canAccessKitchen && (
+            <MenuCard
+              description="Acompanhe os itens enviados para preparo."
+              icon="kitchen"
+              label="Cozinha"
+              onPress={onKitchen}
             />
           )}
           {canAccessAdmin && (
@@ -119,7 +138,7 @@ function MenuCard({
 }: {
   description: string;
   disabled?: boolean;
-  icon: 'admin' | 'credits' | 'delivery' | 'tables';
+  icon: 'admin' | 'credits' | 'delivery' | 'kitchen' | 'tables';
   label: string;
   onPress?: () => void;
 }) {

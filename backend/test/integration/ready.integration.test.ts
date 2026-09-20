@@ -1,3 +1,6 @@
+import type { Comanda } from "../../src/comanda-types.js";
+import type { StatementReport } from "../../src/statement-report.js";
+import type { AdminUser, AdminUsers } from "../../src/user-types.js";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { buildApp } from "../../src/app.js";
@@ -66,6 +69,10 @@ async function cleanupEstablishment(name: string) {
     await transaction.inventoryMovement.deleteMany({ where: { establishmentId } });
     await transaction.inventoryOperation.deleteMany({ where: { establishmentId } });
     await transaction.inventoryLot.deleteMany({ where: { establishmentId } });
+    await transaction.kitchenTicketItemAdditional.deleteMany({ where: { establishmentId } });
+    await transaction.kitchenTicketItemConfiguration.deleteMany({ where: { establishmentId } });
+    await transaction.kitchenTicketItem.deleteMany({ where: { establishmentId } });
+    await transaction.kitchenTicket.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
@@ -521,20 +528,44 @@ void test("administrators manage an audited tenant menu", async () => {
         description: "Fatia",
         name: "Torta de integracao",
         priceCents: 1250,
+        requiresKitchen: true,
       },
       url: "/admin/products",
     });
     assert.equal(productResponse.statusCode, 201);
     const product = productResponse.json<{
-      product: { id: string };
+      product: { id: string; requiresKitchen: boolean };
     }>().product;
+    assert.equal(product.requiresKitchen, true);
 
     const publicCatalog = await app.inject({ method: "GET", url: "/products" });
     assert.equal(
       publicCatalog
-        .json<{ products: { id: string }[] }>()
-        .products.some(({ id }) => id === product.id),
+        .json<{ products: { id: string; requiresKitchen: boolean }[] }>()
+        .products.some(
+          ({ id, requiresKitchen }) =>
+            id === product.id && requiresKitchen === true,
+        ),
       true,
+    );
+
+    const updateProduct = await app.inject({
+      method: "PATCH",
+      payload: {
+        active: true,
+        categoryId: category.id,
+        description: "Fatia",
+        name: "Torta de integracao",
+        priceCents: 1250,
+        requiresKitchen: false,
+      },
+      url: `/admin/products/${product.id}`,
+    });
+    assert.equal(updateProduct.statusCode, 200);
+    assert.equal(
+      updateProduct.json<{ product: { requiresKitchen: boolean } }>().product
+        .requiresKitchen,
+      false,
     );
 
     const deletion = await app.inject({
@@ -551,15 +582,563 @@ void test("administrators manage an audited tenant menu", async () => {
     assert.equal(
       await prisma.auditLog.count({
         where: {
-          action: { in: ["MENU_CATEGORY_CREATED", "MENU_PRODUCT_CREATED", "MENU_CATEGORY_DEACTIVATED"] },
+          action: {
+            in: [
+              "MENU_CATEGORY_CREATED",
+              "MENU_PRODUCT_CREATED",
+              "MENU_PRODUCT_UPDATED",
+              "MENU_CATEGORY_DEACTIVATED",
+            ],
+          },
           establishmentId: integrationEstablishmentId,
           resourceId: { in: [category.id, product.id] },
+        },
+      }),
+      4,
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+void test("kitchen tickets snapshot confirmed deltas, isolate tenants and roll back atomically", async () => {
+  const category = await prisma.menuCategory.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      name: "Cozinha integracao",
+      normalizedName: "cozinha integracao",
+    },
+  });
+  const kitchenProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "INTEGRATION_KITCHEN_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Hamburguer cozinha",
+      priceCents: 2_500,
+      requiresKitchen: true,
+    },
+  });
+  const commonProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "INTEGRATION_COMMON_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Agua cozinha",
+      priceCents: 500,
+    },
+  });
+  assert.equal(commonProduct.requiresKitchen, false);
+  const additional = await prisma.additional.create({
+    data: {
+      code: "INTEGRATION_KITCHEN_BACON",
+      establishmentId: integrationEstablishmentId,
+      name: "Bacon cozinha",
+      priceCents: 300,
+    },
+  });
+  await prisma.productAdditional.create({
+    data: {
+      additionalId: additional.id,
+      establishmentId: integrationEstablishmentId,
+      productId: kitchenProduct.id,
+    },
+  });
+  const table = await prisma.restaurantTable.create({
+    data: { establishmentId: integrationEstablishmentId, number: 91 },
+  });
+  const app = await createAuthenticatedApp();
+  let secondaryApp: Awaited<ReturnType<typeof createAuthenticatedApp>> | null =
+    null;
+  let comandaId = "";
+  let kitchenItemId = "";
+
+  try {
+    const opened = await app.inject({
+      method: "POST",
+      url: `/tables/${table.id}/comandas`,
+    });
+    assert.equal(opened.statusCode, 201);
+    comandaId = opened.json<{ comanda: { id: string } }>().comanda.id;
+
+    const firstAdd = await app.inject({
+      method: "POST",
+      payload: { productId: kitchenProduct.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    kitchenItemId = firstAdd.json<{
+      comanda: { items: Array<{ id: string }> };
+    }>().comanda.items[0].id;
+    await app.inject({
+      method: "POST",
+      payload: { productId: kitchenProduct.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const configured = await app.inject({
+      method: "PUT",
+      payload: {
+        additionals: [
+          { additionalId: additional.id, quantityPerUnit: 1 },
+        ],
+        quantity: 1,
+        requestId: "kitchen-configuration-request",
+      },
+      url: `/comandas/${comandaId}/items/${kitchenItemId}/additionals`,
+    });
+    assert.equal(configured.statusCode, 200);
+
+    await prisma.product.update({
+      data: { requiresKitchen: false },
+      where: { id: kitchenProduct.id },
+    });
+    assert.equal(
+      (
+        await prisma.comandaItem.findUniqueOrThrow({
+          where: { id: kitchenItemId },
+        })
+      ).requiresKitchen,
+      true,
+    );
+
+    const pendingPrintBeforeConfirmation = await app.inject({
+      method: "GET",
+      url: `/comandas/${comandaId}/print-document?kind=KITCHEN_PENDING`,
+    });
+    assert.equal(pendingPrintBeforeConfirmation.statusCode, 200);
+    assert.deepEqual(
+      pendingPrintBeforeConfirmation
+        .json<{
+          document: {
+            items: Array<{
+              additionals: Array<{ name: string; quantityPerUnit: number }>;
+              productName: string;
+              quantity: number;
+              subtotalCents: number | null;
+              unitPriceCents: number | null;
+            }>;
+          };
+        }>()
+        .document.items.map((item) => ({
+          additionals: item.additionals.map(({ name, quantityPerUnit }) => ({
+            name,
+            quantityPerUnit,
+          })),
+          productName: item.productName,
+          quantity: item.quantity,
+          subtotalCents: item.subtotalCents,
+          unitPriceCents: item.unitPriceCents,
+        })),
+      [
+        {
+          additionals: [],
+          productName: "Hamburguer cozinha",
+          quantity: 1,
+          subtotalCents: null,
+          unitPriceCents: null,
+        },
+        {
+          additionals: [{ name: "Bacon cozinha", quantityPerUnit: 1 }],
+          productName: "Hamburguer cozinha",
+          quantity: 1,
+          subtotalCents: null,
+          unitPriceCents: null,
+        },
+      ],
+    );
+    const pendingPrintDocument = pendingPrintBeforeConfirmation.json<{
+      document: {
+        kind: string;
+        tableNumber: number | null;
+        totalCents: number | null;
+      };
+    }>().document;
+    assert.equal(pendingPrintDocument.kind, "KITCHEN_PENDING");
+    assert.equal(pendingPrintDocument.tableNumber, 91);
+    assert.equal(pendingPrintDocument.totalCents, null);
+
+    const firstConfirmation = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${kitchenItemId}/confirm`,
+    });
+    assert.equal(firstConfirmation.statusCode, 200);
+    const firstTicket = await prisma.kitchenTicket.findFirstOrThrow({
+      include: {
+        items: {
+          include: {
+            configurations: {
+              include: { additionals: true },
+              orderBy: { configurationKey: "asc" },
+            },
+          },
+        },
+      },
+      where: {
+        confirmationKey: `CONFIRM:${kitchenItemId}:0:2`,
+        establishmentId: integrationEstablishmentId,
+      },
+    });
+    assert.equal(firstTicket.items[0].quantity, 2);
+    assert.deepEqual(
+      firstTicket.items[0].configurations
+        .map((configuration) => ({
+          additionals: configuration.additionals.map((entry) => ({
+            additionalName: entry.additionalName,
+            quantityPerUnit: entry.quantityPerUnit,
+          })),
+          quantity: configuration.quantity,
+        }))
+        .sort((left, right) => left.additionals.length - right.additionals.length),
+      [
+        { additionals: [], quantity: 1 },
+        {
+          additionals: [
+            { additionalName: "Bacon cozinha", quantityPerUnit: 1 },
+          ],
+          quantity: 1,
+        },
+      ],
+    );
+
+    const confirmedPrint = await app.inject({
+      method: "GET",
+      url: `/comandas/${comandaId}/print-document?kind=CONFIRMED`,
+    });
+    assert.equal(confirmedPrint.statusCode, 200);
+    assert.equal(
+      confirmedPrint.json<{ document: { totalCents: number } }>().document
+        .totalCents,
+      5_300,
+    );
+    assert.equal(
+      confirmedPrint
+        .json<{ document: { items: Array<{ productName: string }> } }>()
+        .document.items.every(
+          ({ productName }) => productName === "Hamburguer cozinha",
+        ),
+      true,
+    );
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${kitchenItemId}/confirm`,
+    });
+    assert.equal(replay.statusCode, 200);
+    assert.equal(
+      await prisma.kitchenTicket.count({
+        where: { comandaId, establishmentId: integrationEstablishmentId },
+      }),
+      1,
+    );
+
+    await app.inject({
+      method: "POST",
+      payload: { productId: kitchenProduct.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const concurrentResponses = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/comandas/${comandaId}/items/${kitchenItemId}/confirm`,
+      }),
+      app.inject({
+        method: "POST",
+        url: `/comandas/${comandaId}/items/${kitchenItemId}/confirm`,
+      }),
+    ]);
+    assert.ok(
+      concurrentResponses.some(({ statusCode }) => statusCode === 200),
+    );
+    assert.equal(
+      concurrentResponses.every(({ statusCode }) =>
+        [200, 409, 503].includes(statusCode),
+      ),
+      true,
+    );
+    assert.equal(
+      await prisma.kitchenTicket.count({
+        where: { comandaId, establishmentId: integrationEstablishmentId },
+      }),
+      2,
+    );
+    const incrementalTicket = await prisma.kitchenTicket.findFirstOrThrow({
+      include: { items: true },
+      where: {
+        confirmationKey: `CONFIRM:${kitchenItemId}:2:3`,
+        establishmentId: integrationEstablishmentId,
+      },
+    });
+    assert.equal(incrementalTicket.items[0].quantity, 1);
+
+    const commonAdd = await app.inject({
+      method: "POST",
+      payload: { productId: commonProduct.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const commonItemId = commonAdd.json<{
+      comanda: { items: Array<{ id: string; productId: string }> };
+    }>().comanda.items.find(
+      ({ productId }) => productId === commonProduct.id,
+    )!.id;
+    const commonConfirmation = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${commonItemId}/confirm`,
+    });
+    assert.equal(commonConfirmation.statusCode, 200);
+    assert.equal(
+      await prisma.kitchenTicket.count({
+        where: { comandaId, establishmentId: integrationEstablishmentId },
+      }),
+      2,
+    );
+
+    const pendingPrintAfterConfirmation = await app.inject({
+      method: "GET",
+      url: `/comandas/${comandaId}/print-document?kind=KITCHEN_PENDING`,
+    });
+    assert.equal(pendingPrintAfterConfirmation.statusCode, 409);
+
+    const completeConfirmedPrint = await app.inject({
+      method: "GET",
+      url: `/comandas/${comandaId}/print-document?kind=CONFIRMED`,
+    });
+    assert.equal(completeConfirmedPrint.statusCode, 200);
+    assert.equal(
+      completeConfirmedPrint.json<{ document: { totalCents: number } }>()
+        .document.totalCents,
+      8_300,
+    );
+    assert.equal(
+      completeConfirmedPrint
+        .json<{ document: { items: Array<{ productName: string }> } }>()
+        .document.items.some(
+          ({ productName }) => productName === "Agua cozinha",
+        ),
+      true,
+    );
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/kitchen/tickets",
+    });
+    assert.equal(listResponse.statusCode, 200);
+    assert.deepEqual(
+      listResponse
+        .json<{ tickets: Array<{ id: string }> }>()
+        .tickets.map(({ id }) => id),
+      [firstTicket.id, incrementalTicket.id],
+    );
+    const sameStatusAuditCount = await prisma.auditLog.count({
+      where: {
+        action: "KITCHEN_TICKET_STATUS_CHANGED",
+        resourceId: firstTicket.id,
+      },
+    });
+    const sameStatus = await app.inject({
+      method: "PATCH",
+      payload: { status: "PENDING" },
+      url: `/kitchen/tickets/${firstTicket.id}/status`,
+    });
+    assert.equal(sameStatus.statusCode, 200);
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "KITCHEN_TICKET_STATUS_CHANGED",
+          resourceId: firstTicket.id,
+        },
+      }),
+      sameStatusAuditCount,
+    );
+    for (const status of ["PREPARING", "READY", "DELIVERED"] as const) {
+      const transition = await app.inject({
+        method: "PATCH",
+        payload: { status },
+        url: `/kitchen/tickets/${firstTicket.id}/status`,
+      });
+      assert.equal(transition.statusCode, 200);
+    }
+    const invalidTransition = await app.inject({
+      method: "PATCH",
+      payload: { status: "DELIVERED" },
+      url: `/kitchen/tickets/${incrementalTicket.id}/status`,
+    });
+    assert.equal(invalidTransition.statusCode, 409);
+    const cancellation = await app.inject({
+      method: "PATCH",
+      payload: { status: "CANCELLED" },
+      url: `/kitchen/tickets/${incrementalTicket.id}/status`,
+    });
+    assert.equal(cancellation.statusCode, 200);
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "KITCHEN_TICKET_CANCELLED",
+          resourceId: incrementalTicket.id,
+        },
+      }),
+      1,
+    );
+
+    const secondaryOwnerName = "Kitchen Secondary Owner";
+    const secondaryOwnerPassword = "kitchen-secondary-password";
+    await provisionEstablishment(prisma, {
+      name: secondaryEstablishmentName,
+      ownerName: secondaryOwnerName,
+      ownerPassword: secondaryOwnerPassword,
+    });
+    secondaryApp = await createAuthenticatedApp(
+      secondaryOwnerName,
+      secondaryOwnerPassword,
+    );
+    const crossTenant = await secondaryApp.inject({
+      method: "GET",
+      url: `/kitchen/tickets/${incrementalTicket.id}`,
+    });
+    assert.equal(crossTenant.statusCode, 404);
+    const crossTenantPrint = await secondaryApp.inject({
+      method: "GET",
+      url: `/comandas/${comandaId}/print-document?kind=CONFIRMED`,
+    });
+    assert.equal(crossTenantPrint.statusCode, 404);
+
+    await app.inject({
+      method: "POST",
+      payload: { productId: kitchenProduct.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const collisionKey = `CONFIRM:${kitchenItemId}:3:4`;
+    const collision = await prisma.kitchenTicket.create({
+      data: {
+        comandaId,
+        confirmationKey: collisionKey,
+        establishmentId: integrationEstablishmentId,
+      },
+    });
+    const eventsBeforeRollback = await prisma.comandaEvent.count({
+      where: { comandaId, type: "ITEM_CONFIRMED" },
+    });
+    const rollbackResponse = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${kitchenItemId}/confirm`,
+    });
+    assert.equal(rollbackResponse.statusCode, 503);
+    assert.equal(
+      (
+        await prisma.comandaItem.findUniqueOrThrow({
+          where: { id: kitchenItemId },
+        })
+      ).confirmedQuantity,
+      3,
+    );
+    assert.equal(
+      await prisma.inventoryOperation.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          requestId: collisionKey,
+        },
+      }),
+      0,
+    );
+    assert.equal(
+      await prisma.comandaEvent.count({
+        where: { comandaId, type: "ITEM_CONFIRMED" },
+      }),
+      eventsBeforeRollback,
+    );
+    await prisma.kitchenTicket.delete({ where: { id: collision.id } });
+
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "KITCHEN_TICKET_CREATED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: { in: [firstTicket.id, incrementalTicket.id] },
+        },
+      }),
+      2,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "KITCHEN_TICKET_STATUS_CHANGED",
+          resourceId: firstTicket.id,
         },
       }),
       3,
     );
   } finally {
+    if (secondaryApp) {
+      await secondaryApp.close();
+    }
+    await cleanupEstablishment(secondaryEstablishmentName);
     await app.close();
+    await prisma.restaurantTable.update({
+      data: { activeComandaId: null, status: "FREE" },
+      where: { id: table.id },
+    });
+    const ticketIds = (
+      await prisma.kitchenTicket.findMany({
+        select: { id: true },
+        where: { comandaId },
+      })
+    ).map(({ id }) => id);
+    const ticketItemIds = (
+      await prisma.kitchenTicketItem.findMany({
+        select: { id: true },
+        where: { kitchenTicketId: { in: ticketIds } },
+      })
+    ).map(({ id }) => id);
+    const ticketConfigurationIds = (
+      await prisma.kitchenTicketItemConfiguration.findMany({
+        select: { id: true },
+        where: { kitchenTicketItemId: { in: ticketItemIds } },
+      })
+    ).map(({ id }) => id);
+    await prisma.kitchenTicketItemAdditional.deleteMany({
+      where: {
+        kitchenTicketItemConfigurationId: { in: ticketConfigurationIds },
+      },
+    });
+    await prisma.kitchenTicketItemConfiguration.deleteMany({
+      where: { id: { in: ticketConfigurationIds } },
+    });
+    await prisma.kitchenTicketItem.deleteMany({
+      where: { id: { in: ticketItemIds } },
+    });
+    await prisma.kitchenTicket.deleteMany({ where: { id: { in: ticketIds } } });
+    await prisma.inventoryOperation.deleteMany({ where: { comandaId } });
+    const configurationIds = (
+      await prisma.comandaItemConfiguration.findMany({
+        select: { id: true },
+        where: { comandaItem: { comandaId } },
+      })
+    ).map(({ id }) => id);
+    await prisma.comandaItemAdditional.deleteMany({
+      where: { configurationId: { in: configurationIds } },
+    });
+    await prisma.comandaItemConfiguration.deleteMany({
+      where: { id: { in: configurationIds } },
+    });
+    await prisma.comandaItem.deleteMany({ where: { comandaId } });
+    await prisma.comandaEvent.deleteMany({ where: { comandaId } });
+    await prisma.comanda.deleteMany({ where: { id: comandaId } });
+    await prisma.auditLog.deleteMany({
+      where: {
+        establishmentId: integrationEstablishmentId,
+        OR: [
+          { resourceId: { in: ticketIds } },
+          { resourceId: { in: [comandaId, kitchenItemId].filter(Boolean) } },
+        ],
+      },
+    });
+    await prisma.productAdditional.deleteMany({
+      where: { productId: kitchenProduct.id },
+    });
+    await prisma.product.deleteMany({
+      where: { id: { in: [kitchenProduct.id, commonProduct.id] } },
+    });
+    await prisma.additional.delete({ where: { id: additional.id } });
+    await prisma.menuCategory.delete({ where: { id: category.id } });
+    await prisma.restaurantTable.delete({ where: { id: table.id } });
   }
 });
 
@@ -1620,6 +2199,21 @@ void test("mixed checkout supports installments, later additions and concurrent 
     };
 
     const mixed = await openAndConfirm(table.id);
+    await provisionUser(prisma, { establishmentName: integrationEstablishmentName, name: "Credit Restricted Waiter", password: integrationUserPassword, roleCodes: ["WAITER"] });
+    const waiterApp = await createAuthenticatedApp("Credit Restricted Waiter", integrationUserPassword);
+    try {
+      const beforeAudit = await prisma.auditLog.count({ where: { establishmentId: integrationEstablishmentId } });
+      for (const payments of [[], [{ amountCents: 500, method: "PIX" }]]) {
+        const forbidden = await waiterApp.inject({ method: "POST", url: `/comandas/${mixed.comandaId}/close`, payload: { customerId, payments } });
+        assert.equal(forbidden.statusCode, 403, forbidden.body);
+      }
+      assert.equal(await prisma.payment.count({ where: { comandaId: mixed.comandaId } }), 0);
+      assert.equal(await prisma.creditOrder.count({ where: { comandaId: mixed.comandaId } }), 0);
+      assert.equal(await prisma.auditLog.count({ where: { establishmentId: integrationEstablishmentId } }), beforeAudit);
+      const unchanged = await prisma.restaurantTable.findUniqueOrThrow({ where: { id: table.id } });
+      assert.equal(unchanged.activeComandaId, mixed.comandaId);
+    } finally { await waiterApp.close(); }
+
     const overpayment = await app.inject({
       method: "POST",
       payload: { payments: [{ amountCents: 1_100, method: "PIX" }] },
@@ -2194,11 +2788,16 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
       establishmentId: integrationEstablishmentId,
     },
   });
+  await prisma.product.update({
+    data: { requiresKitchen: true },
+    where: { id: hamburger.id },
+  });
   const app = await createAuthenticatedApp();
   let comandaId = "";
   let courierId = "";
   let dayId = "";
   let itemId = "";
+  let kitchenTicketId = "";
   let orderId = "";
   let paymentId = "";
 
@@ -2259,6 +2858,22 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
       url: `/comandas/${comandaId}/items/${itemId}/confirm`,
     });
     assert.equal(confirmResponse.statusCode, 200);
+    const kitchenTicket = await prisma.kitchenTicket.findFirstOrThrow({
+      where: {
+        confirmationKey: `CONFIRM:${itemId}:0:1`,
+        establishmentId: integrationEstablishmentId,
+      },
+    });
+    kitchenTicketId = kitchenTicket.id;
+    const kitchenTicketResponse = await app.inject({
+      method: "GET",
+      url: `/kitchen/tickets/${kitchenTicket.id}`,
+    });
+    assert.equal(kitchenTicketResponse.statusCode, 200);
+    assert.equal(
+      kitchenTicketResponse.json<{ ticket: { table: unknown } }>().ticket.table,
+      null,
+    );
 
     for (const status of ["PREPARING", "READY"] as const) {
       const statusResponse = await app.inject({
@@ -2441,6 +3056,40 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
           data: { comandaId: null },
           where: { comandaId },
         });
+        const kitchenTicketIds = (
+          await transaction.kitchenTicket.findMany({
+            select: { id: true },
+            where: { comandaId },
+          })
+        ).map(({ id }) => id);
+        const kitchenTicketItemIds = (
+          await transaction.kitchenTicketItem.findMany({
+            select: { id: true },
+            where: { kitchenTicketId: { in: kitchenTicketIds } },
+          })
+        ).map(({ id }) => id);
+        const kitchenTicketConfigurationIds = (
+          await transaction.kitchenTicketItemConfiguration.findMany({
+            select: { id: true },
+            where: { kitchenTicketItemId: { in: kitchenTicketItemIds } },
+          })
+        ).map(({ id }) => id);
+        await transaction.kitchenTicketItemAdditional.deleteMany({
+          where: {
+            kitchenTicketItemConfigurationId: {
+              in: kitchenTicketConfigurationIds,
+            },
+          },
+        });
+        await transaction.kitchenTicketItemConfiguration.deleteMany({
+          where: { id: { in: kitchenTicketConfigurationIds } },
+        });
+        await transaction.kitchenTicketItem.deleteMany({
+          where: { id: { in: kitchenTicketItemIds } },
+        });
+        await transaction.kitchenTicket.deleteMany({
+          where: { id: { in: kitchenTicketIds } },
+        });
         const configurationIds = await transaction.comandaItemConfiguration.findMany({
           select: { id: true },
           where: { comandaItem: { comandaId } },
@@ -2467,14 +3116,24 @@ void test("delivery orders reuse the catalog, checkout, courier settlement and s
           where: {
             establishmentId: integrationEstablishmentId,
             resourceId: {
-              in: [comandaId, courierId, dayId, itemId, orderId, paymentId].filter(
-                Boolean,
-              ),
+              in: [
+                comandaId,
+                courierId,
+                dayId,
+                itemId,
+                kitchenTicketId,
+                orderId,
+                paymentId,
+              ].filter(Boolean),
             },
           },
         });
       });
     }
+    await prisma.product.update({
+      data: { requiresKitchen: hamburger.requiresKitchen },
+      where: { id: hamburger.id },
+    });
   }
 });
 
@@ -2701,6 +3360,35 @@ void test("establishments isolate data and support multiple owners and employees
 
   assert.equal(secondOwner.establishment.id, secondary.id);
   assert.equal(employee.establishment.id, secondary.id);
+  const kitchenPermissionsByRole = new Map(
+    (
+      await prisma.role.findMany({
+        orderBy: { code: "asc" },
+        select: {
+          code: true,
+          permissions: {
+            select: { permission: { select: { code: true } } },
+            where: {
+              permission: {
+                code: { in: ["kitchen.read", "kitchen.write"] },
+              },
+            },
+          },
+        },
+        where: { code: { in: ["KITCHEN", "MANAGER", "OWNER", "WAITER"] } },
+      })
+    ).map((role) => [
+      role.code,
+      role.permissions.map(({ permission }) => permission.code).sort(),
+    ]),
+  );
+  for (const roleCode of ["KITCHEN", "MANAGER", "OWNER"]) {
+    assert.deepEqual(kitchenPermissionsByRole.get(roleCode), [
+      "kitchen.read",
+      "kitchen.write",
+    ]);
+  }
+  assert.deepEqual(kitchenPermissionsByRole.get("WAITER"), []);
 
   const primaryApp = await createAuthenticatedApp();
   const secondaryApp = await createAuthenticatedApp(
@@ -3008,6 +3696,65 @@ void test("operational reset preserves catalog, tables and provisioned users", a
   const stocksBefore = await prisma.inventoryStock.count({
     where: tenantFilter,
   });
+  const resetProduct = await prisma.product.findFirstOrThrow({
+    where: tenantFilter,
+  });
+  const resetComanda = await prisma.comanda.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      name: "Reset cozinha",
+    },
+  });
+  const resetItem = await prisma.comandaItem.create({
+    data: {
+      comandaId: resetComanda.id,
+      confirmedQuantity: 1,
+      establishmentId: integrationEstablishmentId,
+      productId: resetProduct.id,
+      productName: resetProduct.name,
+      quantity: 1,
+      requiresKitchen: true,
+      unitPriceCents: resetProduct.priceCents,
+    },
+  });
+  const resetConfiguration = await prisma.comandaItemConfiguration.create({
+    data: {
+      comandaItemId: resetItem.id,
+      configurationKey: "reset-configuration",
+      confirmedQuantity: 1,
+      establishmentId: integrationEstablishmentId,
+      quantity: 1,
+    },
+  });
+  await prisma.kitchenTicket.create({
+    data: {
+      comandaId: resetComanda.id,
+      confirmationKey: `RESET:${resetItem.id}`,
+      establishmentId: integrationEstablishmentId,
+      items: {
+        create: {
+          comandaItemId: resetItem.id,
+          configurations: {
+            create: {
+              additionals: {
+                create: {
+                          additionalId: "reset-additional",
+                          additionalName: "Adicional do reset",
+                          quantityPerUnit: 1,
+                },
+              },
+              configurationKey: "reset-configuration",
+              quantity: 1,
+              sourceConfigurationId: resetConfiguration.id,
+            },
+          },
+          productId: resetProduct.id,
+          productName: resetProduct.name,
+          quantity: 1,
+        },
+      },
+    },
+  });
 
   try {
     await resetOperationalData(prisma, integrationEstablishmentId);
@@ -3015,6 +3762,16 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     assert.equal(await prisma.comanda.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.comandaEvent.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.comandaItem.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.kitchenTicket.count({ where: tenantFilter }), 0);
+    assert.equal(await prisma.kitchenTicketItem.count({ where: tenantFilter }), 0);
+    assert.equal(
+      await prisma.kitchenTicketItemConfiguration.count({ where: tenantFilter }),
+      0,
+    );
+    assert.equal(
+      await prisma.kitchenTicketItemAdditional.count({ where: tenantFilter }),
+      0,
+    );
     assert.equal(await prisma.creditCustomer.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.creditOrder.count({ where: tenantFilter }), 0);
     assert.equal(await prisma.deliveryOrder.count({ where: tenantFilter }), 0);
@@ -3053,5 +3810,218 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     );
   } finally {
     await cleanupEstablishment(secondaryEstablishmentName);
+  }
+});
+
+void test("admin users: owner creates roles with tenant isolation and atomic audit", async () => {
+  const app = await createAuthenticatedApp();
+  const password = "admin-users-test-password";
+  try {
+    const list = await app.inject({ method: "GET", url: "/admin/users" });
+    assert.equal(list.statusCode, 200);
+    assert.deepEqual(list.json<AdminUsers>().roles.map((role: { code: string }) => role.code), ["OWNER", "MANAGER", "WAITER", "KITCHEN"]);
+    const owner = await prisma.user.findUniqueOrThrow({ where: { normalizedName: integrationUserName.toLowerCase() } });
+    for (const roleCode of ["OWNER", "MANAGER", "WAITER", "KITCHEN"]) {
+      const name = `Admin Integration ${roleCode}`;
+      const response = await app.inject({ method: "POST", url: "/admin/users", payload: { name, password, roleCode } });
+      assert.equal(response.statusCode, 201, response.body);
+      const { user } = response.json<{ user: AdminUser }>();
+      assert.deepEqual(Object.keys(user).sort(), ["active", "id", "name", "roles"]);
+      assert.equal(user.active, true);
+      assert.equal(user.roles.length, 1);
+      assert.equal(user.roles[0].code, roleCode);
+      const persisted = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { roles: true } });
+      assert.equal(persisted.establishmentId, integrationEstablishmentId);
+      assert.notEqual(persisted.passwordHash, password);
+      assert.equal(persisted.roles[0]?.assignedByUserId, owner.id);
+      const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "USER_CREATED", resourceId: user.id } });
+      assert.equal(audit.userId, owner.id);
+      assert.equal(audit.establishmentId, integrationEstablishmentId);
+      assert.ok(!JSON.stringify(audit).includes(password));
+      assert.ok(!JSON.stringify(audit).includes(persisted.passwordHash));
+      const login = await app.inject({ method: "POST", url: "/auth/login", payload: { name, password } });
+      assert.equal(login.statusCode, 200);
+      const token = login.json<{ session: { token: string } }>().session.token;
+      const creditHeaders = { authorization: `Bearer ${token}` };
+      const creditList = await app.inject({ method: "GET", url: "/credit-customers", headers: creditHeaders });
+      assert.equal(creditList.statusCode, ["OWNER", "MANAGER"].includes(roleCode) ? 200 : 403);
+      if (["OWNER", "MANAGER"].includes(roleCode)) {
+        const createdCredit = await app.inject({ method: "POST", url: "/credit-customers", headers: creditHeaders, payload: { name: `Allowed Credit ${roleCode}` } });
+        assert.equal(createdCredit.statusCode, 201, createdCredit.body);
+      }
+      if (["WAITER", "KITCHEN"].includes(roleCode)) {
+        const before = await prisma.creditCustomer.count({ where: { establishmentId: integrationEstablishmentId } });
+        const denied = await app.inject({ method: "POST", url: "/credit-customers", headers: creditHeaders, payload: { name: "Forbidden Credit" } });
+        assert.equal(denied.statusCode, 403);
+        assert.equal(await prisma.creditCustomer.count({ where: { establishmentId: integrationEstablishmentId } }), before);
+      }
+      if (roleCode !== "OWNER") {
+        for (const method of ["GET", "POST"] as const) {
+          const forbidden = await app.inject({ method, url: "/admin/users", headers: { authorization: `Bearer ${token}` }, ...(method === "POST" ? { payload: { name: "Forbidden Creation", password, roleCode: "OWNER" } } : {}) });
+          assert.equal(forbidden.statusCode, 403);
+        }
+      }
+    }
+    for (const method of ["GET", "POST"] as const) {
+      const unauthenticated = await app.inject({ method, url: "/admin/users", headers: { authorization: "" }, ...(method === "POST" ? { payload: {} } : {}) });
+      assert.equal(unauthenticated.statusCode, 401);
+    }
+    const duplicate = await app.inject({ method: "POST", url: "/admin/users", payload: { name: "  ADMIN   INTEGRATION waiter  ", password, roleCode: "WAITER" } });
+    assert.equal(duplicate.statusCode, 409);
+    for (const invalid of [
+      { name: "A", password, roleCode: "WAITER" },
+      { name: "Invalid Name", password: "short", roleCode: "WAITER" },
+      { name: "Invalid Name", password: "x".repeat(129), roleCode: "WAITER" },
+      { name: "Invalid Name", password, roleCode: "CASHIER" },
+      { name: "Invalid Name", password, roleCode: ["WAITER", "OWNER"] },
+      { name: "Invalid Name", password, roleCode: "WAITER", establishmentId: "another-establishment" },
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/admin/users", payload: invalid });
+      assert.equal(response.statusCode, 400);
+    }
+    await provisionEstablishment(prisma, { name: secondaryEstablishmentName, ownerName: "Admin Secondary Owner", ownerPassword: password });
+    const otherApp = await createAuthenticatedApp("Admin Secondary Owner", password);
+    try {
+      const otherList = await otherApp.inject({ method: "GET", url: "/admin/users" });
+      assert.equal(otherList.statusCode, 200);
+      assert.equal(otherList.json<AdminUsers>().users.length, 1);
+      assert.equal(otherList.json<AdminUsers>().users[0].name, "Admin Secondary Owner");
+      const conflicting = await otherApp.inject({ method: "POST", url: "/admin/users", payload: { name: "Admin Integration WAITER", password, roleCode: "WAITER" } });
+      assert.equal(conflicting.statusCode, 409);
+      assert.ok(!conflicting.body.includes(integrationEstablishmentId));
+      // A different establishment's audit actor violates the real composite FK.
+      const persistence = createPersistence();
+      try {
+        const session = await persistence.auth.login("Admin Secondary Owner", password);
+        await assert.rejects(persistence.users.create({ ...session.user, establishment: { id: integrationEstablishmentId, name: "Integration Bistro" } }, { name: "Atomic Failed User", password, roleCode: "WAITER" }));
+        assert.equal(await prisma.user.count({ where: { normalizedName: "atomic failed user" } }), 0);
+      } finally { await persistence.database.close(); }
+    } finally { await otherApp.close(); await cleanupEstablishment(secondaryEstablishmentName); }
+    const concurrent = await Promise.all([1, 2].map(() => app.inject({ method: "POST", url: "/admin/users", payload: { name: "Concurrent Admin User", password, roleCode: "WAITER" } })));
+    assert.deepEqual(concurrent.map((response) => response.statusCode).sort(), [201, 409]);
+    const concurrentUser = await prisma.user.findUniqueOrThrow({ where: { normalizedName: "concurrent admin user" } });
+    assert.equal(await prisma.auditLog.count({ where: { action: "USER_CREATED", resourceId: concurrentUser.id } }), 1);
+  } finally { await app.close(); }
+});
+
+void test("quick sales persist without tables and support normal checkout, cancellation, credit and tenant isolation", async (t) => {
+  const app = await createAuthenticatedApp();
+  t.after(() => app.close());
+  const category = await prisma.menuCategory.findFirstOrThrow({ where: { establishmentId: integrationEstablishmentId } });
+  const tablesBefore = await prisma.restaurantTable.findMany({ where: { establishmentId: integrationEstablishmentId }, orderBy: { id: "asc" } });
+  const product = await prisma.product.create({ data: { establishmentId: integrationEstablishmentId, categoryId: category.id, code: "QUICK_SALE_TEST", name: "Produto venda rápida", priceCents: 1000, requiresKitchen: true } });
+  const ingredient = await prisma.ingredient.create({ data: { establishmentId: integrationEstablishmentId, code: "QUICK_SALE_TEST", name: "Insumo venda rápida", unit: "UNIT" } });
+  const stock = await prisma.inventoryStock.create({ data: { establishmentId: integrationEstablishmentId, ingredientId: ingredient.id, quantity: 10, minimumQuantity: 0 } });
+  const actor = await prisma.user.findFirstOrThrow({ where: { establishmentId: integrationEstablishmentId, name: integrationUserName } });
+  await prisma.inventoryLot.create({ data: { establishmentId: integrationEstablishmentId, stockId: stock.id, actorUserId: actor.id, code: "QUICK_SALE_TEST", currentQuantity: 10, initialQuantity: 10, origin: "PURCHASE", receivedAt: new Date(), totalCostCents: 1000 } });
+  await prisma.productIngredient.create({ data: { establishmentId: integrationEstablishmentId, productId: product.id, ingredientId: ingredient.id, quantity: 1 } });
+  const open = async (name: string) => {
+    const response = await app.inject({ method: "POST", url: "/quick-sales", payload: { name } });
+    assert.equal(response.statusCode, 201, response.body);
+    return response.json<{ comanda: Comanda }>().comanda;
+  };
+  const add = async (id: string) => {
+    const response = await app.inject({ method: "POST", url: `/comandas/${id}/items`, payload: { productId: product.id } });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json<{ comanda: Comanda }>().comanda.items[0];
+  };
+  const confirm = async (id: string, itemId: string) => {
+    const response = await app.inject({ method: "POST", url: `/comandas/${id}/items/${itemId}/confirm` });
+    assert.equal(response.statusCode, 200, response.body);
+  };
+  let secondaryApp: Awaited<ReturnType<typeof createAuthenticatedApp>> | undefined;
+  try {
+    const sale = await open("  Cliente rápido  ");
+    const second = await open("Outro cliente");
+    assert.equal(sale.table, null);
+    assert.equal(sale.name, "Cliente rápido");
+    assert.equal(sale.tableName, "Venda rápida");
+    const persisted = await prisma.comanda.findUniqueOrThrow({ where: { id: sale.id }, include: { events: true } });
+    assert.equal(persisted.tableId, null);
+    assert.equal(persisted.tableName, "Venda rápida");
+    assert.equal(persisted.name, "Cliente rápido");
+    assert.ok(persisted.events[0].actorUserId);
+    assert.equal(await prisma.auditLog.count({ where: { resourceId: sale.id, action: "COMANDA_OPENED", establishmentId: integrationEstablishmentId } }), 1);
+    const list = await app.inject({ method: "GET", url: "/quick-sales" });
+    assert.ok(list.json<{ comandas: Comanda[] }>().comandas.some(({ id }) => id === sale.id));
+    assert.ok(list.json<{ comandas: Comanda[] }>().comandas.some(({ id }) => id === second.id));
+    const item = await add(sale.id);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/close`, payload: { payments: [{ method: "PIX", amountCents: product.priceCents }] } })).statusCode, 409);
+    await confirm(sale.id, item.id);
+    assert.equal((await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity, 9);
+    await confirm(sale.id, item.id);
+    assert.equal((await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity, 9);
+    const kitchen = await app.inject({ method: "GET", url: "/kitchen/tickets" });
+    assert.equal(kitchen.statusCode, 200, kitchen.body);
+    const ticket = kitchen.json<{ tickets: { comandaId: string; table: unknown; tableName: string | null; customerName: string | null }[] }>().tickets.find(({ comandaId }) => comandaId === sale.id);
+    assert.equal(ticket?.table, null);
+    assert.equal(ticket?.tableName, "Venda rápida");
+    assert.equal(ticket?.customerName, "Cliente rápido");
+    const receipt = await app.inject({ method: "GET", url: `/comandas/${sale.id}/print-document?kind=CONFIRMED` });
+    assert.equal(receipt.statusCode, 200, receipt.body);
+    assert.equal(receipt.json<{ document: { destination: string; comandaName: string | null } }>().document.destination, "QUICK_SALE");
+    assert.equal(receipt.json<{ document: { destination: string; comandaName: string | null } }>().document.comandaName, "Cliente rápido");
+    const close = await app.inject({ method: "POST", url: `/comandas/${sale.id}/close`, payload: { payments: [{ method: "PIX", amountCents: product.priceCents }] } });
+    assert.equal(close.statusCode, 200, close.body);
+    assert.equal(close.json<{ comanda: Comanda }>().comanda.status, "CLOSED");
+    assert.equal(close.json<{ comanda: Comanda }>().comanda.payments[0].origin, "QUICK_SALE_CHECKOUT");
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/close` })).statusCode, 409);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/items`, payload: { productId: product.id } })).statusCode, 409);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${second.id}/cancel` })).statusCode, 200);
+    const cancelled = await open("Cancelamento com itens");
+    const cancelledItem = await add(cancelled.id);
+    await confirm(cancelled.id, cancelledItem.id);
+    const cancellation = await app.inject({ method: "POST", url: `/comandas/${cancelled.id}/cancel`, payload: { disposition: "RETURN_TO_STOCK", reason: "Cliente desistiu", requestId: `quick-cancel-${cancelled.id}` } });
+    assert.equal(cancellation.statusCode, 200, cancellation.body);
+    assert.equal(cancellation.json<{ comanda: Comanda }>().comanda.status, "CANCELLED");
+    assert.equal((await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity, 9);
+    const creditSale = await open("Cliente fiado rápido");
+    const creditItem = await add(creditSale.id);
+    await confirm(creditSale.id, creditItem.id);
+    const customer = await prisma.creditCustomer.create({ data: { establishmentId: integrationEstablishmentId, name: "Cliente fiado rápido", normalizedName: "cliente fiado rápido" } });
+    const credit = await app.inject({ method: "POST", url: `/comandas/${creditSale.id}/close`, payload: { customerId: customer.id, payments: [{ method: "CASH", amountCents: 100 }] } });
+    assert.equal(credit.statusCode, 200, credit.body);
+    assert.equal(credit.json<{ comanda: Comanda }>().comanda.credit?.source, "QUICK_SALE");
+    assert.equal(credit.json<{ comanda: Comanda }>().comanda.credit?.balanceCents, product.priceCents - 100);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${creditSale.id}/close` })).statusCode, 409);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${creditSale.id}/cancel` })).statusCode, 409);
+    const remaining = (await app.inject({ method: "GET", url: "/quick-sales" })).json<{ comandas: Comanda[] }>().comandas;
+    assert.ok(!remaining.some(({ id }) => [sale.id, second.id, cancelled.id, creditSale.id].includes(id)));
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const report = await app.inject({ method: "GET", url: `/statements?from=${date}&to=${date}` });
+    assert.equal(report.statusCode, 200, report.body);
+    const entries = report.json<{ statement: StatementReport }>().statement.entries;
+    const paidEntry = entries.find(({ comandaId, event }) => comandaId === sale.id && event === "QUICK_SALE_CLOSED");
+    assert.equal(paidEntry?.origin, "QUICK_SALE");
+    assert.equal(paidEntry?.customerName, "Cliente rápido");
+    assert.equal(paidEntry?.receivedCents, product.priceCents);
+    assert.equal(paidEntry?.tableNumber, null);
+    const creditEntries = entries.filter(({ comandaId }) => comandaId === creditSale.id);
+    assert.equal(creditEntries.reduce((total, entry) => total + entry.soldCents, 0), product.priceCents);
+    assert.equal(creditEntries.reduce((total, entry) => total + entry.receivedCents, 0), 100);
+    assert.ok(creditEntries.every(({ origin }) => origin === "QUICK_SALE"));
+    const pdf = await app.inject({ method: "GET", url: `/statements/export.pdf?from=${date}&to=${date}&origin=QUICK_SALE` });
+    assert.equal(pdf.statusCode, 200, pdf.body.slice(0, 100));
+    const creditOrder = credit.json<{ comanda: Comanda }>().comanda.credit;
+    assert.ok(creditOrder);
+    const settlement = await app.inject({ method: "POST", url: `/credit-orders/${creditOrder.orderId}/settle`, payload: { payments: [{ method: "PIX", amountCents: product.priceCents - 100 }] } });
+    assert.equal(settlement.statusCode, 200, settlement.body);
+    assert.equal((await prisma.comanda.findUniqueOrThrow({ where: { id: creditSale.id } })).status, "CLOSED");
+    const settledReport = (await app.inject({ method: "GET", url: `/statements?from=${date}&to=${date}` })).json<{ statement: StatementReport }>().statement;
+    const settledEntries = settledReport.entries.filter(({ comandaId }) => comandaId === creditSale.id);
+    assert.equal(settledEntries.reduce((total, entry) => total + entry.soldCents, 0), product.priceCents);
+    assert.equal(settledEntries.reduce((total, entry) => total + entry.receivedCents, 0), product.priceCents);
+    const isolatedSale = await open("Venda privada em aberto");
+    await provisionEstablishment(prisma, { name: "Quick Sale Isolation Bistro", ownerName: "Quick Sale Other Owner", ownerPassword: integrationUserPassword });
+    secondaryApp = await createAuthenticatedApp("Quick Sale Other Owner", integrationUserPassword);
+    assert.deepEqual((await secondaryApp.inject({ method: "GET", url: "/quick-sales" })).json(), { comandas: [] });
+    assert.equal((await secondaryApp.inject({ method: "GET", url: `/comandas/${isolatedSale.id}` })).statusCode, 404);
+    assert.equal((await secondaryApp.inject({ method: "POST", url: `/comandas/${isolatedSale.id}/items`, payload: { productId: product.id } })).statusCode, 404);
+    assert.equal((await secondaryApp.inject({ method: "POST", url: `/comandas/${isolatedSale.id}/cancel` })).statusCode, 404);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${isolatedSale.id}/cancel` })).statusCode, 200);
+    assert.deepEqual(await prisma.restaurantTable.findMany({ where: { establishmentId: integrationEstablishmentId }, orderBy: { id: "asc" } }), tablesBefore);
+  } finally {
+    await secondaryApp?.close();
+    await cleanupEstablishment("Quick Sale Isolation Bistro");
   }
 });

@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { themeColors } from '../theme/tokens';
@@ -9,6 +9,8 @@ import { BrandedScreenHeader } from './branded-screen-header';
 export function AdminHomeScreen({
   bottomNavigation,
   canManageMenu,
+  canManageUsers,
+  onUsers,
   canReadInventory,
   canReadStatements,
   onBack,
@@ -18,6 +20,8 @@ export function AdminHomeScreen({
 }: {
   bottomNavigation?: ReactNode;
   canManageMenu: boolean;
+  canManageUsers: boolean;
+  onUsers: () => void;
   canReadInventory: boolean;
   canReadStatements: boolean;
   onBack: () => void;
@@ -28,11 +32,11 @@ export function AdminHomeScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <BrandedScreenHeader
-        description="Consulte o movimento de hoje e mantenha o cardápio atualizado"
+        description="Acompanhe a operação e gerencie seu estabelecimento"
         onBack={onBack}
         title="Administrativo"
       />
-      <View style={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.cards}>
           {canReadStatements && (
             <AdminCard
@@ -55,8 +59,11 @@ export function AdminHomeScreen({
               onPress={onInventory}
             />
           )}
+          {canManageUsers && (
+            <AdminCard description="Cadastre pessoas e defina seus perfis de acesso." label="Usuários" onPress={onUsers} />
+          )}
         </View>
-      </View>
+      </ScrollView>
       {bottomNavigation}
     </SafeAreaView>
   );
@@ -105,7 +112,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     gap: 12,
-    minHeight: 134,
+    minHeight: 94,
     padding: 20,
   },
   cardDescription: {
@@ -116,7 +123,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: themeColors.primary,
     flex: 1,
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: '800',
     letterSpacing: -1,
   },
@@ -125,11 +132,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  cards: { gap: 16, marginTop: 40 },
+  scroll: { flex: 1, backgroundColor: themeColors.background },
+  cards: { gap: 16 },
   content: {
     alignSelf: 'center',
     backgroundColor: themeColors.background,
-    flex: 1,
+    flexGrow: 1,
+    paddingVertical: 24,
     maxWidth: 760,
     paddingHorizontal: 25,
     width: '100%',

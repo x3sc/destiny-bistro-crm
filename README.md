@@ -25,7 +25,8 @@ compose.yaml  MySQL local para desenvolvimento
 - Node.js 22.13+
 - npm
 - Docker Desktop
-- Expo Go no celular
+- Android Studio ou build nativo para testar a impressão térmica; o Expo Go
+  continua suficiente para as telas que não usam o módulo de impressão
 
 ## Configuracao local
 
@@ -77,13 +78,24 @@ Remove-Item Env:\USER_PROVISION_PASSWORD
 ```
 
 O comando solicita o estabelecimento, o nome e os cargos e grava diretamente no
-MySQL. Não existe tela de criação de conta no aplicativo. Um estabelecimento
+MySQL. No aplicativo, o dono pode usar **Administrativo → Usuários → Novo usuário**
+para listar a equipe e criar acessos com nome, senha e um perfil: Dono, Gerente,
+Garçom ou Cozinha. Esse fluxo é exclusivo de OWNER, mesmo que o Gerente tenha
+`users.manage`. A senha deve ter de 8 a 128 caracteres; o nome de acesso deve
+ter de 2 a 80 e ser único no sistema. O novo acesso funciona no login atual.
+Criação e atribuição do perfil são auditadas na mesma transação. Consulte os
+[contratos e limites](docs/specs/user-administration.md).
+
+Um estabelecimento
 pode ter vários owners, e todo usuário pertence obrigatoriamente a um
 estabelecimento. Os cargos iniciais são `OWNER`,
 `MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
 modo que outros poderão ser adicionados posteriormente. O módulo de delivery é
 liberado para `OWNER`, `MANAGER` e `WAITER` pelas permissões `deliveries.read` e
 `deliveries.write`.
+A impressão térmica exige `printing.write`, concedida inicialmente a `OWNER`,
+`MANAGER`, `WAITER` e `KITCHEN`. Cargos personalizados não recebem a permissão
+automaticamente.
 
 A API fica disponivel em `http://localhost:3333`:
 
@@ -97,7 +109,7 @@ A API fica disponivel em `http://localhost:3333`:
 - `GET /admin/menu`: lista categorias e itens ativos e inativos para gestao.
 - `POST/PATCH/DELETE /admin/categories`: cria, edita e desativa categorias.
 - `POST/PATCH/DELETE /admin/products`: cria, edita e desativa itens com nome,
-  descricao, categoria e preco em centavos.
+  descricao, categoria, preco em centavos e a flag `requiresKitchen`.
 - `GET /inventory`: lista ingredientes, saldo atual e estoque minimo.
 - `POST /ingredients`: cadastra um ingrediente e cria seu saldo inicial zerado.
 - `POST /inventory/:stockId/entries`: registra compra com lote, custo total,
@@ -110,6 +122,14 @@ A API fica disponivel em `http://localhost:3333`:
 - `POST /comandas/:comandaId/items`: adiciona produto a uma comanda aberta.
 - `PATCH /comandas/:comandaId/items/:itemId`: ajusta quantidade com `+1` ou `-1`.
 - `POST /comandas/:comandaId/items/:itemId/confirm`: confirma a quantidade atual.
+- `GET /comandas/:comandaId/print-document?kind=CONFIRMED|KITCHEN_PENDING`:
+  prepara o documento atual da comanda completa ou somente dos itens de cozinha
+  ainda não confirmados, sem alterar ou confirmar a comanda.
+- `GET /kitchen/tickets`: lista tickets pendentes, em preparo e prontos do
+  estabelecimento autenticado, dos mais antigos para os mais novos.
+- `GET /kitchen/tickets/:ticketId`: consulta o snapshot de um envio.
+- `PATCH /kitchen/tickets/:ticketId/status`: avanca o preparo ou cancela um
+  ticket conforme a maquina de estados da cozinha.
 - `POST /comandas/:comandaId/cancel`: cancela comanda vazia ou, com motivo,
   `requestId` e destino dos insumos, cancela integralmente uma comanda aberta.
 - `DELETE /comandas/:comandaId/items/:itemId`: remove apenas a quantidade ainda
@@ -170,7 +190,10 @@ impedindo vinculos entre estabelecimentos mesmo em gravacoes diretas no banco.
 
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
-separadas dos itens imutaveis no aplicativo.
+separadas dos itens imutaveis no aplicativo. Produtos marcados para preparo geram
+um ticket somente com o novo delta confirmado e com snapshots das configuracoes e
+adicionais. Esse envio ocorre na mesma transacao do estoque, confirmacao e
+auditoria.
 
 O fechamento usa uma unica colecao `payments`, por exemplo:
 
@@ -209,14 +232,18 @@ Em outro terminal:
 ```powershell
 Set-Location frontend
 npm.cmd install
-npm.cmd start
+npm.cmd run dev
 ```
 
-Leia o QR code com o Expo Go usando um celular conectado a mesma rede Wi-Fi do
-computador.
+Esse comando inicia um unico Metro em modo LAN e limpa bundles antigos. No mesmo
+terminal, pressione `a` para abrir o emulador Android e leia o QR code com o
+celular conectado a mesma rede do computador. Ambos usam o endereço definido em
+`EXPO_PUBLIC_API_URL`; por isso, para atender os dois ao mesmo tempo, configure o
+IP LAN do computador em vez de `10.0.2.2`, que funciona somente no emulador.
 
-O menu principal separa **Mesas**, **Fiados**, **Delivery** e
-**Administrativo**. Em Delivery, o gestor cadastra entregadores e inicia um dia
+O menu principal separa **Mesas**, **Fiados**, **Delivery**, **Cozinha** e
+**Administrativo**. A Cozinha apresenta uma fila operacional atualizada a cada
+30 segundos enquanto a tela esta em foco. Em Delivery, o gestor cadastra entregadores e inicia um dia
 informando o valor da diaria. Dentro do dia, cada entrega registra nome do
 cliente, endereco, produtos opcionais, valor total, taxa de entrega e forma de
 pagamento; despesas como combustivel sao deduzidas do acerto. O valor a pagar ao
@@ -239,8 +266,19 @@ pedidos em aberto e quitados e abrir a comanda completa.
 
 Antes do menu, o aplicativo exige login. A sessão fica no `expo-secure-store` no
 Android/iOS e os módulos são exibidos conforme as permissões do usuário.
-`KITCHEN` pode consultar mesas, comandas e itens confirmados sem alterar valores;
+`KITCHEN` recebe `kitchen.read` e `kitchen.write` para consultar a fila e
+avancar o preparo sem alterar valores financeiros;
 o histórico da comanda identifica o operador e o horário de cada evento.
+
+Na tela da comanda, usuários com `printing.write` podem imprimir em uma térmica
+ESC/POS de 80 mm pela rede local. "Imprimir comanda" inclui tudo que já foi
+confirmado e seus valores; "Imprimir cozinha" inclui somente o delta não
+confirmado dos itens marcados para preparo e não mostra preços. O papel é gerado
+em preto e branco, com 48 colunas e corte total. IP e porta são configurações
+locais do dispositivo, inicialmente `192.168.1.100:9100`. O transporte nativo
+funciona em Android e iOS e exige um development build ou aplicativo instalado,
+não o Expo Go. A versão web não exibe esses controles nesta etapa. Consulte
+`docs/specs/thermal-comanda-printing.md` para o contrato completo.
 
 Em Extrato do dia, um unico calendario permite manter o dia atual ou selecionar
 outro dia ou intervalo. A aba **Resumido** apresenta valores vendidos e recebidos,
@@ -350,3 +388,17 @@ npm.cmd test
 Módulos operacionais de mesas, crédito, delivery e estoque integrados, com
 autenticação por usuário, permissões, auditoria, ledger por lote e preparação para
 implantação controlada em VPS.
+
+Fiados: somente os perfis `OWNER` e `MANAGER`, com as respectivas permissões,
+podem acessar clientes/fiados e fechar comandas com saldo em fiado. `WAITER` e
+`KITCHEN` não veem a navegação nem acessam as rotas de fiados. O garçom
+continua podendo fechar comandas com pagamento integral, inclusive misto.
+A API aplica a restrição mesmo se o banco ainda contiver permissões antigas.
+
+### Venda rápida
+
+No menu principal, **Venda rápida** abre uma comanda pelo nome do cliente (obrigatório, até 80 caracteres), sem ocupar mesa. As vendas em aberto podem ser pesquisadas pelo cliente ou número e retomadas nessa tela. Produtos, adicionais, confirmação, estoque, cozinha, cancelamento, impressão e pagamento usam o fluxo normal da comanda; o saldo pode virar fiado para usuários autorizados.
+
+A comanda persiste `name` com o cliente, `tableId = NULL` e `tableName = "Venda rápida"`. Não existe mesa fictícia. A origem financeira é `QUICK_SALE` / `QUICK_SALE_CHECKOUT`, identificada no extrato e nos recibos. Vendas convertidas em fiado passam a ser acompanhadas em **Fiados**. As mesas existentes continuam funcionando como antes.
+
+A API adiciona `GET /quick-sales` (comandas abertas do estabelecimento, permissão `comandas.read`) e `POST /quick-sales` (`{ "name": "Maria" }`, permissão `comandas.write`). A resposta de abertura contém `{ comanda }`, com `table: null` e `tableName: "Venda rápida"`; a listagem contém `{ comandas }`. Aplique a migração `20260916120000_quick_sales` com `npm run prisma:migrate:deploy` dentro de `backend` antes de iniciar a API atualizada. A migração adiciona um campo opcional e amplia as origens financeiras, preservando os registros existentes.

@@ -1,3 +1,4 @@
+import { hasPermission, useAuth } from '../auth/auth-context';
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -33,11 +34,12 @@ export function AppBottomNavigation({
   activeItem: AppNavigationItem;
 }) {
   const router = useRouter();
+  const { user } = useAuth();
 
   return (
     <View style={styles.footer}>
       <View accessibilityLabel="Navegação principal" style={styles.bar}>
-        {navigationItems.map((item) => (
+        {navigationItems.filter((item) => item.key !== 'credits' || hasPermission(user, 'credits.read')).map((item) => (
           <Pressable
             accessibilityLabel={item.label}
             accessibilityRole="tab"

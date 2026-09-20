@@ -9,6 +9,7 @@ export interface MenuProduct {
   name: string;
   priceCents: number;
   recipe?: RecipeIngredient[];
+  requiresKitchen: boolean;
 }
 
 export interface RecipeIngredient {
@@ -47,6 +48,7 @@ export interface ProductInput {
   description: string | null;
   name: string;
   priceCents: number;
+  requiresKitchen: boolean;
 }
 
 export async function loadAdminMenu(apiBaseUrl: string) {
@@ -276,6 +278,7 @@ function isMenuProduct(value: unknown): value is MenuProduct {
     typeof product.name === 'string' &&
     Number.isInteger(product.priceCents) &&
     Number(product.priceCents) > 0 &&
+    typeof product.requiresKitchen === 'boolean' &&
     (product.recipe === undefined ||
       (Array.isArray(product.recipe) && product.recipe.every(isRecipeIngredient))) &&
     (product.additionals === undefined ||

@@ -1,3 +1,5 @@
+import { createUserRepository } from "./user-repository.js";
+import type { UserRepository } from "./user-types.js";
 import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "./generated/prisma/client.js";
@@ -26,6 +28,10 @@ import {
   type InventoryRepository,
 } from "./inventory-repository.js";
 import {
+  createKitchenRepository,
+  type KitchenRepository,
+} from "./kitchen-repository.js";
+import {
   createRestaurantTableRepository,
   type RestaurantTableRepository,
 } from "./restaurant-table-repository.js";
@@ -40,12 +46,14 @@ export interface Database {
 }
 
 export interface Persistence {
+  users: UserRepository;
   auth: AuthRepository;
   comandas: ComandaRepository;
   credits: CreditRepository;
   database: Database;
   deliveries: DeliveryRepository;
   inventory: InventoryRepository;
+  kitchen: KitchenRepository;
   products: ProductRepository;
   restaurantTables: RestaurantTableRepository;
   statements: StatementRepository;
@@ -79,6 +87,7 @@ export function createPersistence(): Persistence {
 
   return {
     auth: createAuthRepository(prisma),
+    users: createUserRepository(prisma),
     comandas: createComandaRepository(prisma),
     credits: createCreditRepository(prisma),
     database: {
@@ -91,6 +100,7 @@ export function createPersistence(): Persistence {
     },
     deliveries: createDeliveryRepository(prisma),
     inventory: createInventoryRepository(prisma),
+    kitchen: createKitchenRepository(prisma),
     products: createProductRepository(prisma),
     restaurantTables: createRestaurantTableRepository(prisma),
     statements: createStatementRepository(prisma),

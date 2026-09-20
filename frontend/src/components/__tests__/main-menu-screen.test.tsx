@@ -6,25 +6,34 @@ it('navigates to tables, credits, delivery and administration', () => {
   const onAdmin = jest.fn();
   const onCredits = jest.fn();
   const onDeliveries = jest.fn();
+  const onKitchen = jest.fn();
   const onTables = jest.fn();
+  const onQuickSales = jest.fn();
 
   render(
     <MainMenuScreen
       onAdmin={onAdmin}
       onCredits={onCredits}
       onDeliveries={onDeliveries}
+      onKitchen={onKitchen}
       onTables={onTables}
+      canAccessQuickSales
+      onQuickSales={onQuickSales}
     />,
   );
 
   fireEvent.press(screen.getByRole('button', { name: 'Mesas' }));
   fireEvent.press(screen.getByRole('button', { name: 'Fiados' }));
   fireEvent.press(screen.getByRole('button', { name: 'Delivery' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Cozinha' }));
   fireEvent.press(screen.getByRole('button', { name: 'Administrativo' }));
 
+  fireEvent.press(screen.getByRole('button', { name: 'Venda rápida' }));
+  expect(onQuickSales).toHaveBeenCalledTimes(1);
   expect(onTables).toHaveBeenCalledTimes(1);
   expect(onCredits).toHaveBeenCalledTimes(1);
   expect(onDeliveries).toHaveBeenCalledTimes(1);
+  expect(onKitchen).toHaveBeenCalledTimes(1);
   expect(onAdmin).toHaveBeenCalledTimes(1);
   expect(screen.queryByText('Em breve')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Voltar' })).toBeNull();
@@ -38,11 +47,13 @@ it('shows only permitted areas and logs out the identified user', () => {
       canAccessCredits={false}
       canAccessAdmin={false}
       canAccessDeliveries={false}
+      canAccessKitchen={false}
       canAccessTables
       establishmentName="Destiny Centro"
       onAdmin={jest.fn()}
       onCredits={jest.fn()}
       onDeliveries={jest.fn()}
+      onKitchen={jest.fn()}
       onLogout={onLogout}
       onTables={jest.fn()}
       userName="Cozinha"
@@ -51,7 +62,9 @@ it('shows only permitted areas and logs out the identified user', () => {
 
   expect(screen.getByText('Mesas')).toBeTruthy();
   expect(screen.queryByText('Fiados')).toBeNull();
+  expect(screen.queryByText('Venda rápida')).toBeNull();
   expect(screen.queryByText('Delivery')).toBeNull();
+  expect(screen.queryByText('Cozinha')).toBeNull();
   expect(screen.queryByText('Administrativo')).toBeNull();
   expect(
     screen.getByText('Olá, bem-vindo(a), Cozinha, ao seu menu principal'),
