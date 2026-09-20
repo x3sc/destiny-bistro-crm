@@ -82,6 +82,7 @@ const originLabels: Record<StatementOrigin, string> = {
   CREDIT_TABLE: 'Fiado de mesa',
   DELIVERY: 'Delivery',
   TABLE: 'Mesa',
+  QUICK_SALE: 'Venda rápida',
 };
 
 const statusLabels: Record<StatementEntry['status'], string> = {
@@ -121,6 +122,7 @@ const originFilterOptions: {
   { label: 'Fiado manual', value: 'CREDIT_MANUAL' },
   { label: 'Fiado de mesa', value: 'CREDIT_TABLE' },
   { label: 'Delivery', value: 'DELIVERY' },
+  { label: 'Venda rápida', value: 'QUICK_SALE' },
 ];
 
 export function StatementsScreen({
@@ -678,6 +680,7 @@ function commandLocation(entry: StatementEntry) {
   if (entry.origin === 'DELIVERY') {
     return entry.deliveryAddress ?? 'Entrega';
   }
+  if (entry.origin === 'QUICK_SALE') return 'Venda rápida';
   if (entry.tableNumber !== null) {
     return `Mesa ${entry.tableNumber}`;
   }
@@ -707,7 +710,7 @@ function entryPresentation(entry: StatementEntry): {
       title: 'Comanda cancelada',
     };
   }
-  if (entry.event === 'TABLE_CLOSED') {
+  if (entry.event === 'TABLE_CLOSED' || entry.event === 'QUICK_SALE_CLOSED') {
     return {
       rows: [
         { label: 'Total', valueCents: entry.soldCents },
@@ -744,7 +747,7 @@ function entryPresentation(entry: StatementEntry): {
   }
   if (
     entry.event === 'CREDIT_FINALIZED' ||
-    entry.paymentOrigin === 'TABLE_CHECKOUT'
+    (entry.paymentOrigin === 'TABLE_CHECKOUT' || entry.paymentOrigin === 'QUICK_SALE_CHECKOUT')
   ) {
     return {
       rows: [

@@ -118,7 +118,7 @@ function isStatementMovementType(value: string): value is StatementMovementType 
 }
 
 function isStatementOriginFilter(value: string): value is StatementOriginFilter {
-  return ["ALL", "TABLE", "CREDIT_MANUAL", "CREDIT_TABLE"].includes(value);
+  return ["ALL", "TABLE", "QUICK_SALE", "CREDIT_MANUAL", "CREDIT_TABLE"].includes(value);
 }
 
 function parseViewOrReply(

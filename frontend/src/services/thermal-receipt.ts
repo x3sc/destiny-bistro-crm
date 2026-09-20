@@ -80,6 +80,7 @@ export function thermalReceiptPreview(document: ComandaPrintDocument) {
 }
 
 function destinationLabel(document: ComandaPrintDocument) {
+  if (document.destination === 'QUICK_SALE') return 'VENDA RAPIDA';
   if (document.destination === 'TABLE') return `MESA ${document.tableNumber}`;
   if (document.destination === 'DELIVERY') return 'DELIVERY';
   return 'BALCAO';

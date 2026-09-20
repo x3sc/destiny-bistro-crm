@@ -2,6 +2,7 @@ import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
 
 export type StatementOrigin =
+  | 'QUICK_SALE'
   | 'TABLE'
   | 'CREDIT_MANUAL'
   | 'CREDIT_TABLE'
@@ -28,10 +29,12 @@ export type StatementPaymentSummaryMethod =
   | 'CREDIT_CARD'
   | 'UNSPECIFIED';
 export type StatementPaymentOrigin =
+  | 'QUICK_SALE_CHECKOUT'
   | 'TABLE_CHECKOUT'
   | 'CREDIT_INSTALLMENT'
   | 'DELIVERY_PAYMENT';
 export type StatementEvent =
+  | 'QUICK_SALE_CLOSED'
   | 'TABLE_CLOSED'
   | 'CREDIT_FINALIZED'
   | 'CREDIT_ADDITION'
@@ -267,6 +270,7 @@ function isEntry(value: unknown): value is StatementEntry {
           payment.method === 'CREDIT_CARD'),
     ) &&
     (entry.paymentOrigin === null ||
+      entry.paymentOrigin === 'QUICK_SALE_CHECKOUT' ||
       entry.paymentOrigin === 'TABLE_CHECKOUT' ||
       entry.paymentOrigin === 'CREDIT_INSTALLMENT' ||
       entry.paymentOrigin === 'DELIVERY_PAYMENT') &&
@@ -367,6 +371,7 @@ function isOriginSummary(value: unknown): value is StatementOriginSummary {
 
 function isStatementEvent(value: unknown): value is StatementEvent {
   return (
+    value === 'QUICK_SALE_CLOSED' ||
     value === 'TABLE_CLOSED' ||
     value === 'CREDIT_FINALIZED' ||
     value === 'CREDIT_ADDITION' ||
@@ -379,6 +384,7 @@ function isStatementEvent(value: unknown): value is StatementEvent {
 
 function isStatementOrigin(value: unknown): value is StatementOrigin {
   return (
+    value === 'QUICK_SALE' ||
     value === 'TABLE' ||
     value === 'CREDIT_MANUAL' ||
     value === 'CREDIT_TABLE' ||

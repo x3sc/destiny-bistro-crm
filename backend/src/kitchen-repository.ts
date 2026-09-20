@@ -13,6 +13,8 @@ const kitchenTicketSelect = {
   comanda: {
     select: {
       number: true,
+      name: true,
+      tableName: true,
       table: { select: { id: true, number: true } },
     },
   },
@@ -59,6 +61,8 @@ function mapKitchenTicket(ticket: PersistedKitchenTicket): KitchenTicket {
   return {
     ...summary,
     comandaNumber: comanda.number,
+    customerName: comanda.name,
+    tableName: comanda.tableName,
     createdAt: ticket.createdAt.toISOString(),
     table: comanda.table,
     updatedAt: ticket.updatedAt.toISOString(),

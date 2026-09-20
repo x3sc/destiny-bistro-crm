@@ -497,7 +497,7 @@ function ComandaHeader({
       <View style={styles.headerCopy}>
         <View style={styles.contextRow}>
           <Text style={styles.eyebrow}>
-            {comanda?.table ? `Mesa ${comanda.table.number}` : 'Destiny Bistro CRM'}
+            {comanda?.table ? `Mesa ${comanda.table.number}` : comanda?.tableName ?? 'Destiny Bistro CRM'}
           </Text>
           {comanda?.name && <Text style={styles.contextName}>· {comanda.name}</Text>}
         </View>

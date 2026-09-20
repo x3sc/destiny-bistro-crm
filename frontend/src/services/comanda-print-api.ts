@@ -8,7 +8,7 @@ export interface ComandaPrintDocument {
   comandaName: string | null;
   comandaNumber: number;
   deliveryFeeCents: number | null;
-  destination: 'COUNTER' | 'DELIVERY' | 'TABLE';
+  destination: 'QUICK_SALE' | 'COUNTER' | 'DELIVERY' | 'TABLE';
   establishmentName: string;
   generatedAt: string;
   generatedBy: string;
@@ -80,7 +80,8 @@ function isPrintDocument(value: unknown): value is ComandaPrintDocument {
     (document.comandaName === null || typeof document.comandaName === 'string') &&
     Number.isInteger(document.comandaNumber) &&
     (document.deliveryFeeCents === null || Number.isInteger(document.deliveryFeeCents)) &&
-    (document.destination === 'COUNTER' ||
+    (document.destination === 'QUICK_SALE' ||
+      document.destination === 'COUNTER' ||
       document.destination === 'DELIVERY' ||
       document.destination === 'TABLE') &&
     typeof document.establishmentName === 'string' &&

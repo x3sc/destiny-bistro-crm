@@ -219,7 +219,9 @@ export function CreditCustomerDetailsScreen({
                   <Text style={creditStyles.orderMeta}>
                     {order.source === 'TABLE'
                       ? `Mesa ${order.tableNumber ?? '-'}`
-                      : order.source === 'DELIVERY'
+                      : order.source === 'QUICK_SALE'
+                        ? 'Venda rápida'
+                        : order.source === 'DELIVERY'
                         ? 'Pedido delivery'
                         : 'Lançamento manual'}
                   </Text>

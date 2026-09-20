@@ -168,6 +168,14 @@ void test("statements separate sales, later credit additions and receipts", () =
         soldCents: 0,
         soldItemCount: 0,
       },
+      {
+        movementCount: 0,
+        origin: "QUICK_SALE",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
     ],
     paymentMethodSummaries: [
       { method: "CASH", receivedCents: 0 },
@@ -339,6 +347,14 @@ void test("empty statement periods return zero totals and every selected day", (
       {
         movementCount: 0,
         origin: "DELIVERY",
+        receivedCents: 0,
+        receivedItemCount: 0,
+        soldCents: 0,
+        soldItemCount: 0,
+      },
+      {
+        movementCount: 0,
+        origin: "QUICK_SALE",
         receivedCents: 0,
         receivedItemCount: 0,
         soldCents: 0,

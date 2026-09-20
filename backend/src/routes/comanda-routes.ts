@@ -81,6 +81,27 @@ function isItemConflict(error: unknown) {
 }
 
 export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRepository) {
+  app.get("/quick-sales", { config: { permission: "comandas.read" } }, async (request, reply) => {
+    try {
+      return { comandas: await comandas.listQuickSales(requireAuthUser(request).establishment.id) };
+    } catch (error) {
+      app.log.error(error, "Quick sales query failed");
+      return reply.code(503).send({ status: "error", message: "Quick sales unavailable" });
+    }
+  });
+  app.post<{ Body: { name?: unknown } }>("/quick-sales", { config: { permission: "comandas.write" } }, async (request, reply) => {
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+    if (!name || name.length > 80) {
+      return reply.code(400).send({ status: "error", message: "Invalid customer name" });
+    }
+    try {
+      const user = requireAuthUser(request);
+      return reply.code(201).send({ comanda: await comandas.openQuickSale(user.establishment.id, name, user.id) });
+    } catch (error) {
+      app.log.error(error, "Quick sale opening failed");
+      return reply.code(503).send({ status: "error", message: "Quick sale unavailable" });
+    }
+  });
   app.get<{ Params: ComandaParams }>(
     "/comandas/:comandaId",
     { config: { permission: "comandas.read" } },
