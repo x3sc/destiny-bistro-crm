@@ -160,7 +160,7 @@ export function ComandaCheckoutScreen({
               <Text style={styles.description}>
                 {state.comanda.table
                   ? `Mesa ${state.comanda.table.number} · `
-                  : ''}
+                  : state.comanda.tableName ? `${state.comanda.tableName} · ` : ''}
                 Comanda #{state.comanda.number}
               </Text>
             )}

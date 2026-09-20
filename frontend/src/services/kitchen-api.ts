@@ -37,6 +37,8 @@ export interface KitchenTicketItem {
 export interface KitchenTicket {
   comandaId: string;
   comandaNumber: number;
+  customerName?: string | null;
+  tableName?: string | null;
   createdAt: string;
   id: string;
   items: KitchenTicketItem[];

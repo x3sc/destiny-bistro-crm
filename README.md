@@ -394,3 +394,11 @@ podem acessar clientes/fiados e fechar comandas com saldo em fiado. `WAITER` e
 `KITCHEN` não veem a navegação nem acessam as rotas de fiados. O garçom
 continua podendo fechar comandas com pagamento integral, inclusive misto.
 A API aplica a restrição mesmo se o banco ainda contiver permissões antigas.
+
+### Venda rápida
+
+No menu principal, **Venda rápida** abre uma comanda pelo nome do cliente (obrigatório, até 80 caracteres), sem ocupar mesa. As vendas em aberto podem ser pesquisadas pelo cliente ou número e retomadas nessa tela. Produtos, adicionais, confirmação, estoque, cozinha, cancelamento, impressão e pagamento usam o fluxo normal da comanda; o saldo pode virar fiado para usuários autorizados.
+
+A comanda persiste `name` com o cliente, `tableId = NULL` e `tableName = "Venda rápida"`. Não existe mesa fictícia. A origem financeira é `QUICK_SALE` / `QUICK_SALE_CHECKOUT`, identificada no extrato e nos recibos. Vendas convertidas em fiado passam a ser acompanhadas em **Fiados**. As mesas existentes continuam funcionando como antes.
+
+A API adiciona `GET /quick-sales` (comandas abertas do estabelecimento, permissão `comandas.read`) e `POST /quick-sales` (`{ "name": "Maria" }`, permissão `comandas.write`). A resposta de abertura contém `{ comanda }`, com `table: null` e `tableName: "Venda rápida"`; a listagem contém `{ comandas }`. Aplique a migração `20260916120000_quick_sales` com `npm run prisma:migrate:deploy` dentro de `backend` antes de iniciar a API atualizada. A migração adiciona um campo opcional e amplia as origens financeiras, preservando os registros existentes.

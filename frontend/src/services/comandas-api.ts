@@ -13,10 +13,11 @@ export type ComandaEventType =
   | 'ITEM_CANCELLED'
   | 'ADDITIONALS_CHANGED';
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE' | 'OPERATOR_CANCELLED';
-export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY';
+export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY' | 'QUICK_SALE';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
 export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
 export type PaymentOrigin =
+  | 'QUICK_SALE_CHECKOUT'
   | 'TABLE_CHECKOUT'
   | 'CREDIT_INSTALLMENT'
   | 'DELIVERY_CHECKOUT';
@@ -104,6 +105,7 @@ export interface Comanda {
   openedAt: string;
   payments: Payment[];
   status: ComandaStatus;
+  tableName?: string | null;
   table: {
     id: number;
     number: number;
@@ -190,6 +192,7 @@ function isComandaCredit(value: unknown): value is ComandaCreditSummary {
     typeof credit.orderId === 'string' &&
     Number.isInteger(credit.paidCents) &&
     (credit.source === 'MANUAL' ||
+      credit.source === 'QUICK_SALE' ||
       credit.source === 'TABLE' ||
       credit.source === 'DELIVERY') &&
     (credit.status === 'DRAFT' ||
@@ -218,7 +221,8 @@ function isPayment(value: unknown): value is Payment {
     typeof payment.comandaId === 'string' &&
     (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
     typeof payment.id === 'string' &&
-    (payment.origin === 'TABLE_CHECKOUT' ||
+    (payment.origin === 'QUICK_SALE_CHECKOUT' ||
+      payment.origin === 'TABLE_CHECKOUT' ||
       payment.origin === 'CREDIT_INSTALLMENT' ||
       payment.origin === 'DELIVERY_CHECKOUT') &&
     typeof payment.paidAt === 'string' &&
@@ -247,6 +251,7 @@ function isComanda(value: unknown): value is Comanda {
   return (
     typeof comanda.id === 'string' &&
     (comanda.name === null || typeof comanda.name === 'string') &&
+    (comanda.tableName == null || typeof comanda.tableName === 'string') &&
     Number.isInteger(comanda.number) &&
     typeof comanda.openedAt === 'string' &&
     Array.isArray(comanda.payments) &&
@@ -254,7 +259,8 @@ function isComanda(value: unknown): value is Comanda {
     (comanda.cancelledAt === null || typeof comanda.cancelledAt === 'string') &&
     (comanda.closedAt === null || typeof comanda.closedAt === 'string') &&
     (comanda.cancellationReason === null ||
-      comanda.cancellationReason === 'OPENED_BY_MISTAKE') &&
+      comanda.cancellationReason === 'OPENED_BY_MISTAKE' ||
+      comanda.cancellationReason === 'OPERATOR_CANCELLED') &&
     (comanda.credit === null || isComandaCredit(comanda.credit)) &&
     (comanda.status === 'OPEN' ||
       comanda.status === 'CANCELLED' ||
@@ -302,6 +308,22 @@ function jsonMutationInit(method: 'DELETE' | 'PATCH' | 'POST', body: object = {}
     },
     method,
   };
+}
+
+export async function openQuickSale(apiBaseUrl: string, name: string) {
+  const normalizedName = name.trim();
+  if (!normalizedName || normalizedName.length > 80) throw new Error('Invalid customer name');
+  return readComanda(await authenticatedFetch(`${requireApiBaseUrl(apiBaseUrl)}/quick-sales`, jsonMutationInit('POST', { name: normalizedName })));
+}
+
+export async function loadQuickSales(apiBaseUrl: string): Promise<Comanda[]> {
+  const response = await authenticatedFetch(`${requireApiBaseUrl(apiBaseUrl)}/quick-sales`);
+  if (!response.ok) throw new Error('Quick sales request failed');
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== 'object' || !('comandas' in payload) || !Array.isArray(payload.comandas) || !payload.comandas.every(isComanda)) {
+    throw new Error('Invalid quick sales response');
+  }
+  return payload.comandas;
 }
 
 export async function openComanda(

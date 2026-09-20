@@ -8,6 +8,7 @@ it('navigates to tables, credits, delivery and administration', () => {
   const onDeliveries = jest.fn();
   const onKitchen = jest.fn();
   const onTables = jest.fn();
+  const onQuickSales = jest.fn();
 
   render(
     <MainMenuScreen
@@ -16,6 +17,8 @@ it('navigates to tables, credits, delivery and administration', () => {
       onDeliveries={onDeliveries}
       onKitchen={onKitchen}
       onTables={onTables}
+      canAccessQuickSales
+      onQuickSales={onQuickSales}
     />,
   );
 
@@ -25,6 +28,8 @@ it('navigates to tables, credits, delivery and administration', () => {
   fireEvent.press(screen.getByRole('button', { name: 'Cozinha' }));
   fireEvent.press(screen.getByRole('button', { name: 'Administrativo' }));
 
+  fireEvent.press(screen.getByRole('button', { name: 'Venda rápida' }));
+  expect(onQuickSales).toHaveBeenCalledTimes(1);
   expect(onTables).toHaveBeenCalledTimes(1);
   expect(onCredits).toHaveBeenCalledTimes(1);
   expect(onDeliveries).toHaveBeenCalledTimes(1);
@@ -57,6 +62,7 @@ it('shows only permitted areas and logs out the identified user', () => {
 
   expect(screen.getByText('Mesas')).toBeTruthy();
   expect(screen.queryByText('Fiados')).toBeNull();
+  expect(screen.queryByText('Venda rápida')).toBeNull();
   expect(screen.queryByText('Delivery')).toBeNull();
   expect(screen.queryByText('Cozinha')).toBeNull();
   expect(screen.queryByText('Administrativo')).toBeNull();

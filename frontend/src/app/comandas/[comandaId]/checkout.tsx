@@ -6,7 +6,7 @@ import { ComandaCheckoutScreen } from '@/components/comanda-checkout-screen';
 export default function ComandaCheckoutRoute() {
   const router = useRouter();
   const { user } = useAuth();
-  const { comandaId = '' } = useLocalSearchParams<{ comandaId?: string }>();
+  const { comandaId = '', origin } = useLocalSearchParams<{ comandaId?: string; origin?: string }>();
   return (
     <ComandaCheckoutScreen
       canCreateCredit={hasPermission(user, 'credits.write')}
@@ -14,7 +14,7 @@ export default function ComandaCheckoutRoute() {
       onBack={() => router.back()}
       onFinished={(customerId) => {
         router.replace(
-          (customerId ? `/credits/${encodeURIComponent(customerId)}` : '/tables') as Href,
+          (customerId ? `/credits/${encodeURIComponent(customerId)}` : origin === 'quick-sale' ? '/quick-sales' : '/tables') as Href,
         );
       }}
     />

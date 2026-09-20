@@ -186,7 +186,7 @@ export function ProductCatalogScreen({
                 ? `${
                     state.comanda.table
                       ? `Mesa ${state.comanda.table.number}`
-                      : 'Fiado manual'
+                      : state.comanda.tableName ?? 'Fiado manual'
                   } · Comanda #${state.comanda.number}`
                 : 'Destiny Bistro CRM'}
             </Text>

@@ -68,3 +68,11 @@ it('emits initialize, feed and full-cut ESC/POS commands', () => {
   expect(Array.from(bytes.slice(0, 5))).toEqual([0x1b, 0x40, 0x1b, 0x74, 0x03]);
   expect(Array.from(bytes.slice(-7))).toEqual([0x0a, 0x1b, 0x64, 0x04, 0x1d, 0x56, 0x00]);
 });
+
+it('identifies a quick sale and its customer without printing a table number', () => {
+  const preview = thermalReceiptPreview({ ...confirmedDocument, destination: 'QUICK_SALE', tableNumber: null, comandaName: 'Maria' });
+  expect(preview).toContain('VENDA RAPIDA');
+  expect(preview).toContain('NOME: Maria');
+  expect(preview).not.toContain('MESA');
+  expect(preview).not.toMatch(/[^\x0A\x20-\x7E]/u);
+});

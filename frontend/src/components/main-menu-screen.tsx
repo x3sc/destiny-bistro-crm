@@ -11,6 +11,8 @@ export function MainMenuScreen({
   canAccessDeliveries = true,
   canAccessKitchen = true,
   canAccessTables = true,
+  canAccessQuickSales = false,
+  onQuickSales,
   establishmentName,
   onAdmin,
   onCredits,
@@ -25,6 +27,8 @@ export function MainMenuScreen({
   canAccessDeliveries?: boolean;
   canAccessKitchen?: boolean;
   canAccessTables?: boolean;
+  canAccessQuickSales?: boolean;
+  onQuickSales?: () => void;
   establishmentName?: string;
   onAdmin: () => void;
   onCredits: () => void;
@@ -83,6 +87,9 @@ export function MainMenuScreen({
               label="Mesas"
               onPress={onTables}
             />
+          )}
+          {canAccessQuickSales && (
+            <MenuCard description="Abra uma comanda pelo nome do cliente, sem mesa." icon="credits" label="Venda rápida" onPress={onQuickSales} />
           )}
           {canAccessCredits && (
             <MenuCard

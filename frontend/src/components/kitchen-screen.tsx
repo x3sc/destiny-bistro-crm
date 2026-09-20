@@ -174,7 +174,8 @@ export function KitchenScreen({
                         COMANDA #{ticket.comandaNumber}
                       </Text>
                       <Text style={styles.meta}>
-                        {ticket.table ? `Mesa ${ticket.table.number}` : 'Delivery'}
+                        {ticket.table ? `Mesa ${ticket.table.number}` : ticket.tableName ?? 'Delivery'}
+                        {ticket.tableName && ticket.customerName ? ` · ${ticket.customerName}` : ''}
                         {' · '}
                         {relativeAge(ticket.createdAt)}
                       </Text>

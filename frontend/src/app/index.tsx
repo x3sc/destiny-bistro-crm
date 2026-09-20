@@ -20,6 +20,8 @@ export default function HomeScreen() {
         canAccessDeliveries={hasPermission(user, 'deliveries.read')}
         canAccessKitchen={hasPermission(user, 'kitchen.read')}
         canAccessTables={hasPermission(user, 'tables.read')}
+        canAccessQuickSales={hasPermission(user, 'comandas.read')}
+        onQuickSales={() => router.push('/quick-sales' as Href)}
         establishmentName={user?.establishment.name}
         onAdmin={() => {
           router.push('/admin' as Href);

@@ -6,8 +6,9 @@ import { hasPermission, useAuth } from '@/auth/auth-context';
 export default function ComandaDetailsRoute() {
   const router = useRouter();
   const { user } = useAuth();
-  const { comandaId = '' } = useLocalSearchParams<{
+  const { comandaId = '', origin } = useLocalSearchParams<{
     comandaId?: string;
+    origin?: string;
   }>();
 
   return (
@@ -25,10 +26,10 @@ export default function ComandaDetailsRoute() {
         router.back();
       }}
       onCancelled={() => {
-        router.replace('/tables' as Href);
+        router.replace((origin === 'quick-sale' ? '/quick-sales' : '/tables') as Href);
       }}
       onCheckout={(comanda) => {
-        router.push(`/comandas/${encodeURIComponent(comanda.id)}/checkout` as Href);
+        router.push(`/comandas/${encodeURIComponent(comanda.id)}/checkout${origin === 'quick-sale' ? '?origin=quick-sale' : ''}` as Href);
       }}
       onCreditFinished={(customerId) => {
         router.replace(`/credits/${encodeURIComponent(customerId)}` as Href);
