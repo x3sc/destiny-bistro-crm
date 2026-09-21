@@ -24,7 +24,7 @@
     "@fastify/cors": "^11.3.0",
     "@prisma/adapter-mariadb": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.0",
     "fastify": "^5.12.4",
     "pdfkit": "^0.20.2"
   },
