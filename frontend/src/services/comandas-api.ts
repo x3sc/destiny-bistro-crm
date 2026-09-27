@@ -21,6 +21,12 @@ export type PaymentOrigin =
   | 'TABLE_CHECKOUT'
   | 'CREDIT_INSTALLMENT'
   | 'DELIVERY_CHECKOUT';
+export interface CancelComandaInput {
+  disposition?: 'RETURN_TO_STOCK' | 'LOSS';
+  reason: string;
+  requestId: string;
+}
+
 
 export interface PaymentAllocationInput {
   amountCents: number;
@@ -354,16 +360,12 @@ export async function loadComanda(apiBaseUrl: string, comandaId: string) {
 export async function cancelComanda(
   apiBaseUrl: string,
   comandaId: string,
-  input?: {
-    disposition: 'RETURN_TO_STOCK' | 'LOSS';
-    reason: string;
-    requestId: string;
-  },
+  input?: CancelComandaInput,
 ) {
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
-      jsonMutationInit('POST', input),
+      input ? jsonMutationInit('POST', input) : { method: 'POST' },
     ),
   );
 }
