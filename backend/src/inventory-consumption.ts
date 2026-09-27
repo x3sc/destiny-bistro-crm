@@ -245,20 +245,9 @@ export async function reverseConfigurationInventory(
     quantity: number;
     reason: string;
     requestId: string;
+    requestFingerprint: string;
   },
 ) {
-  const existing = await transaction.inventoryOperation.findUnique({
-    select: { id: true },
-    where: {
-      establishmentId_requestId: {
-        establishmentId: input.establishmentId,
-        requestId: input.requestId,
-      },
-    },
-  });
-  if (existing) {
-    return;
-  }
   const configuration = await transaction.comandaItemConfiguration.findFirstOrThrow({
     include: {
       additionals: {
@@ -311,6 +300,7 @@ export async function reverseConfigurationInventory(
       establishmentId: input.establishmentId,
       reason: input.reason,
       requestId: input.requestId,
+      requestFingerprint: input.requestFingerprint,
       sourceId: input.configurationId,
       type: "CANCELLATION",
     },
@@ -319,9 +309,17 @@ export async function reverseConfigurationInventory(
   if (input.disposition === "LOSS") {
     return;
   }
-  for (const requirement of [...requirements.values()].sort((a, b) =>
+  const orderedRequirements = [...requirements.values()].sort((a, b) =>
     a.ingredientId.localeCompare(b.ingredientId),
-  )) {
+  );
+  if (orderedRequirements.length > 0) {
+    await lockStocks(
+      transaction,
+      input.establishmentId,
+      orderedRequirements.map(({ ingredientId }) => ingredientId),
+    );
+  }
+  for (const requirement of orderedRequirements) {
     const stock = await transaction.inventoryStock.findFirstOrThrow({
       where: {
         establishmentId: input.establishmentId,

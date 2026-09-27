@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
+import {
+  buildItemCancellationFingerprint,
+  isMatchingCancellationReplay,
+  normalizeCancellationReason,
+} from "./cancellation-idempotency.js";
 import { createAuditData } from "./audit.js";
 import {
   AdditionalUnavailableError,
+  ComandaCancellationConflictError,
   ComandaItemConfigurationError,
   ComandaItemNotFoundError,
   type Comanda,
@@ -205,21 +211,42 @@ export async function cancelComandaItemConfiguration(
   input: CancelConfigurationInput,
   actorUserId: string,
 ): Promise<ConfirmItemResult> {
-  await findOpenComanda(transaction, establishmentId, comandaId);
+  input = { ...input, reason: normalizeCancellationReason(input.reason) };
+
+  const requestFingerprint = buildItemCancellationFingerprint({
+    actorUserId,
+    comandaId,
+    configurationId,
+    disposition: input.disposition,
+    itemId,
+    quantity: input.quantity,
+    reason: input.reason,
+  });
   validateCancellationInput(input);
 
   const replay = await transaction.inventoryOperation.findUnique({
-    select: { id: true },
     where: {
       establishmentId_requestId: { establishmentId, requestId: input.requestId },
     },
   });
   if (replay) {
+    if (
+      !isMatchingCancellationReplay(replay, {
+        comandaId,
+        fingerprint: requestFingerprint,
+        reason: input.reason,
+        sourceId: configurationId,
+      })
+    ) {
+      throw new ComandaCancellationConflictError();
+    }
     return {
       comanda: await getComandaOrThrow(transaction, establishmentId, comandaId),
       inventoryWarnings: [],
     };
   }
+
+  await findOpenComanda(transaction, establishmentId, comandaId);
 
   const configuration = await transaction.comandaItemConfiguration.findFirst({
     include: { additionals: true, comandaItem: true },
@@ -244,6 +271,7 @@ export async function cancelComandaItemConfiguration(
     quantity: input.quantity,
     reason: input.reason,
     requestId: input.requestId,
+    requestFingerprint,
   });
   await transaction.comandaItemCancellation.create({
     data: {
@@ -255,26 +283,40 @@ export async function cancelComandaItemConfiguration(
       reason: input.reason,
     },
   });
-  await transaction.comandaItemConfiguration.update({
+  const updatedConfiguration = await transaction.comandaItemConfiguration.updateMany({
     data: {
       confirmedQuantity: { decrement: input.quantity },
       quantity: { decrement: input.quantity },
     },
-    where: { id: configurationId },
+    where: {
+      confirmedQuantity: { gte: input.quantity },
+      id: configurationId,
+      quantity: { gte: input.quantity },
+    },
   });
+  if (updatedConfiguration.count !== 1) {
+    throw new ComandaItemConfigurationError();
+  }
   const cancelledAdditionalCents = configuration.additionals.reduce(
     (total, additional) =>
       total + additional.unitPriceCents * additional.quantityPerUnit,
     0,
   ) * input.quantity;
-  await transaction.comandaItem.update({
+  const updatedItem = await transaction.comandaItem.updateMany({
     data: {
       additionalTotalCents: { decrement: cancelledAdditionalCents },
       confirmedQuantity: { decrement: input.quantity },
       quantity: { decrement: input.quantity },
     },
-    where: { id: itemId },
+    where: {
+      confirmedQuantity: { gte: input.quantity },
+      id: itemId,
+      quantity: { gte: input.quantity },
+    },
   });
+  if (updatedItem.count !== 1) {
+    throw new ComandaItemConfigurationError();
+  }
   await transaction.comandaEvent.create({
     data: {
       actorUserId,

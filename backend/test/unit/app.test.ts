@@ -7,6 +7,7 @@ import {
   type AuthUser,
 } from "../../src/auth-repository.js";
 import {
+  ComandaCancellationConflictError,
   ComandaNotCancellableError,
   ComandaInventoryPermissionError,
   ComandaNotClosableError,
@@ -1624,6 +1625,105 @@ void test("POST /comandas/:comandaId/cancel cancels an open empty comanda", asyn
   await app.close();
 });
 
+void test("POST /comandas/:comandaId/cancel accepts an empty JSON body", async () => {
+  let capturedInput: unknown = "not-called";
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {},
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(capturedInput, null);
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel accepts a null body", async () => {
+  let capturedInput: unknown = "not-called";
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: null as unknown as string,
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(capturedInput, null);
+  await app.close();
+});
+
+
+void test("POST /comandas/:comandaId/cancel accepts a pending-only cancellation", async () => {
+  let capturedInput: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      reason: "  Cliente   desistiu  ",
+      requestId: "pending-cancel-request",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(capturedInput, {
+    reason: "Cliente desistiu",
+    requestId: "pending-cancel-request",
+  });
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel rejects partial cancellation payloads", async () => {
+  let calls = 0;
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: () => {
+        calls += 1;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { reason: "Cliente desistiu" },
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(calls, 0);
+  assert.deepEqual(response.json(), {
+    message: "Invalid comanda cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
 void test("POST /comandas/:comandaId/cancel rejects an inactive comanda", async () => {
   const app = await createApp({
     comandas: createComandas({
@@ -1909,6 +2009,39 @@ void test("PUT /comandas/:comandaId/items/:itemId/additionals configures pending
   await app.close();
 });
 
+void test("malformed item cancellation returns 400 before inventory permission", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: authenticatedUser.permissions.filter(
+            (permission) => permission !== "inventory.write",
+          ),
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      quantity: 0,
+      reason: "x",
+      requestId: "short",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), {
+    message: "Invalid item cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
+
 void test("confirmed item cancellation requires inventory.write", async () => {
   const app = await createApp({
     auth: createAuth({
@@ -1935,6 +2068,64 @@ void test("confirmed item cancellation requires inventory.write", async () => {
 
   assert.equal(response.statusCode, 403);
   assert.deepEqual(response.json(), { status: "error", message: "Permission denied" });
+  await app.close();
+});
+
+void test("confirmed item cancellation rejects malformed input before persistence", async () => {
+  let calls = 0;
+  const app = await createApp({
+    comandas: createComandas({
+      cancelItemConfiguration: () => {
+        calls += 1;
+        return Promise.resolve({ comanda, inventoryWarnings: [] });
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      quantity: 0,
+      reason: "x",
+      requestId: "short",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(calls, 0);
+  assert.deepEqual(response.json(), {
+    message: "Invalid item cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
+void test("confirmed item cancellation reports idempotency conflicts", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      cancelItemConfiguration: () =>
+        Promise.reject(new ComandaCancellationConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      quantity: 1,
+      reason: "Cliente desistiu",
+      requestId: "item-cancel-request",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    message: "Idempotency key already used",
+    status: "error",
+  });
   await app.close();
 });
 
