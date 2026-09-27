@@ -375,13 +375,34 @@ npm.cmd test
 npm.cmd run prisma:migrate:deploy
 npm.cmd run prisma:seed
 npm.cmd run prisma:seed
-npm.cmd run test:integration
 
 Set-Location ../frontend
 npm.cmd run lint
 npm.cmd run typecheck
 npm.cmd test
 ```
+
+Os testes de integração limpam os estabelecimentos criados pela própria suíte.
+Por segurança, execute-os somente em um banco dedicado cujo nome contenha
+`integration` ou `test`, confirmando explicitamente a limpeza:
+
+```powershell
+Set-Location backend
+$env:DATABASE_URL = "mysql://integration_user:integration_password@127.0.0.1:3309/destiny_bistro_integration"
+$env:DATABASE_HOST = "127.0.0.1"
+$env:DATABASE_PORT = "3309"
+$env:DATABASE_USER = "integration_user"
+$env:DATABASE_PASSWORD = "integration_password"
+$env:DATABASE_NAME = "destiny_bistro_integration"
+$env:ALLOW_INTEGRATION_DB_RESET = "1"
+
+npm.cmd run prisma:migrate:deploy
+npm.cmd run test:integration
+```
+
+A suíte recusa a execução antes de qualquer limpeza se essas proteções não
+estiverem presentes.
+
 
 ## Status
 
