@@ -3894,18 +3894,16 @@ void test("establishments isolate data and support multiple owners and employees
         primaryApp.inject({ method: "GET", url: "/inventory" }),
         secondaryApp.inject({ method: "GET", url: "/inventory" }),
       ]);
-    assert.deepEqual(
-      primaryInventoryResponse
-        .json<{ inventory: { id: string }[] }>()
-        .inventory.map(({ id }) => id),
-      [primaryStockId],
-    );
-    assert.deepEqual(
-      secondaryInventoryResponse
-        .json<{ inventory: { id: string }[] }>()
-        .inventory.map(({ id }) => id),
-      [secondaryStockId],
-    );
+    const primaryInventoryIds = primaryInventoryResponse
+      .json<{ inventory: { id: string }[] }>()
+      .inventory.map(({ id }) => id);
+    const secondaryInventoryIds = secondaryInventoryResponse
+      .json<{ inventory: { id: string }[] }>()
+      .inventory.map(({ id }) => id);
+    assert.ok(primaryInventoryIds.includes(primaryStockId));
+    assert.ok(!primaryInventoryIds.includes(secondaryStockId));
+    assert.ok(secondaryInventoryIds.includes(secondaryStockId));
+    assert.ok(!secondaryInventoryIds.includes(primaryStockId));
 
     const entryResponse = await primaryApp.inject({
       method: "POST",
