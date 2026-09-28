@@ -111,6 +111,12 @@ export interface Comanda {
   totalCents: number;
 }
 
+export interface CancelComandaInput {
+  disposition?: "RETURN_TO_STOCK" | "LOSS";
+  reason: string;
+  requestId: string;
+}
+
 export interface ComandaRepository {
   openQuickSale(establishmentId: string, name: string, actorUserId: string): Promise<Comanda>;
   listQuickSales(establishmentId: string): Promise<Comanda[]>;
@@ -123,11 +129,7 @@ export interface ComandaRepository {
   cancel(
     establishmentId: string,
     id: string,
-    input: {
-      disposition: "RETURN_TO_STOCK" | "LOSS";
-      reason: string;
-      requestId: string;
-    } | null,
+    input: CancelComandaInput | null,
     canWriteInventory: boolean,
     actorUserId: string,
   ): Promise<Comanda>;

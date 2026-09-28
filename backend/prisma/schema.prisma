@@ -646,6 +646,7 @@ model InventoryOperation {
   comanda         Comanda?               @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   actorUserId     String
   actorUser       User                   @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  requestFingerprint String?                @db.VarChar(64)
   reason          String?                @db.VarChar(255)
   movements       InventoryMovement[]
   createdAt       DateTime               @default(now())

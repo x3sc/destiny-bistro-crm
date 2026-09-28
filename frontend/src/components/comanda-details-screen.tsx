@@ -91,6 +91,7 @@ export function ComandaDetailsScreen({
     selectedIds: string[];
   }>();
   const [actionMessage, setActionMessage] = useState<string>();
+  const [actionError, setActionError] = useState<string>();
   const [cancellationEditor, setCancellationEditor] = useState<{
     configuration: ComandaItemConfiguration;
     disposition: 'RETURN_TO_STOCK' | 'LOSS';
@@ -101,6 +102,7 @@ export function ComandaDetailsScreen({
   }>();
   const [totalCancellationEditor, setTotalCancellationEditor] = useState<{
     disposition: 'RETURN_TO_STOCK' | 'LOSS';
+    hasConfirmedItems: boolean;
     reason: string;
     requestId: string;
   }>();
@@ -123,9 +125,10 @@ export function ComandaDetailsScreen({
 
   useFocusEffect(refresh);
 
-  const mutateComanda = async (request: Promise<Comanda>) => {
+  const mutateComanda = async (request: Promise<Comanda>, failureMessage?: string) => {
     setIsMutating(true);
 
+    setActionError(undefined);
     try {
       const comanda = await request;
       setState({ comanda, kind: 'success' });
@@ -133,7 +136,11 @@ export function ComandaDetailsScreen({
       setCancellationEditor(undefined);
       setTotalCancellationEditor(undefined);
     } catch {
-      setState({ kind: 'error' });
+      if (failureMessage) {
+        setActionError(failureMessage);
+      } else {
+        setState({ kind: 'error' });
+      }
     } finally {
       setIsMutating(false);
     }
@@ -145,14 +152,27 @@ export function ComandaDetailsScreen({
     }
 
     setIsMutating(true);
+    setActionError(undefined);
+
+    const cancellationInput = totalCancellationEditor
+      ? {
+          ...(totalCancellationEditor.hasConfirmedItems
+            ? { disposition: totalCancellationEditor.disposition }
+            : {}),
+          reason: totalCancellationEditor.reason,
+          requestId: totalCancellationEditor.requestId,
+        }
+      : undefined;
 
     try {
-      await (totalCancellationEditor
-        ? cancelRequest(normalizedApiBaseUrl, comandaId, totalCancellationEditor)
-        : cancelRequest(normalizedApiBaseUrl, comandaId));
+      if (cancellationInput) {
+        await cancelRequest(normalizedApiBaseUrl, comandaId, cancellationInput);
+      } else {
+        await cancelRequest(normalizedApiBaseUrl, comandaId);
+      }
       onCancelled();
     } catch {
-      setState({ kind: 'error' });
+      setActionError('Não foi possível cancelar a comanda. Tente novamente.');
       setIsMutating(false);
     }
   };
@@ -227,6 +247,7 @@ export function ComandaDetailsScreen({
 
         {state.kind === 'success' && (
           <>
+            {actionError ? <Message text={actionError} /> : null}
             {actionMessage ? <Message text={actionMessage} tone="notice" /> : null}
             {state.comanda.inventoryWarnings?.map((warning, index) => (
               <Message
@@ -312,18 +333,21 @@ export function ComandaDetailsScreen({
                     setActionMessage('Informe quantidade e motivo válidos para cancelar.');
                     return;
                   }
-                  void mutateComanda(cancelComandaItemConfiguration(
-                    normalizedApiBaseUrl,
-                    comandaId,
-                    cancellationEditor.item.id,
-                    cancellationEditor.configuration.id,
-                    {
-                      disposition: cancellationEditor.disposition,
-                      quantity,
-                      reason: cancellationEditor.reason,
-                      requestId: cancellationEditor.requestId,
-                    },
-                  ));
+                  void mutateComanda(
+                    cancelComandaItemConfiguration(
+                      normalizedApiBaseUrl,
+                      comandaId,
+                      cancellationEditor.item.id,
+                      cancellationEditor.configuration.id,
+                      {
+                        disposition: cancellationEditor.disposition,
+                        quantity,
+                        reason: cancellationEditor.reason,
+                        requestId: cancellationEditor.requestId,
+                      },
+                    ),
+                    'Não foi possível cancelar as unidades. Tente novamente.',
+                  );
                 }} />
                 <ActionButton label="Voltar" onPress={() => setCancellationEditor(undefined)} tone="tertiary" />
               </View>
@@ -331,12 +355,18 @@ export function ComandaDetailsScreen({
             {totalCancellationEditor ? (
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Cancelar comanda completa</Text>
-                <Text style={styles.description}>Itens confirmados exigem a destinação dos insumos. Itens pendentes serão cancelados sem movimentar o estoque.</Text>
+                <Text style={styles.description}>
+                  {totalCancellationEditor.hasConfirmedItems
+                    ? 'Itens confirmados exigem a destinação dos insumos. Itens pendentes serão cancelados sem movimentar o estoque.'
+                    : 'Informe o motivo. Os itens pendentes serão cancelados sem movimentar o estoque.'}
+                </Text>
                 <TextInput accessibilityLabel="Motivo do cancelamento total" onChangeText={(reason) => setTotalCancellationEditor((current) => current ? { ...current, reason } : current)} placeholder="Motivo" style={styles.input} value={totalCancellationEditor.reason} />
-                <View style={styles.actions}>
-                  <ActionButton label="Devolver ao estoque" onPress={() => setTotalCancellationEditor((current) => current ? { ...current, disposition: 'RETURN_TO_STOCK' } : current)} tone={totalCancellationEditor.disposition === 'RETURN_TO_STOCK' ? 'primary' : 'tertiary'} />
-                  <ActionButton label="Registrar perda" onPress={() => setTotalCancellationEditor((current) => current ? { ...current, disposition: 'LOSS' } : current)} tone={totalCancellationEditor.disposition === 'LOSS' ? 'primary' : 'tertiary'} />
-                </View>
+                {totalCancellationEditor.hasConfirmedItems ? (
+                  <View style={styles.actions}>
+                    <ActionButton label="Devolver ao estoque" onPress={() => setTotalCancellationEditor((current) => current ? { ...current, disposition: 'RETURN_TO_STOCK' } : current)} tone={totalCancellationEditor.disposition === 'RETURN_TO_STOCK' ? 'primary' : 'tertiary'} />
+                    <ActionButton label="Registrar perda" onPress={() => setTotalCancellationEditor((current) => current ? { ...current, disposition: 'LOSS' } : current)} tone={totalCancellationEditor.disposition === 'LOSS' ? 'primary' : 'tertiary'} />
+                  </View>
+                ) : null}
                 <ActionButton disabled={isMutating} label="Confirmar cancelamento total" onPress={() => {
                   if (totalCancellationEditor.reason.trim().length < 2) {
                     setActionMessage('Informe o motivo do cancelamento.');
@@ -426,8 +456,13 @@ export function ComandaDetailsScreen({
                   hasItems={state.comanda.items.some((item) => item.quantity > 0)}
                   onCancel={() => {
                     if (state.comanda.items.some((item) => item.quantity > 0)) {
+                      const hasConfirmedItems = state.comanda.items.some(
+                        (item) => item.confirmedQuantity > 0,
+                      );
+                      setActionError(undefined);
                       setTotalCancellationEditor({
                         disposition: 'RETURN_TO_STOCK',
+                        hasConfirmedItems,
                         reason: '',
                         requestId: `cancel-comanda-${Date.now()}-${Math.random().toString(16).slice(2)}`,
                       });

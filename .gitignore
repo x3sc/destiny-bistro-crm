@@ -50,6 +50,7 @@ Thumbs.db
 Desktop.ini
 
 # Local tooling
+.stitch/
 .cache/
 .eslintcache
 *.tsbuildinfo

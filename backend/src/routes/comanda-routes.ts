@@ -1,6 +1,7 @@
 import { hasAppPermission } from "../authentication.js";
 import type { FastifyInstance } from "fastify";
 import { requireAuthUser } from "../authentication.js";
+import { normalizeCancellationReason } from "../cancellation-idempotency.js";
 import {
   AdditionalUnavailableError,
   ComandaItemConfigurationError,
@@ -178,11 +179,12 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     "/comandas/:comandaId/cancel",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
-      const body = request.body;
-      const input = body
-        ? parseCancelComandaBody(body)
-        : null;
-      if (body && !input) {
+      const body = request.body as CancelComandaBody | null | undefined;
+      const emptyBody = isEmptyCancelComandaBody(body);
+      const input = emptyBody
+        ? null
+        : parseCancelComandaBody(body as CancelComandaBody);
+      if (!emptyBody && !input) {
         return reply.code(400).send({
           status: "error",
           message: "Invalid comanda cancellation",
@@ -486,10 +488,6 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
     "/comandas/:comandaId/items/:itemId/configurations/:configurationId/cancel",
     { config: { permission: "comandas.write" } },
     async (request, reply) => {
-      const user = requireAuthUser(request);
-      if (!user.permissions.includes("inventory.write")) {
-        return reply.code(403).send({ status: "error", message: "Permission denied" });
-      }
       const body = normalizeCancelConfiguration(request.body);
       if (!body) {
         return reply.code(400).send({
@@ -497,8 +495,12 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
           message: "Invalid item cancellation",
         });
       }
+      const user = requireAuthUser(request);
+      if (!user.permissions.includes("inventory.write")) {
+        return reply.code(403).send({ status: "error", message: "Permission denied" });
+      }
       try {
-        return comandas.cancelItemConfiguration(
+        return await comandas.cancelItemConfiguration(
           user.establishment.id,
           request.params.comandaId,
           request.params.itemId,
@@ -513,6 +515,13 @@ export function registerComandaRoutes(app: FastifyInstance, comandas: ComandaRep
         ) {
           return reply.code(404).send({ status: "error", message: "Comanda item not found" });
         }
+        if (error instanceof ComandaCancellationConflictError) {
+          return reply.code(409).send({
+            status: "error",
+            message: "Idempotency key already used",
+          });
+        }
+
         if (error instanceof ComandaItemConfigurationError || isItemConflict(error)) {
           return reply.code(409).send({
             status: "error",
@@ -568,26 +577,39 @@ function isComandaPrintKind(value: unknown): value is ComandaPrintKind {
   return value === "CONFIRMED" || value === "KITCHEN_PENDING";
 }
 
+function isEmptyCancelComandaBody(
+  body: CancelComandaBody | null | undefined,
+) {
+  return (
+    body == null ||
+    (typeof body === "object" && !Array.isArray(body) && Object.keys(body).length === 0)
+  );
+}
+
 function parseCancelComandaBody(body: CancelComandaBody): {
-  disposition: "RETURN_TO_STOCK" | "LOSS";
+  disposition?: "RETURN_TO_STOCK" | "LOSS";
   reason: string;
   requestId: string;
 } | null {
+  const reason =
+    typeof body.reason === "string"
+      ? normalizeCancellationReason(body.reason)
+      : "";
   if (
-    (body.disposition !== "RETURN_TO_STOCK" && body.disposition !== "LOSS") ||
-    typeof body.reason !== "string" ||
-    body.reason.trim().length < 2 ||
-    body.reason.trim().length > 255 ||
+    (body.disposition !== undefined &&
+      body.disposition !== "RETURN_TO_STOCK" &&
+      body.disposition !== "LOSS") ||
+    reason.length < 2 ||
+    reason.length > 255 ||
     typeof body.requestId !== "string" ||
     body.requestId.length < 8 ||
     body.requestId.length > 191
   ) {
     return null;
   }
-  const disposition: "RETURN_TO_STOCK" | "LOSS" = body.disposition;
   return {
-    disposition,
-    reason: body.reason.trim().replace(/\s+/gu, " "),
+    ...(body.disposition ? { disposition: body.disposition } : {}),
+    reason,
     requestId: body.requestId,
   };
 }
@@ -620,20 +642,31 @@ function normalizeCancelConfiguration(
   reason: string;
   requestId: string;
 } | null {
+  const reason =
+    typeof body?.reason === "string"
+      ? normalizeCancellationReason(body.reason)
+      : "";
+  const quantity =
+    typeof body?.quantity === "number"
+      ? body.quantity
+      : Number.NaN;
   if (
     !body ||
     (body.disposition !== "RETURN_TO_STOCK" && body.disposition !== "LOSS") ||
-    typeof body.quantity !== "number" ||
-    typeof body.reason !== "string" ||
-    typeof body.requestId !== "string"
+    !Number.isInteger(quantity) ||
+    quantity <= 0 ||
+    reason.length < 2 ||
+    reason.length > 255 ||
+    typeof body.requestId !== "string" ||
+    body.requestId.length < 8 ||
+    body.requestId.length > 191
   ) {
     return null;
   }
-  const disposition: "RETURN_TO_STOCK" | "LOSS" = body.disposition;
   return {
-    disposition,
-    quantity: body.quantity,
-    reason: body.reason,
+    disposition: body.disposition,
+    quantity,
+    reason,
     requestId: body.requestId,
   };
 }

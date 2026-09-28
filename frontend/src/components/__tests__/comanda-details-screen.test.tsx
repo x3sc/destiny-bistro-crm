@@ -389,6 +389,85 @@ it('does not cancel an empty comanda when browser confirm is cancelled', async (
   }
 });
 
+it('cancels a pending-only comanda with a reason and without an inventory disposition', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.resolve({
+    ...comandaWithItem,
+    status: 'CANCELLED' as const,
+  }));
+  const onCancelled = jest.fn();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={onCancelled}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+
+  expect(screen.getByLabelText('Motivo do cancelamento total')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Devolver ao estoque' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Registrar perda' })).toBeNull();
+
+  fireEvent.changeText(
+    screen.getByLabelText('Motivo do cancelamento total'),
+    'Cliente desistiu',
+  );
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar cancelamento total' }),
+  );
+
+  await waitFor(() => {
+    expect(cancelRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      {
+        reason: 'Cliente desistiu',
+        requestId: expect.stringMatching(/^cancel-comanda-/),
+      },
+    );
+  });
+  expect(onCancelled).toHaveBeenCalled();
+});
+
+it('keeps the loaded comanda visible when cancellation fails', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.reject(new Error('request failed')));
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comanda)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda vazia' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+
+  expect(
+    await screen.findByText('Não foi possível cancelar a comanda. Tente novamente.'),
+  ).toBeTruthy();
+  expect(screen.getByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancelar comanda vazia' })).toBeTruthy();
+  expect(screen.queryByText('Não foi possível carregar a comanda.')).toBeNull();
+});
+
 it('shows items, total and blocks cancellation when the comanda has consumption', async () => {
   const onCheckout = jest.fn();
 
@@ -538,6 +617,89 @@ it('cancels a confirmed comanda with inventory disposition and a stable request'
   });
   expect(onCancelled).toHaveBeenCalled();
 });
+
+it('cancels a confirmed comanda as a loss when selected', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.resolve({
+    ...comandaWithConfirmedItem,
+    status: 'CANCELLED' as const,
+  }));
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+  fireEvent.press(screen.getByRole('button', { name: 'Registrar perda' }));
+  fireEvent.changeText(
+    screen.getByLabelText('Motivo do cancelamento total'),
+    'Produto perdido',
+  );
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar cancelamento total' }),
+  );
+
+  await waitFor(() => {
+    expect(cancelRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      expect.objectContaining({
+        disposition: 'LOSS',
+        reason: 'Produto perdido',
+        requestId: expect.stringMatching(/^cancel-comanda-/),
+      }),
+    );
+  });
+});
+
+it('hides cancellation when comanda or inventory permission is missing', async () => {
+  const { unmount } = render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  await screen.findByText('Cafe');
+  expect(screen.queryByRole('button', { name: 'Cancelar comanda' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Cancelar unidades confirmadas' }),
+  ).toBeNull();
+  unmount();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      readOnly
+    />,
+  );
+
+  await screen.findByText('Cafe');
+  expect(screen.queryByRole('button', { name: 'Cancelar comanda' })).toBeNull();
+});
+
 
 it('opens the unified checkout after all item quantities are confirmed', async () => {
   const onCheckout = jest.fn();

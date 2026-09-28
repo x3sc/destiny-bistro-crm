@@ -23,6 +23,7 @@ const secondaryEstablishmentName = "Secondary Integration Bistro";
 let integrationEstablishmentId = "";
 
 before(async () => {
+  assertDedicatedIntegrationDatabase();
   await cleanupEstablishment(integrationEstablishmentName);
   await cleanupEstablishment(secondaryEstablishmentName);
   const establishment = await provisionEstablishment(prisma, {
@@ -38,6 +39,26 @@ after(async () => {
   await cleanupEstablishment(integrationEstablishmentName);
   await prisma.$disconnect();
 });
+
+function assertDedicatedIntegrationDatabase() {
+  const databaseUrl = process.env.DATABASE_URL;
+  assert.ok(
+    databaseUrl,
+    "DATABASE_URL is required for MySQL integration tests",
+  );
+
+  const databaseName = new URL(databaseUrl).pathname.slice(1);
+  assert.match(
+    databaseName,
+    /(?:integration|test)/iu,
+    "Integration tests require a database name containing integration or test",
+  );
+  assert.equal(
+    process.env.ALLOW_INTEGRATION_DB_RESET,
+    "1",
+    "Set ALLOW_INTEGRATION_DB_RESET=1 to confirm destructive integration cleanup",
+  );
+}
 
 async function cleanupEstablishment(name: string) {
   const establishment = await prisma.establishment.findUnique({
@@ -340,6 +361,7 @@ void test("comanda lifecycle is persisted and audited", async () => {
 
     const cancelResponse = await app.inject({
       method: "POST",
+      payload: {},
       url: `/comandas/${openedComanda.id}/cancel`,
     });
     assert.equal(cancelResponse.statusCode, 200);
@@ -385,6 +407,109 @@ void test("comanda lifecycle is persisted and audited", async () => {
     await app.close();
   }
 });
+
+void test("pending-only cancellation ignores stock disposition and is idempotent", async () => {
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 12 },
+  });
+  const product = await prisma.product.findFirstOrThrow({
+    where: { active: true, establishmentId: integrationEstablishmentId },
+  });
+  const app = await createAuthenticatedApp();
+
+  try {
+    const opened = await app.inject({
+      method: "POST",
+      url: `/tables/${table.id}/comandas`,
+    });
+    const comandaId = opened.json<{ comanda: { id: string } }>().comanda.id;
+    const addedItem = await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const itemId = addedItem.json<{ comanda: Comanda }>().comanda.items[0].id;
+    const requestId = "pending-only-cancel-request";
+    const cancelled = await app.inject({
+      method: "POST",
+      payload: {
+        disposition: "LOSS",
+        reason: "  Cliente   desistiu  ",
+        requestId,
+      },
+      url: `/comandas/${comandaId}/cancel`,
+    });
+
+    assert.equal(cancelled.statusCode, 200, cancelled.body);
+    assert.equal(
+      cancelled.json<{ comanda: Comanda }>().comanda.status,
+      "CANCELLED",
+    );
+    assert.deepEqual(
+      await prisma.comandaItem.findUniqueOrThrow({
+        select: { confirmedQuantity: true, quantity: true },
+        where: { id: itemId },
+      }),
+      { confirmedQuantity: 0, quantity: 0 },
+    );
+    assert.equal(
+      await prisma.inventoryMovement.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          operation: { comandaId },
+        },
+      }),
+      0,
+    );
+
+    const operation = await prisma.inventoryOperation.findUniqueOrThrow({
+      where: {
+        establishmentId_requestId: {
+          establishmentId: integrationEstablishmentId,
+          requestId,
+        },
+      },
+    });
+    assert.equal(operation.reason, "Cliente desistiu");
+    assert.equal(operation.requestFingerprint?.length, 64);
+
+    const replay = await app.inject({
+      method: "POST",
+      payload: {
+        reason: "Cliente desistiu",
+        requestId,
+      },
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(replay.statusCode, 200, replay.body);
+    assert.equal(
+      await prisma.inventoryOperation.count({
+        where: { establishmentId: integrationEstablishmentId, requestId },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "COMANDA_CANCELLED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: comandaId,
+        },
+      }),
+      1,
+    );
+    assert.deepEqual(
+      await prisma.restaurantTable.findUniqueOrThrow({
+        select: { activeComandaId: true, status: true },
+        where: { id: table.id },
+      }),
+      { activeComandaId: null, status: "FREE" },
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 
 void test("concurrent comanda opening allows only one active comanda per table", async () => {
   const table = await prisma.restaurantTable.findFirstOrThrow({
@@ -1430,6 +1555,183 @@ void test("comanda items are consolidated, totaled and audited", async () => {
   }
 });
 
+void test("concurrent confirmed cancellation applies stock and audit exactly once", async () => {
+  const actor = await prisma.user.findFirstOrThrow({
+    where: {
+      establishmentId: integrationEstablishmentId,
+      normalizedName: integrationUserName.toLocaleLowerCase("pt-BR"),
+    },
+  });
+  const category = await prisma.menuCategory.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      name: "Concorrência de cancelamento",
+      normalizedName: "concorrência de cancelamento",
+    },
+  });
+  const product = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "INTEGRATION_CANCEL_RACE_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto cancelamento concorrente",
+      priceCents: 500,
+    },
+  });
+  const ingredient = await prisma.ingredient.create({
+    data: {
+      code: "INTEGRATION_CANCEL_RACE_INGREDIENT",
+      establishmentId: integrationEstablishmentId,
+      name: "Insumo cancelamento concorrente",
+      unit: "UNIT",
+    },
+  });
+  const stock = await prisma.inventoryStock.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      minimumQuantity: 0,
+      quantity: 10,
+    },
+  });
+  await prisma.inventoryLot.create({
+    data: {
+      actorUserId: actor.id,
+      code: "INTEGRATION_CANCEL_RACE_LOT",
+      currentQuantity: 10,
+      establishmentId: integrationEstablishmentId,
+      initialQuantity: 10,
+      origin: "PURCHASE",
+      receivedAt: new Date(),
+      stockId: stock.id,
+      totalCostCents: 1_000,
+    },
+  });
+  await prisma.productIngredient.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      productId: product.id,
+      quantity: 1,
+    },
+  });
+  const table = await prisma.restaurantTable.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId, number: 11 },
+  });
+  const app = await createAuthenticatedApp();
+
+  try {
+    const opened = await app.inject({
+      method: "POST",
+      url: `/tables/${table.id}/comandas`,
+    });
+    const comandaId = opened.json<{ comanda: Comanda }>().comanda.id;
+    const addedItem = await app.inject({
+      method: "POST",
+      payload: { productId: product.id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const itemId = addedItem.json<{ comanda: Comanda }>().comanda.items[0].id;
+    await app.inject({
+      method: "PATCH",
+      payload: { delta: 1 },
+      url: `/comandas/${comandaId}/items/${itemId}`,
+    });
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${itemId}/confirm`,
+    });
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+    const configurationId = confirmed.json<{ comanda: Comanda }>()
+      .comanda.items[0].configurations[0].id;
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } }))
+        .quantity,
+      8,
+    );
+
+    const requestIds = ["cancel-race-request-a", "cancel-race-request-b"];
+    const responses = await Promise.all(
+      requestIds.map((requestId) =>
+        app.inject({
+          method: "POST",
+          payload: {
+            disposition: "RETURN_TO_STOCK",
+            quantity: 2,
+            reason: "Cancelamento concorrente",
+            requestId,
+          },
+          url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+        }),
+      ),
+    );
+    assert.deepEqual(
+      responses.map(({ statusCode }) => statusCode).sort(),
+      [200, 409],
+      responses.map(({ body }) => body).join("\n"),
+    );
+    assert.equal(
+      (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } }))
+        .quantity,
+      10,
+    );
+    assert.deepEqual(
+      await prisma.comandaItemConfiguration.findUniqueOrThrow({
+        select: { confirmedQuantity: true, quantity: true },
+        where: { id: configurationId },
+      }),
+      { confirmedQuantity: 0, quantity: 0 },
+    );
+    assert.deepEqual(
+      await prisma.comandaItem.findUniqueOrThrow({
+        select: { confirmedQuantity: true, quantity: true },
+        where: { id: itemId },
+      }),
+      { confirmedQuantity: 0, quantity: 0 },
+    );
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.inventoryOperation.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          requestId: { in: requestIds },
+        },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.comandaEvent.count({
+        where: { comandaId, itemId, type: "ITEM_CANCELLED" },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "COMANDA_ITEM_CANCELLED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: configurationId,
+        },
+      }),
+      1,
+    );
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/cancel`,
+    });
+    assert.equal(cancelled.statusCode, 200, cancelled.body);
+  } finally {
+    await app.close();
+  }
+});
+
+
 void test("inventory consumption uses FEFO, ignores expired lots and keeps deficit idempotent", async () => {
   const actor = await prisma.user.findFirstOrThrow({
     where: { establishmentId: integrationEstablishmentId, normalizedName: integrationUserName.toLocaleLowerCase("pt-BR") },
@@ -1595,17 +1897,59 @@ void test("inventory consumption uses FEFO, ignores expired lots and keeps defic
     const configurationId = deficitResponse.json<{
       comanda: { items: Array<{ configurations: Array<{ id: string }> }> };
     }>().comanda.items[0].configurations[0].id;
+    const returnCancellationPayload = {
+      disposition: "RETURN_TO_STOCK",
+      quantity: 1,
+      reason: "Cancelamento com devolução",
+      requestId: "inventory-return-request",
+    } as const;
     const returned = await app.inject({
       method: "POST",
-      payload: {
-        disposition: "RETURN_TO_STOCK",
-        quantity: 1,
-        reason: "Cancelamento com devolução",
-        requestId: "inventory-return-request",
-      },
+      payload: returnCancellationPayload,
       url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
     });
     assert.equal(returned.statusCode, 200);
+    const returnedReplay = await app.inject({
+      method: "POST",
+      payload: returnCancellationPayload,
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(returnedReplay.statusCode, 200, returnedReplay.body);
+
+    for (const payload of [
+      { ...returnCancellationPayload, disposition: "LOSS" as const },
+      { ...returnCancellationPayload, quantity: 2 },
+      { ...returnCancellationPayload, reason: "Motivo diferente" },
+    ]) {
+      const collision = await app.inject({
+        method: "POST",
+        payload,
+        url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+      });
+      assert.equal(collision.statusCode, 409, collision.body);
+    }
+    const sourceCollision = await app.inject({
+      method: "POST",
+      payload: returnCancellationPayload,
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/other-configuration/cancel`,
+    });
+    assert.equal(sourceCollision.statusCode, 409, sourceCollision.body);
+    assert.equal(
+      await prisma.comandaItemCancellation.count({
+        where: { configurationId },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.inventoryOperation.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          requestId: returnCancellationPayload.requestId,
+        },
+      }),
+      1,
+    );
+
     const afterReturn = await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } });
     assert.equal(afterReturn.quantity, 58);
     assert.equal(afterReturn.deficitQuantity, 0);
@@ -1656,6 +2000,50 @@ void test("inventory consumption uses FEFO, ignores expired lots and keeps defic
       url: `/comandas/${comandaId}/cancel`,
     });
     assert.equal(totalCancellationReplay.statusCode, 200);
+    for (const payload of [
+      { ...totalCancellationPayload, disposition: "LOSS" as const },
+      { ...totalCancellationPayload, reason: "Outro motivo" },
+    ]) {
+      const collision = await app.inject({
+        method: "POST",
+        payload,
+        url: `/comandas/${comandaId}/cancel`,
+      });
+      assert.equal(collision.statusCode, 409, collision.body);
+    }
+    const totalSourceCollision = await app.inject({
+      method: "POST",
+      payload: totalCancellationPayload,
+      url: "/comandas/other-comanda/cancel",
+    });
+    assert.equal(totalSourceCollision.statusCode, 409, totalSourceCollision.body);
+    assert.equal(
+      await prisma.inventoryOperation.count({
+        where: {
+          establishmentId: integrationEstablishmentId,
+          requestId: totalCancellationPayload.requestId,
+        },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.auditLog.count({
+        where: {
+          action: "COMANDA_CANCELLED",
+          establishmentId: integrationEstablishmentId,
+          resourceId: comandaId,
+        },
+      }),
+      1,
+    );
+
+    const partialReplayAfterTotal = await app.inject({
+      method: "POST",
+      payload: returnCancellationPayload,
+      url: `/comandas/${comandaId}/items/${itemId}/configurations/${configurationId}/cancel`,
+    });
+    assert.equal(partialReplayAfterTotal.statusCode, 200, partialReplayAfterTotal.body);
+
     assert.equal(
       (await prisma.inventoryStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity,
       158,
@@ -3506,18 +3894,16 @@ void test("establishments isolate data and support multiple owners and employees
         primaryApp.inject({ method: "GET", url: "/inventory" }),
         secondaryApp.inject({ method: "GET", url: "/inventory" }),
       ]);
-    assert.deepEqual(
-      primaryInventoryResponse
-        .json<{ inventory: { id: string }[] }>()
-        .inventory.map(({ id }) => id),
-      [primaryStockId],
-    );
-    assert.deepEqual(
-      secondaryInventoryResponse
-        .json<{ inventory: { id: string }[] }>()
-        .inventory.map(({ id }) => id),
-      [secondaryStockId],
-    );
+    const primaryInventoryIds = primaryInventoryResponse
+      .json<{ inventory: { id: string }[] }>()
+      .inventory.map(({ id }) => id);
+    const secondaryInventoryIds = secondaryInventoryResponse
+      .json<{ inventory: { id: string }[] }>()
+      .inventory.map(({ id }) => id);
+    assert.ok(primaryInventoryIds.includes(primaryStockId));
+    assert.ok(!primaryInventoryIds.includes(secondaryStockId));
+    assert.ok(secondaryInventoryIds.includes(secondaryStockId));
+    assert.ok(!secondaryInventoryIds.includes(primaryStockId));
 
     const entryResponse = await primaryApp.inject({
       method: "POST",
@@ -3966,6 +4352,7 @@ void test("quick sales persist without tables and support normal checkout, cance
     assert.equal(close.json<{ comanda: Comanda }>().comanda.status, "CLOSED");
     assert.equal(close.json<{ comanda: Comanda }>().comanda.payments[0].origin, "QUICK_SALE_CHECKOUT");
     assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/close` })).statusCode, 409);
+    assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/cancel` })).statusCode, 409);
     assert.equal((await app.inject({ method: "POST", url: `/comandas/${sale.id}/items`, payload: { productId: product.id } })).statusCode, 409);
     assert.equal((await app.inject({ method: "POST", url: `/comandas/${second.id}/cancel` })).statusCode, 200);
     const cancelled = await open("Cancelamento com itens");
