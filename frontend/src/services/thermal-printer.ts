@@ -1,4 +1,4 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { requireNativeModule } from 'expo';
 import { Platform } from 'react-native';
 
 import type { PrinterSettings } from './printer-settings';

@@ -296,10 +296,12 @@ navegador, Android ou iOS, incluindo pagamentos legados sem meio informado.
 
 ### Compatibilidade do Expo
 
-`expo-modules-core`, `react-native-reanimated` e `react-native-worklets` ficam
-declarados explicitamente nas versões compatíveis com o Expo SDK 56. Isso evita
-que a resolucao automatica de dependencias do npm selecione uma versao de
-`react-native-worklets` incompatível com o `jest-expo`.
+O frontend usa o Expo SDK 57 e React Native 0.86.3. As dependencias nativas
+sao alinhadas com `npx expo install --check`; `expo-font` fica declarado
+diretamente porque e exigido por `@expo/vector-icons`. `expo-system-ui` aplica
+o tema automatico no Android. `@react-native/jest-preset` atende ao peer do
+`jest-expo` 57. O modulo da impressora termica acessa
+`requireNativeModule` pela API publica do pacote `expo`.
 
 `react-native-calendars` fornece a selecao visual do periodo.
 `@expo/vector-icons` renderiza no Android, iOS e web os mesmos glifos Font
@@ -312,12 +314,9 @@ memoria, sem arquivos temporarios. Os lockfiles registram as versoes resolvidas.
 ### Auditoria de dependencias do frontend
 
 Execute `npm.cmd run audit:production` dentro de `frontend` para verificar as
-dependencias usadas em producao. O comando continua bloqueando qualquer
-vulnerabilidade alta ou critica. Temporariamente, somente os advisories
-`GHSA-w3rx-r6r6-pgpr` e `GHSA-5p2g-fcmc-qvqq` do `image-size` sao aceitos,
-porque ainda nao existe uma versao corrigida publicada. A remocao dessa excecao
-esta acompanhada pela issue
-[#64](https://github.com/x3sc/destiny-bistro-crm/issues/64).
+dependencias usadas em producao. O comando bloqueia qualquer vulnerabilidade
+alta ou critica, inclusive os antigos advisories de `image-size`. O Expo SDK 57
+removeu `image-size` do grafo instalado nesta versao do projeto.
 
 ## Limpeza operacional
 

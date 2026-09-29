@@ -1,10 +1,5 @@
 const { spawnSync } = require('node:child_process');
 
-const TRACKING_ISSUE = 'https://github.com/x3sc/destiny-bistro-crm/issues/64';
-const ALLOWED_IMAGE_SIZE_ADVISORIES = new Set([
-  'GHSA-w3rx-r6r6-pgpr',
-  'GHSA-5p2g-fcmc-qvqq',
-]);
 const SEVERITY_RANK = {
   low: 1,
   moderate: 2,
@@ -49,17 +44,6 @@ function collectAdvisories(name, vulnerabilities, ancestry = new Set()) {
   return { advisories, unresolved };
 }
 
-function isAllowedImageSizeAdvisory(advisory) {
-  const advisoryId = getAdvisoryId(advisory.url);
-  const packageName = advisory.name ?? advisory.dependency;
-
-  return (
-    packageName === 'image-size' &&
-    advisoryId !== null &&
-    ALLOWED_IMAGE_SIZE_ADVISORIES.has(advisoryId)
-  );
-}
-
 function evaluateAuditReport(report, auditLevel = 'high') {
   if (!report || typeof report !== 'object' || !report.vulnerabilities) {
     return {
@@ -87,21 +71,7 @@ function evaluateAuditReport(report, auditLevel = 'high') {
     const advisoryIds = [
       ...new Set(result.advisories.map((advisory) => getAdvisoryId(advisory.url))),
     ].filter(Boolean);
-    const isAllowed =
-      !result.unresolved &&
-      result.advisories.length > 0 &&
-      result.advisories.every(isAllowedImageSizeAdvisory);
-    const finding = {
-      name,
-      severity: vulnerability.severity,
-      advisoryIds,
-    };
-
-    if (isAllowed) {
-      allowed.push(finding);
-    } else {
-      blocking.push(finding);
-    }
+    blocking.push({ name, severity: vulnerability.severity, advisoryIds });
   }
 
   return { allowed, blocking };
@@ -144,17 +114,7 @@ function runAudit() {
     return 1;
   }
 
-  if (evaluation.allowed.length > 0) {
-    const advisoryIds = [
-      ...new Set(evaluation.allowed.flatMap((finding) => finding.advisoryIds)),
-    ];
-    console.warn(
-      `Temporarily allowing ${advisoryIds.join(', ')} only for image-size; ` +
-        `no patched release exists. Tracked by ${TRACKING_ISSUE}`,
-    );
-  } else {
-    console.log('No high or critical production dependency vulnerabilities found.');
-  }
+  console.log('No high or critical production dependency vulnerabilities found.');
 
   return 0;
 }
@@ -166,5 +126,4 @@ if (require.main === module) {
 module.exports = {
   evaluateAuditReport,
   getAdvisoryId,
-  isAllowedImageSizeAdvisory,
 };
