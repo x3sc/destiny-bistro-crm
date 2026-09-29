@@ -234,12 +234,19 @@ export const styles = StyleSheet.create({
     fontSize: 12,
   },
   comandaNumber: {
-    borderTopColor: themeColors.divider,
-    borderTopWidth: 1,
     color: themeColors.foregroundBody,
     fontSize: 12,
+  },
+  comandaIdentity: {
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    gap: 2,
     marginTop: 'auto',
     paddingTop: 7,
+  },
+  comandaOpenedAt: {
+    color: themeColors.foregroundMuted,
+    fontSize: 11,
   },
   openComandaAction: {
     color: themeColors.primary,

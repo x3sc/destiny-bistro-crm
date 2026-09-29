@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
+import { formatOperationalDateTime } from '../services/date-time';
 import {
   loadTables,
   type RestaurantTable,
@@ -390,7 +391,7 @@ function TableCard({
     <Pressable
       accessibilityLabel={`Mesa ${table.number} ${tableStatusLabels[table.status]}${
         table.activeComanda
-          ? `${table.activeComanda.name ? ` ${table.activeComanda.name}` : ''} Comanda #${table.activeComanda.number}`
+          ? `${table.activeComanda.name ? ` ${table.activeComanda.name}` : ''} Comanda #${table.activeComanda.number} aberta em ${formatOperationalDateTime(table.activeComanda.openedAt)}`
           : ''
       }`}
       accessibilityRole="button"
@@ -420,9 +421,14 @@ function TableCard({
         <Text style={styles.comandaName}>{table.activeComanda.name}</Text>
       )}
       {table.activeComanda ? (
-        <Text style={styles.comandaNumber}>
-          Comanda #{table.activeComanda.number}
-        </Text>
+        <View style={styles.comandaIdentity}>
+          <Text style={styles.comandaNumber}>
+            Comanda #{table.activeComanda.number}
+          </Text>
+          <Text style={styles.comandaOpenedAt}>
+            Aberta em {formatOperationalDateTime(table.activeComanda.openedAt)}
+          </Text>
+        </View>
       ) : table.status === 'FREE' ? (
         <Text style={styles.openComandaAction}>＋ Abrir comanda</Text>
       ) : null}

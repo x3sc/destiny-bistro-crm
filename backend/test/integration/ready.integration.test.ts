@@ -9,6 +9,7 @@ import { provisionUser } from "../../src/user-provisioning.js";
 import { resetOperationalData } from "../../src/operational-data-reset.js";
 import { AuthCredentialsError } from "../../src/auth-repository.js";
 import { provisionEstablishment } from "../../src/establishment-provisioning.js";
+import { createComandaRepository } from "../../src/comanda-repository.js";
 import {
   DEFAULT_MENU_CATEGORY_NAMES,
   LEGACY_SEED_PRODUCT_CODES,
@@ -100,6 +101,7 @@ async function cleanupEstablishment(name: string) {
     await transaction.comandaItem.deleteMany({ where: { establishmentId } });
     await transaction.comandaEvent.deleteMany({ where: { establishmentId } });
     await transaction.comanda.deleteMany({ where: { establishmentId } });
+    await transaction.comandaDailySequence.deleteMany({ where: { establishmentId } });
     await transaction.inventoryStock.deleteMany({
       where: { establishmentId },
     });
@@ -178,6 +180,70 @@ void test("GET /ready connects to the configured MySQL database", async () => {
     });
   } finally {
     await app.close();
+  }
+});
+
+void test("comanda numbers restart per establishment and Sao Paulo opening date", async () => {
+  const secondaryOwnerName = "Daily Sequence Owner";
+  const secondary = await provisionEstablishment(prisma, {
+    name: secondaryEstablishmentName,
+    ownerName: secondaryOwnerName,
+    ownerPassword: integrationUserPassword,
+  });
+  const primaryOwner = await prisma.user.findFirstOrThrow({
+    select: { id: true },
+    where: { establishmentId: integrationEstablishmentId },
+  });
+  const beforeMidnight = new Date("2032-01-02T02:59:59.999Z");
+  const afterMidnight = new Date("2032-01-02T03:00:00.000Z");
+  const firstDayRepository = createComandaRepository(prisma, () => beforeMidnight);
+  const nextDayRepository = createComandaRepository(prisma, () => afterMidnight);
+
+  try {
+    const [first, second] = await Promise.all([
+      firstDayRepository.openQuickSale(
+        integrationEstablishmentId,
+        "Primeira concorrente",
+        primaryOwner.id,
+      ),
+      firstDayRepository.openQuickSale(
+        integrationEstablishmentId,
+        "Segunda concorrente",
+        primaryOwner.id,
+      ),
+    ]);
+    const secondaryFirst = await firstDayRepository.openQuickSale(
+      secondary.id,
+      "Primeira secundária",
+      secondary.users[0].id,
+    );
+    const nextDayFirst = await nextDayRepository.openQuickSale(
+      integrationEstablishmentId,
+      "Primeira do novo dia",
+      primaryOwner.id,
+    );
+    const persisted = await prisma.comanda.findMany({
+      orderBy: { number: "asc" },
+      select: { number: true, openedAt: true, openedDate: true },
+      where: { id: { in: [first.id, second.id] } },
+    });
+
+    assert.deepEqual([first.number, second.number].sort(), [1, 2]);
+    assert.equal(secondaryFirst.number, 1);
+    assert.equal(nextDayFirst.number, 1);
+    assert.deepEqual(
+      persisted.map(({ openedAt, openedDate, number }) => ({
+        number,
+        openedAt: openedAt.toISOString(),
+        openedDate: openedDate.toISOString().slice(0, 10),
+      })),
+      [
+        { number: 1, openedAt: beforeMidnight.toISOString(), openedDate: "2032-01-01" },
+        { number: 2, openedAt: beforeMidnight.toISOString(), openedDate: "2032-01-01" },
+      ],
+    );
+  } finally {
+    await cleanupEstablishment(secondaryEstablishmentName);
   }
 });
 
@@ -294,6 +360,7 @@ void test("comanda lifecycle is persisted and audited", async () => {
         id: string;
         name: string | null;
         number: number;
+        openedAt: string;
       };
     }>().comanda;
 
@@ -336,7 +403,7 @@ void test("comanda lifecycle is persisted and audited", async () => {
     const openTable = tablesResponse
       .json<{
         tables: {
-          activeComanda: { id: string; name: string | null; number: number } | null;
+          activeComanda: { id: string; name: string | null; number: number; openedAt: string } | null;
           id: number;
           status: string;
         }[];
@@ -347,6 +414,7 @@ void test("comanda lifecycle is persisted and audited", async () => {
         id: openedComanda.id,
         name: "João",
         number: openedComanda.number,
+        openedAt: openedComanda.openedAt,
       },
       id: table.id,
       number: 1,
@@ -2835,6 +2903,9 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     data: {
       closedAt: new Date("2031-04-10T12:00:00.000Z"),
       establishmentId: integrationEstablishmentId,
+      number: 9_001,
+      openedAt: new Date("2031-04-10T12:00:00.000Z"),
+      openedDate: new Date("2031-04-10T00:00:00.000Z"),
       items: {
         create: {
           confirmedQuantity: 2,
@@ -2859,6 +2930,9 @@ void test("statements aggregate dated sales, credit additions and settlements", 
     data: {
       closedAt: new Date("2031-04-12T15:00:00.000Z"),
       establishmentId: integrationEstablishmentId,
+      number: 9_002,
+      openedAt: new Date("2031-04-10T11:00:00.000Z"),
+      openedDate: new Date("2031-04-10T00:00:00.000Z"),
       events: {
         create: [
           {
@@ -2912,6 +2986,9 @@ void test("statements aggregate dated sales, credit additions and settlements", 
       cancellationReason: "OPENED_BY_MISTAKE",
       cancelledAt: new Date("2031-04-11T16:00:00.000Z"),
       establishmentId: integrationEstablishmentId,
+      number: 9_003,
+      openedAt: new Date("2031-04-11T15:00:00.000Z"),
+      openedDate: new Date("2031-04-11T00:00:00.000Z"),
       items: {
         create: {
           confirmedQuantity: 0,
@@ -4089,6 +4166,9 @@ void test("operational reset preserves catalog, tables and provisioned users", a
     data: {
       establishmentId: integrationEstablishmentId,
       name: "Reset cozinha",
+      number: 9_999,
+      openedAt: new Date("2035-01-01T12:00:00.000Z"),
+      openedDate: new Date("2035-01-01T00:00:00.000Z"),
     },
   });
   const resetItem = await prisma.comandaItem.create({

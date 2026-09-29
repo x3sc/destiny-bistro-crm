@@ -27,8 +27,9 @@ it('requires a customer name, opens without a table and prevents duplicate submi
 it('resumes an open sale by customer name without opening another', async () => {
   const onSelect = jest.fn();
   render(<QuickSalesScreen apiBaseUrl="http://localhost:3333" loadRequest={async () => [sale]} onBack={jest.fn()} onSelect={onSelect} canWrite={false} />);
-  fireEvent.press(await screen.findByRole('button', { name: 'Comanda 42, Maria' }));
+  fireEvent.press(await screen.findByRole('button', { name: 'Comanda 42, Maria, aberta em 16/09/2026, 09:00' }));
   expect(onSelect).toHaveBeenCalledWith(sale);
+  expect(screen.getByText('Aberta em 16/09/2026, 09:00')).toBeTruthy();
   expect(screen.queryByLabelText('Nome do cliente')).toBeNull();
 });
 it('preserves the customer name when opening fails', async () => {
