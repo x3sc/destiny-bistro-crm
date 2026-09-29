@@ -7,6 +7,7 @@ export interface RestaurantTable {
     id: string;
     name: string | null;
     number: number;
+    openedAt: Date;
   } | null;
   id: number;
   number: number;
@@ -32,6 +33,7 @@ export function createRestaurantTableRepository(
               id: true,
               name: true,
               number: true,
+              openedAt: true,
             },
           },
           id: true,

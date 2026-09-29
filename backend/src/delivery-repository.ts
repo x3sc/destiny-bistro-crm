@@ -1,5 +1,6 @@
 import { type Prisma, type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { allocateComandaIdentity, type Clock } from "./comanda-numbering.js";
 import {
   calculateDayPayoutCents,
   DeliveryCourierConflictError,
@@ -329,6 +330,7 @@ async function getOpenDayOrThrow(
 
 export function createDeliveryRepository(
   prisma: PrismaClient,
+  clock: Clock = () => new Date(),
 ): DeliveryRepository {
   return {
     async addExpense(
@@ -472,8 +474,14 @@ export function createDeliveryRepository(
       actorUserId: string,
     ) {
       return prisma.$transaction(async (transaction) => {
+        const identity = await allocateComandaIdentity(
+          transaction,
+          establishmentId,
+          clock(),
+        );
         const comanda = await transaction.comanda.create({
           data: {
+            ...identity,
             establishmentId,
             events: {
               create: {

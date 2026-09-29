@@ -18,7 +18,12 @@ jest.mock('expo-router', () => {
 const tables: RestaurantTable[] = [
   { activeComanda: null, id: 1, number: 1, status: 'FREE' },
   {
-    activeComanda: { id: 'comanda-id', name: 'João', number: 42 },
+    activeComanda: {
+      id: 'comanda-id',
+      name: 'João',
+      number: 42,
+      openedAt: '2026-06-02T19:00:00.000Z',
+    },
     id: 2,
     number: 2,
     status: 'OPEN',
@@ -85,6 +90,7 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(screen.getByText('• Ocupada')).toBeTruthy();
   expect(screen.getByText('• Aguardando pagamento')).toBeTruthy();
   expect(screen.getByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByText('Aberta em 02/06/2026, 16:00')).toBeTruthy();
   expect(screen.getByText('João')).toBeTruthy();
   expect(screen.getByLabelText('Ocupadas: 1')).toBeTruthy();
   expect(screen.getByLabelText('Aguardando pagamento: 1')).toBeTruthy();
@@ -107,7 +113,7 @@ it('uses semantic surfaces and badges for each table status', async () => {
   });
   expect(
     screen.getByRole('button', {
-      name: 'Mesa 2 Ocupada João Comanda #42',
+      name: 'Mesa 2 Ocupada João Comanda #42 aberta em 02/06/2026, 16:00',
     }),
   ).toHaveStyle({
     backgroundColor: themeColors.statusOpenSurface,
@@ -245,7 +251,7 @@ it('selects an occupied restaurant table', async () => {
 
   fireEvent.press(
     await screen.findByRole('button', {
-      name: 'Mesa 2 Ocupada João Comanda #42',
+      name: 'Mesa 2 Ocupada João Comanda #42 aberta em 02/06/2026, 16:00',
     }),
   );
 

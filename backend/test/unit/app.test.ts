@@ -858,7 +858,12 @@ void test("GET /tables returns restaurant tables ordered by number", async () =>
   const tables: RestaurantTable[] = [
     { activeComanda: null, id: 1, number: 1, status: "FREE" },
     {
-      activeComanda: { id: "comanda-id", name: "João", number: 42 },
+      activeComanda: {
+        id: "comanda-id",
+        name: "João",
+        number: 42,
+        openedAt: new Date(openedAt),
+      },
       id: 2,
       number: 2,
       status: "OPEN",
@@ -874,7 +879,18 @@ void test("GET /tables returns restaurant tables ordered by number", async () =>
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { tables });
+  assert.deepEqual(response.json(), {
+    tables: [
+      tables[0],
+      {
+        ...tables[1],
+        activeComanda: {
+          ...tables[1].activeComanda,
+          openedAt,
+        },
+      },
+    ],
+  });
 
   await app.close();
 });

@@ -38,16 +38,28 @@ import {
 } from "./comanda-types.js";
 import { createPayment } from "./payment-persistence.js";
 import { paymentTotal } from "./payment-types.js";
+import {
+  allocateComandaIdentity,
+  type Clock,
+} from "./comanda-numbering.js";
 
 export * from "./comanda-types.js";
 
-export function createComandaRepository(prisma: PrismaClient): ComandaRepository {
+export function createComandaRepository(
+  prisma: PrismaClient,
+  clock: Clock = () => new Date(),
+): ComandaRepository {
   return {
     async openQuickSale(establishmentId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {
+        const identity = await allocateComandaIdentity(
+          transaction,
+          establishmentId,
+          clock(),
+        );
         const comanda = await transaction.comanda.create({
           data: {
-            establishmentId, name, tableId: null, tableName: QUICK_SALE_TABLE_NAME,
+            ...identity, establishmentId, name, tableId: null, tableName: QUICK_SALE_TABLE_NAME,
             events: { create: { actorUserId, type: "OPENED" } },
           },
           select: comandaSelect,
@@ -757,8 +769,14 @@ export function createComandaRepository(prisma: PrismaClient): ComandaRepository
           throw new TableUnavailableError();
         }
 
+        const identity = await allocateComandaIdentity(
+          transaction,
+          establishmentId,
+          clock(),
+        );
         const comanda = await transaction.comanda.create({
           data: {
+            ...identity,
             establishmentId,
             events: {
               create: {

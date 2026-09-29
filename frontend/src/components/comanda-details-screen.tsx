@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
+import { formatOperationalDateTime } from '../services/date-time';
 import {
   cancelComanda,
   cancelComandaItemConfiguration,
@@ -539,6 +540,11 @@ function ComandaHeader({
         <Text style={styles.title}>
           {comanda ? `Comanda #${comanda.number}` : 'Detalhes da comanda'}
         </Text>
+        {comanda && (
+          <Text style={styles.openedAt}>
+            Aberta em {formatOperationalDateTime(comanda.openedAt)}
+          </Text>
+        )}
       </View>
       {comanda && (
         <Text

@@ -131,6 +131,7 @@ model Establishment {
   users              User[]
   restaurantTables   RestaurantTable[]
   comandas           Comanda[]
+  comandaDailySequences ComandaDailySequence[]
   creditCustomers    CreditCustomer[]
   creditOrders       CreditOrder[]
   payments           Payment[]
@@ -188,7 +189,8 @@ model Comanda {
   id                 String                     @id @default(cuid())
   establishmentId    String
   establishment      Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
-  number             Int                        @unique @default(autoincrement())
+  number             Int
+  openedDate         DateTime                   @db.Date
   name               String?                    @db.VarChar(80)
   tableName          String?                    @db.VarChar(80)
   tableId            Int?
@@ -210,10 +212,21 @@ model Comanda {
   updatedAt          DateTime                   @updatedAt
 
   @@unique([id, establishmentId])
+  @@unique([establishmentId, openedDate, number])
   @@index([establishmentId, status])
   @@index([tableId])
   @@index([status, closedAt])
   @@index([status, cancelledAt])
+}
+
+model ComandaDailySequence {
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  openedDate       DateTime      @db.Date
+  lastNumber       Int
+  updatedAt        DateTime      @default(now()) @updatedAt
+
+  @@id([establishmentId, openedDate])
 }
 
 model CreditCustomer {
