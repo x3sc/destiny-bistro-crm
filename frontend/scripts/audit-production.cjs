@@ -71,13 +71,7 @@ function evaluateAuditReport(report, auditLevel = 'high') {
     const advisoryIds = [
       ...new Set(result.advisories.map((advisory) => getAdvisoryId(advisory.url))),
     ].filter(Boolean);
-    const finding = {
-      name,
-      severity: vulnerability.severity,
-      advisoryIds,
-    };
-
-    blocking.push(finding);
+    blocking.push({ name, severity: vulnerability.severity, advisoryIds });
   }
 
   return { allowed, blocking };
