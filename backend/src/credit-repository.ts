@@ -1,5 +1,6 @@
 import { type Prisma, type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { allocateComandaIdentity, type Clock } from "./comanda-numbering.js";
 import {
   CreditCustomerNameError,
   CreditCustomerNotFoundError,
@@ -72,7 +73,10 @@ export function normalizeCreditCustomerName(value: string) {
   };
 }
 
-export function createCreditRepository(prisma: PrismaClient): CreditRepository {
+export function createCreditRepository(
+  prisma: PrismaClient,
+  clock: Clock = () => new Date(),
+): CreditRepository {
   return {
     async cancelOrder(establishmentId, orderId, actorUserId) {
       return prisma.$transaction(async (transaction) => {
@@ -299,8 +303,14 @@ export function createCreditRepository(prisma: PrismaClient): CreditRepository {
           throw new CreditCustomerNotFoundError();
         }
 
+        const identity = await allocateComandaIdentity(
+          transaction,
+          establishmentId,
+          clock(),
+        );
         const comanda = await transaction.comanda.create({
           data: {
+            ...identity,
             establishmentId,
             events: {
               create: {

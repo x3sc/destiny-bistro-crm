@@ -68,6 +68,11 @@ export const styles = StyleSheet.create({
     fontSize: 23,
     fontWeight: '700',
   },
+  openedAt: {
+    color: themeColors.foregroundMuted,
+    fontSize: 12,
+    fontWeight: '500',
+  },
   statusBadge: {
     borderWidth: 1,
     borderRadius: 999,

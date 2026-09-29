@@ -188,6 +188,15 @@ pelo cliente. Ingredientes, saldos e movimentos de estoque seguem a mesma regra.
 As relacoes operacionais mais sensiveis tambem possuem chaves compostas no MySQL,
 impedindo vinculos entre estabelecimentos mesmo em gravacoes diretas no banco.
 
+A numeração visível das comandas pertence ao estabelecimento e à data local de
+abertura em `America/Sao_Paulo`. Cada estabelecimento reinicia a sequência em `1`
+na primeira abertura de um novo dia. `openedDate` permanece imutável mesmo quando
+a comanda atravessa a meia-noite, enquanto `openedAt` preserva o instante exato.
+As telas de mesas, venda rápida e detalhes exibem a data e hora de abertura para
+diferenciar comandas de dias distintos com o mesmo número. A migração
+`20260928120000_daily_comanda_numbering` preserva os números históricos e inicializa
+o contador de cada data pelo maior número já emitido, sem renumerar registros.
+
 Ao confirmar um item, sua quantidade passa a ser o piso imutavel da comanda. Novas
 unidades do mesmo produto continuam editaveis ate a proxima confirmacao e aparecem
 separadas dos itens imutaveis no aplicativo. Produtos marcados para preparo geram
@@ -321,7 +330,8 @@ esta acompanhada pela issue
 
 ## Limpeza operacional
 
-O comando abaixo apaga comandas, itens, eventos, clientes e fiados, libera todas
+O comando abaixo apaga comandas, itens, eventos, clientes, fiados e os contadores
+diários de comandas do estabelecimento, libera todas
 as mesas e preserva categorias do cardapio, produtos, mesas, usuários, cargos e permissões:
 
 ```powershell

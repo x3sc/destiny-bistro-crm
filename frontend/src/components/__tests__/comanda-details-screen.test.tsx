@@ -139,6 +139,7 @@ it('shows comanda details', async () => {
   );
 
   expect(await screen.findByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByText('Aberta em 02/06/2026, 16:00')).toBeTruthy();
   expect(screen.getByText('Mesa 1')).toBeTruthy();
   expect(screen.getByText('• Aberta')).toBeTruthy();
   expect(screen.getByText(/Nenhum item/)).toBeTruthy();

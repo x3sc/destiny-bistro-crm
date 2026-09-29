@@ -55,6 +55,9 @@ export async function resetOperationalData(
     const comandas = await transaction.comanda.deleteMany({
       where: { establishmentId },
     });
+    await transaction.comandaDailySequence.deleteMany({
+      where: { establishmentId },
+    });
     const auditLogs = await transaction.auditLog.deleteMany({
       where: {
         establishmentId,
