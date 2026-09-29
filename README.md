@@ -312,12 +312,9 @@ memoria, sem arquivos temporarios. Os lockfiles registram as versoes resolvidas.
 ### Auditoria de dependencias do frontend
 
 Execute `npm.cmd run audit:production` dentro de `frontend` para verificar as
-dependencias usadas em producao. O comando continua bloqueando qualquer
-vulnerabilidade alta ou critica. Temporariamente, somente os advisories
-`GHSA-w3rx-r6r6-pgpr` e `GHSA-5p2g-fcmc-qvqq` do `image-size` sao aceitos,
-porque ainda nao existe uma versao corrigida publicada. A remocao dessa excecao
-esta acompanhada pela issue
-[#64](https://github.com/x3sc/destiny-bistro-crm/issues/64).
+dependencias usadas em producao. O comando bloqueia qualquer vulnerabilidade alta
+ou critica sem excecoes. A familia Metro permanece alinhada em `0.84.5`, versao
+que removeu a dependencia vulneravel de `image-size`.
 
 ## Limpeza operacional
 
