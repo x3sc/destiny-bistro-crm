@@ -2,12 +2,14 @@ const STATEMENT_TIME_ZONE = "America/Sao_Paulo";
 const dateKeyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export type StatementOrigin =
+  | "COUNTER"
   | "QUICK_SALE"
   | "TABLE"
   | "CREDIT_MANUAL"
   | "CREDIT_TABLE"
   | "DELIVERY";
 export type StatementEvent =
+  | "COUNTER_CLOSED"
   | "QUICK_SALE_CLOSED"
   | "TABLE_CLOSED"
   | "CREDIT_FINALIZED"
@@ -44,6 +46,7 @@ export interface StatementDay extends StatementSummary {
 }
 
 export interface StatementEntry {
+  serviceFeeCents?: number;
   comandaId: string;
   comandaName: string | null;
   comandaNumber: number | null;
@@ -71,6 +74,7 @@ export interface StatementEntry {
 }
 
 export type StatementPaymentOrigin =
+  | "COUNTER_CHECKOUT"
   | "QUICK_SALE_CHECKOUT"
   | "TABLE_CHECKOUT"
   | "CREDIT_INSTALLMENT"
@@ -78,7 +82,7 @@ export type StatementPaymentOrigin =
 
 export interface StatementPaymentAllocation {
   amountCents: number;
-  method: "CASH" | "PIX" | "DEBIT_CARD" | "CREDIT_CARD";
+  method: "CASH" | "PIX" | "DEBIT_CARD" | "CREDIT_CARD" | "COUNTER";
 }
 
 export interface StatementEntryItem {
@@ -186,6 +190,8 @@ export interface StatementSourceData {
   closedComandas: Array<
     SourceComandaIdentity & {
       closedAt: Date;
+      serviceFeeAmountCents?: number;
+      serviceFeeSubtotalCents?: number | null;
       creditOrder:
         | (SourceCreditIdentity & {
             settlementAmountCents: number;
@@ -199,6 +205,7 @@ export interface StatementSourceData {
     SourceCreditIdentity & {
       comanda: SourceComandaIdentity & {
         closedAt?: Date | null;
+        serviceFeeEvents?: { id: string; createdAt: Date; deltaCents: number; consumptionDeltaCents: number; itemCountDelta: number }[];
         events: Array<{
           createdAt: Date;
           newQuantity: number;
@@ -262,7 +269,7 @@ export function buildStatementReport(
         (item.additionalTotalCents ?? 0),
       0,
     );
-    const totalCents = tableTotalCents + (comanda.deliveryOrder?.feeCents ?? 0);
+    const totalCents = (comanda.serviceFeeSubtotalCents ?? tableTotalCents) + (comanda.deliveryOrder?.feeCents ?? 0) + (comanda.serviceFeeAmountCents ?? 0);
 
     const comandaPayments = comanda.payments ?? [];
     if (comanda.creditOrder && comandaPayments.length === 0) {
@@ -299,17 +306,18 @@ export function buildStatementReport(
       entries.push(
         createEntry({
           comanda,
-          customerName: comanda.deliveryOrder || comanda.tableName === "Venda rápida" ? comanda.name : null,
+          customerName: comanda.deliveryOrder || ['Venda rápida', 'Balcão'].includes(comanda.tableName ?? '') ? comanda.name : null,
           deliveryAddress: comanda.deliveryOrder?.address ?? null,
           deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
-          event: comanda.deliveryOrder ? "DELIVERY_RECORDED" : comanda.tableName === "Venda rápida" ? "QUICK_SALE_CLOSED" : "TABLE_CLOSED",
+          event: comanda.deliveryOrder ? "DELIVERY_RECORDED" : comanda.tableName === 'Balcão' ? 'COUNTER_CLOSED' : comanda.tableName === "Venda rápida" ? "QUICK_SALE_CLOSED" : "TABLE_CLOSED",
           items: entryItems(comanda.items, "confirmedQuantity"),
           occurredAt: comanda.closedAt,
-          origin: comanda.deliveryOrder ? "DELIVERY" : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
+          origin: comanda.deliveryOrder ? "DELIVERY" : comanda.tableName === 'Balcão' ? 'COUNTER' : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
           payments: comandaPayments.flatMap((payment) => payment.allocations),
           receivedCents,
           receivedItemCount: itemCount,
           soldCents: totalCents,
+          serviceFeeCents: comanda.serviceFeeSubtotalCents != null ? comanda.serviceFeeAmountCents : undefined,
           soldItemCount: itemCount,
         }),
       );
@@ -330,7 +338,7 @@ export function buildStatementReport(
         occurredAt: comanda.cancelledAt,
         origin: comanda.creditOrder
           ? creditOrigin(comanda.creditOrder.source)
-          : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
+          : comanda.tableName === 'Balcão' ? 'COUNTER' : comanda.tableName === "Venda rápida" ? "QUICK_SALE" : "TABLE",
       }),
     );
   }
@@ -340,6 +348,10 @@ export function buildStatementReport(
       (event) => event.createdAt.getTime() <= order.finalizedAt.getTime(),
     );
     const initial = totalConfirmationEvents(initialEvents);
+    const feeLedger = order.comanda.serviceFeeEvents ?? [];
+    const initialLedger = feeLedger.filter((event) => event.createdAt.getTime() <= order.finalizedAt.getTime());
+    const initialFee = initialLedger.reduce((sum, event) => sum + event.deltaCents, 0);
+    const initialConsumption = initialLedger.reduce((sum, event) => sum + event.consumptionDeltaCents, 0);
     const tableCheckoutPaidCents = (order.payments ?? [])
       .filter(
         (payment) =>
@@ -359,13 +371,15 @@ export function buildStatementReport(
         occurredAt: order.finalizedAt,
         origin: creditOrigin(order.source),
         soldCents:
-          initial.totalCents + (order.comanda.deliveryOrder?.feeCents ?? 0),
-        soldItemCount: initial.itemCount,
+          (feeLedger.length ? initialConsumption + initialFee : initial.totalCents) + (order.comanda.deliveryOrder?.feeCents ?? 0),
+        serviceFeeCents: feeLedger.length ? initialFee : undefined,
+        soldItemCount: feeLedger.length ? initialLedger.reduce((sum, event) => sum + event.itemCountDelta, 0) : initial.itemCount,
       }),
     ];
 
     for (const event of order.comanda.events) {
       if (
+        feeLedger.length > 0 ||
         event.createdAt.getTime() <= order.finalizedAt.getTime() ||
         event.newQuantity - event.previousQuantity <= 0
       ) {
@@ -385,6 +399,15 @@ export function buildStatementReport(
           soldItemCount: itemCount,
         }),
       );
+    }
+
+    for (const event of feeLedger) {
+      if (event.createdAt.getTime() <= order.finalizedAt.getTime()) continue;
+      creditTimeline.push(createEntry({ comanda: order.comanda, customerName: order.customerName,
+        entryId: event.id, event: 'CREDIT_ADDITION', occurredAt: event.createdAt, origin: creditOrigin(order.source),
+        soldCents: event.consumptionDeltaCents + event.deltaCents, serviceFeeCents: event.deltaCents,
+        soldItemCount: event.itemCountDelta,
+      }));
     }
 
     for (const payment of order.payments ?? []) {
@@ -500,6 +523,7 @@ export function buildStatementReport(
 }
 
 function createEntry({
+  serviceFeeCents,
   comanda,
   creditBalanceAfterCents = null,
   creditPaidAfterCents = null,
@@ -522,6 +546,7 @@ function createEntry({
   tableCheckoutPaidCents = null,
 }: {
   comanda: Omit<SourceComandaIdentity, "number"> & { number: number | null };
+  serviceFeeCents?: number;
   creditBalanceAfterCents?: number | null;
   creditPaidAfterCents?: number | null;
   creditPaidBeforeCents?: number | null;
@@ -546,6 +571,7 @@ function createEntry({
 
   return {
     comandaId: comanda.id,
+    ...(serviceFeeCents !== undefined ? { serviceFeeCents } : {}),
     comandaName: comanda.name,
     comandaNumber: comanda.number,
     creditBalanceAfterCents,
@@ -606,6 +632,7 @@ function addEntryToSummary(summary: StatementSummary, entry: StatementEntry) {
   summary.soldItemCount += entry.soldItemCount;
 
   if (
+    entry.event === "COUNTER_CLOSED" ||
     entry.event === "QUICK_SALE_CLOSED" ||
     entry.event === "TABLE_CLOSED" ||
     entry.event === "CREDIT_SETTLED" ||
@@ -668,7 +695,7 @@ function matchesMovementType(
   movementType: StatementMovementType,
 ) {
   if (movementType === "SALES") {
-    return entry.soldCents > 0;
+    return entry.soldCents !== 0;
   }
   if (movementType === "RECEIPTS") {
     return entry.receivedCents > 0;
@@ -695,6 +722,7 @@ function statementEventRank(event: StatementEvent) {
   return {
     CREDIT_FINALIZED: 0,
     CREDIT_ADDITION: 1,
+    COUNTER_CLOSED: 2,
     QUICK_SALE_CLOSED: 2,
     TABLE_CLOSED: 2,
     CREDIT_PAYMENT: 3,
@@ -749,8 +777,8 @@ function buildIndicators(
   summary: StatementSummary,
 ): StatementIndicators {
   const originSummaries: StatementOriginSummary[] = (
-    ["TABLE", "CREDIT_MANUAL", "CREDIT_TABLE", "DELIVERY", "QUICK_SALE"] as const
-  ).map((origin) => ({
+    ["TABLE", "CREDIT_MANUAL", "CREDIT_TABLE", "DELIVERY", "QUICK_SALE", "COUNTER"] as const
+  ).filter((origin) => origin !== 'COUNTER' || entries.some((entry) => entry.origin === 'COUNTER')).map((origin) => ({
     movementCount: 0,
     origin,
     receivedCents: 0,
@@ -762,8 +790,8 @@ function buildIndicators(
     originSummaries.map((originSummary) => [originSummary.origin, originSummary]),
   );
   const paymentMethodSummaries: StatementPaymentMethodSummary[] = (
-    ["CASH", "PIX", "DEBIT_CARD", "CREDIT_CARD", "UNSPECIFIED"] as const
-  ).map((method) => ({ method, receivedCents: 0 }));
+    ["CASH", "PIX", "DEBIT_CARD", "CREDIT_CARD", "COUNTER", "UNSPECIFIED"] as const
+  ).filter((method) => method !== 'COUNTER' || entries.some((entry) => entry.payments.some((payment) => payment.method === 'COUNTER'))).map((method) => ({ method, receivedCents: 0 }));
   const summariesByPaymentMethod = new Map(
     paymentMethodSummaries.map((methodSummary) => [
       methodSummary.method,

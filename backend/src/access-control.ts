@@ -1,6 +1,10 @@
 import type { PrismaClient } from "./generated/prisma/client.js";
 
 export const permissions = {
+  QUICK_SALES_READ: 'quick-sales.read',
+  QUICK_SALES_WRITE: 'quick-sales.write',
+  COUNTER_SALES_READ: 'counter-sales.read',
+  COUNTER_SALES_WRITE: 'counter-sales.write',
   COMANDAS_READ: "comandas.read",
   COMANDAS_WRITE: "comandas.write",
   CREDITS_READ: "credits.read",
@@ -22,7 +26,11 @@ export const permissions = {
 
 export type PermissionCode = (typeof permissions)[keyof typeof permissions];
 
-const permissionDefinitions = [
+export const permissionDefinitions = [
+  [permissions.QUICK_SALES_READ, 'Visualizar Venda Rápida'],
+  [permissions.QUICK_SALES_WRITE, 'Operar Venda Rápida'],
+  [permissions.COUNTER_SALES_READ, 'Visualizar Balcão'],
+  [permissions.COUNTER_SALES_WRITE, 'Operar Balcão'],
   [permissions.COMANDAS_READ, "Visualizar comandas"],
   [permissions.COMANDAS_WRITE, "Alterar comandas"],
   [permissions.CREDITS_READ, "Visualizar fiados"],

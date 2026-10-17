@@ -24,9 +24,7 @@ const authUserSelect = {
   },
   id: true,
   name: true,
-  roles: {
-    select: {
-      role: {
+  localRole: {
         select: {
           code: true,
           id: true,
@@ -41,8 +39,6 @@ const authUserSelect = {
             },
           },
         },
-      },
-    },
   },
 } satisfies Prisma.UserSelect;
 
@@ -222,15 +218,9 @@ function mapAuthUser(
     name: user.name,
     permissions: [
       ...new Set(
-        user.roles.flatMap(({ role }) =>
-          role.permissions.map(({ permission }) => permission.code),
-        ),
+        user.localRole.permissions.map(({ permission }) => permission.code),
       ),
     ].sort(),
-    roles: user.roles.map(({ role }) => ({
-      code: role.code,
-      id: role.id,
-      name: role.name,
-    })),
+    roles: [{ code: user.localRole.code, id: user.localRole.id, name: user.localRole.name }],
   };
 }

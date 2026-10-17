@@ -1,5 +1,6 @@
 import { type Prisma, type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { authorizeComandaMutation } from './comanda-source-access.js';
 import { allocateComandaIdentity, type Clock } from "./comanda-numbering.js";
 import {
   CreditCustomerNameError,
@@ -164,6 +165,8 @@ export function createCreditRepository(
     ) {
       return prisma.$transaction(async (transaction) => {
         await ensureCustomerExists(transaction, establishmentId, customerId);
+
+        await authorizeComandaMutation(transaction, establishmentId, comandaId);
 
         const comanda = await transaction.comanda.findFirst({
           select: {
@@ -481,6 +484,8 @@ export function createCreditRepository(
     },
     async settleOrder(establishmentId, orderId, payments, actorUserId) {
       return prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT id FROM Comanda WHERE establishmentId = ${establishmentId}
+          AND id = (SELECT comandaId FROM CreditOrder WHERE id = ${orderId} AND establishmentId = ${establishmentId}) FOR UPDATE`;
         await transaction.$queryRaw<Array<{ id: string }>>`
           SELECT id
           FROM CreditOrder

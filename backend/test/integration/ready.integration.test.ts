@@ -2,6 +2,9 @@ import type { Comanda } from "../../src/comanda-types.js";
 import type { StatementReport } from "../../src/statement-report.js";
 import type { AdminUser, AdminUsers } from "../../src/user-types.js";
 import assert from "node:assert/strict";
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { after, before, test } from "node:test";
 import { buildApp } from "../../src/app.js";
 import { createPersistence, createPrismaClient } from "../../src/database.js";
@@ -10,6 +13,7 @@ import { resetOperationalData } from "../../src/operational-data-reset.js";
 import { AuthCredentialsError } from "../../src/auth-repository.js";
 import { provisionEstablishment } from "../../src/establishment-provisioning.js";
 import { createComandaRepository } from "../../src/comanda-repository.js";
+import { ensureSystemAccessControl } from '../../src/access-control.js';
 import {
   DEFAULT_MENU_CATEGORY_NAMES,
   LEGACY_SEED_PRODUCT_CODES,
@@ -22,20 +26,28 @@ const integrationUserPassword = "integration-password";
 const integrationEstablishmentName = "Integration Bistro";
 const secondaryEstablishmentName = "Secondary Integration Bistro";
 let integrationEstablishmentId = "";
+const counterEstablishmentName = 'Counter Integration Bistro';
+let counterEstablishmentId = '';
 
 before(async () => {
   assertDedicatedIntegrationDatabase();
   await cleanupEstablishment(integrationEstablishmentName);
   await cleanupEstablishment(secondaryEstablishmentName);
+  await cleanupEstablishment(counterEstablishmentName);
   const establishment = await provisionEstablishment(prisma, {
     name: integrationEstablishmentName,
     ownerName: integrationUserName,
     ownerPassword: integrationUserPassword,
   });
   integrationEstablishmentId = establishment.id;
+  const counterEstablishment = await provisionEstablishment(prisma, {
+    name: counterEstablishmentName, ownerName: 'Counter Integration Operator', ownerPassword: integrationUserPassword,
+  });
+  counterEstablishmentId = counterEstablishment.id;
 });
 
 after(async () => {
+  await cleanupEstablishment(counterEstablishmentName);
   await cleanupEstablishment(secondaryEstablishmentName);
   await cleanupEstablishment(integrationEstablishmentName);
   await prisma.$disconnect();
@@ -61,6 +73,352 @@ function assertDedicatedIntegrationDatabase() {
   );
 }
 
+async function startIsolatedApi() {
+  assertDedicatedIntegrationDatabase();
+  const processHandle = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../../src/server.ts', import.meta.url))], {
+    env: { ...process.env, HOST: '127.0.0.1', PORT: '0', CORS_ORIGINS: 'http://localhost' }, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const stopped = once(processHandle, 'exit');
+  const stop = async () => { processHandle.kill(); await stopped; };
+  try {
+    const address = await new Promise<string>((resolve, reject) => {
+      let output = '';
+      const timeout = setTimeout(() => reject(new Error('Isolated API did not start')), 30_000);
+      processHandle.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      processHandle.once('exit', () => { clearTimeout(timeout); reject(new Error('Isolated API exited before startup')); });
+      processHandle.stdout.on('data', (chunk: Buffer) => {
+        output += chunk.toString(); const match = /Server listening at (http:\/\/127\.0\.0\.1:\d+)/u.exec(output);
+        if (match) { clearTimeout(timeout); resolve(match[1]); }
+      });
+    });
+    return { address, stop };
+  } catch (error) { await stop(); throw error; }
+}
+
+void test('service fee checkout is quoted, printed without payment and closed idempotently with the persisted total', async () => {
+  const name = 'Service Fee Integration Bistro';
+  await cleanupEstablishment(name);
+  const tenant = await provisionEstablishment(prisma, { name, ownerName: 'Service Fee Integration Owner', ownerPassword: integrationUserPassword });
+  const persistence = createPersistence();
+  const app = await buildApp(persistence);
+  const ownerId = tenant.users[0].id;
+  try {
+    const session = await persistence.auth.login('Service Fee Integration Owner', integrationUserPassword);
+    const headers = { authorization: `Bearer ${session.token}` };
+    const category = await prisma.menuCategory.findFirstOrThrow({ where: { establishmentId: tenant.id } });
+    const product = await prisma.product.create({ data: { establishmentId: tenant.id, categoryId: category.id,
+      code: 'FEE_TEST', name: 'Service fee item', priceCents: 1015, requiresKitchen: false } });
+    const sale = await persistence.comandas.openQuickSale(tenant.id, 'Fee customer', ownerId);
+    const pending = await persistence.comandas.addItem(tenant.id, sale.id, product.id, ownerId);
+    await persistence.comandas.confirmItem(tenant.id, sale.id, pending.items[0].id, ownerId);
+    const quoted = await app.inject({ url: `/comandas/${sale.id}/checkout-summary`, headers });
+    assert.equal(quoted.statusCode, 200, quoted.body);
+    const quote = quoted.json<{ expectedSnapshot: string; totalWithServiceFeeCents: number; totalWithoutServiceFeeCents: number }>();
+    assert.equal(quote.totalWithServiceFeeCents, 1117); assert.equal(quote.totalWithoutServiceFeeCents, 1015);
+    const printed = await app.inject({ url: `/comandas/${sale.id}/print-document?kind=CHECKOUT_PREVIEW&includeServiceFee=true&expectedSnapshot=${quote.expectedSnapshot}`, headers });
+    assert.equal(printed.statusCode, 200, printed.body);
+    assert.equal(printed.json<{ document: { totalCents: number } }>().document.totalCents, 1117);
+    assert.equal(await prisma.payment.count({ where: { comandaId: sale.id } }), 0);
+    assert.equal((await prisma.comanda.findUniqueOrThrow({ where: { id: sale.id } })).status, 'OPEN');
+    const payload = { includeServiceFee: true, expectedSnapshot: quote.expectedSnapshot, requestId: 'service-fee-close-001',
+      payments: [{ method: 'PIX', amountCents: 1117 }] };
+    const responses = await Promise.all([1, 2].map(() => app.inject({ method: 'POST', url: `/comandas/${sale.id}/close`, headers, payload })));
+    assert.deepEqual(responses.map((response) => response.statusCode), [200, 200]);
+    assert.deepEqual(responses[0].json(), responses[1].json());
+    assert.equal(await prisma.payment.count({ where: { comandaId: sale.id } }), 1);
+    const saved = await prisma.comanda.findUniqueOrThrow({ where: { id: sale.id } });
+    assert.equal(saved.serviceFeeAmountCents, 102); assert.equal(saved.serviceFeePercent, 10);
+    assert.equal((await app.inject({ method: 'POST', url: `/comandas/${sale.id}/close`, headers,
+      payload: { ...payload, includeServiceFee: false } })).statusCode, 409);
+    const receipt = await app.inject({ url: `/comandas/${sale.id}/print-document?kind=CONFIRMED`, headers });
+    assert.equal(receipt.statusCode, 200); assert.equal(receipt.json<{ document: { totalCents: number } }>().document.totalCents, 1117);
+    const customer = await persistence.credits.createCustomer(tenant.id, 'Fee credit customer', ownerId);
+    const creditSale = await persistence.comandas.openQuickSale(tenant.id, 'Credit sale', ownerId);
+    const creditItem = await persistence.comandas.addItem(tenant.id, creditSale.id, product.id, ownerId);
+    await persistence.comandas.confirmItem(tenant.id, creditSale.id, creditItem.items[0].id, ownerId);
+    const creditQuote = (await app.inject({ url: `/comandas/${creditSale.id}/checkout-summary`, headers })).json<{ expectedSnapshot: string }>();
+    const converted = await app.inject({ method: 'POST', url: `/comandas/${creditSale.id}/close`, headers, payload: {
+      includeServiceFee: true, expectedSnapshot: creditQuote.expectedSnapshot, requestId: 'fee-credit-close-001', customerId: customer.id,
+      payments: [{ method: 'CASH', amountCents: 500 }],
+    } });
+    assert.equal(converted.statusCode, 200, converted.body);
+    let credit = converted.json<{ comanda: Comanda }>().comanda.credit!;
+    assert.equal(credit.totalCents, 1117); assert.equal(credit.balanceCents, 617);
+    const more = await persistence.comandas.addItem(tenant.id, creditSale.id, product.id, ownerId);
+    assert.equal(more.credit?.totalCents, 1117, 'Temporary quantities must not increase a fee-bearing credit debt');
+    const confirmed = await persistence.comandas.confirmItem(tenant.id, creditSale.id, more.items[0].id, ownerId);
+    credit = confirmed.comanda.credit!;
+    assert.equal(credit.totalCents, 2233); assert.equal(confirmed.comanda.serviceFee?.amountCents, 203);
+    const { parseStatementPeriod } = await import('../../src/statement-report.js');
+    const report = await persistence.statements.findReport(tenant.id, parseStatementPeriod('2020-01-01', '2030-12-31'));
+    assert.equal(report.entries.filter((entry) => entry.comandaId === creditSale.id).reduce((sum, entry) => sum + entry.soldCents, 0), 2233);
+    assert.equal(report.entries.filter((entry) => entry.comandaId === creditSale.id).reduce((sum, entry) => sum + entry.receivedCents, 0), 500);
+    assert.equal(report.entries.filter((entry) => entry.comandaId === creditSale.id).reduce((sum, entry) => sum + entry.soldItemCount, 0), 2);
+    const cancelInput = { disposition: 'RETURN_TO_STOCK' as const, quantity: 1, reason: 'Erro de lançamento', requestId: 'fee-partial-cancel-001' };
+    const cancelUrl = `/comandas/${creditSale.id}/items/${more.items[0].id}/configurations/${more.items[0].configurations[0].id}/cancel`;
+    const cancellation = await app.inject({ method: 'POST', url: cancelUrl, headers, payload: cancelInput });
+    assert.equal(cancellation.statusCode, 200, cancellation.body);
+    const afterCancel = await persistence.comandas.findById(tenant.id, creditSale.id);
+    assert.equal(afterCancel.credit?.totalCents, 1117); assert.equal(afterCancel.serviceFee?.amountCents, 102);
+    const adjustedReport = await persistence.statements.findReport(tenant.id, parseStatementPeriod('2020-01-01', '2030-12-31'));
+    assert.equal(adjustedReport.entries.filter((entry) => entry.comandaId === creditSale.id).reduce((sum, entry) => sum + entry.soldCents, 0), 1117);
+    assert.ok(adjustedReport.entries.some((entry) => entry.comandaId === creditSale.id && entry.soldCents === -1116 && entry.serviceFeeCents === -101));
+    const refused = await app.inject({ method: 'POST', url: cancelUrl, headers, payload: { ...cancelInput, requestId: 'fee-overpaid-cancel-001' } });
+    assert.equal(refused.statusCode, 409, refused.body);
+    assert.equal((await persistence.comandas.findById(tenant.id, creditSale.id)).credit?.totalCents, 1117);
+    assert.equal(await prisma.inventoryOperation.count({ where: { establishmentId: tenant.id, requestId: 'fee-overpaid-cancel-001' } }), 0);
+    await persistence.credits.settleOrder(tenant.id, credit.orderId, [{ method: 'PIX', amountCents: 617 }], ownerId);
+    const settled = await persistence.comandas.findById(tenant.id, creditSale.id);
+    assert.equal(settled.status, 'CLOSED'); assert.equal(settled.credit?.balanceCents, 0);
+    assert.equal(settled.serviceFee?.amountCents, 102);
+    const table = await prisma.restaurantTable.findFirstOrThrow({ where: { establishmentId: tenant.id } });
+    const tableSale = await persistence.comandas.openForTable(tenant.id, table.id, null, ownerId);
+    const tableItem = await persistence.comandas.addItem(tenant.id, tableSale.id, product.id, ownerId);
+    const staleQuote = (await app.inject({ url: `/comandas/${tableSale.id}/checkout-summary`, headers })).json<{ expectedSnapshot: string; canClose: boolean }>();
+    assert.equal(staleQuote.canClose, false);
+    await persistence.comandas.confirmItem(tenant.id, tableSale.id, tableItem.items[0].id, ownerId);
+    const tablePayload = { includeServiceFee: false, requestId: 'fee-table-close-001', expectedSnapshot: staleQuote.expectedSnapshot,
+      payments: [{ method: 'PIX', amountCents: 1015 }] };
+    assert.equal((await app.inject({ method: 'POST', url: `/comandas/${tableSale.id}/close`, headers, payload: tablePayload })).statusCode, 409);
+    assert.equal((await app.inject({ url: `/comandas/${tableSale.id}/print-document?kind=CHECKOUT_PREVIEW&includeServiceFee=false&expectedSnapshot=${staleQuote.expectedSnapshot}`, headers })).statusCode, 409);
+    const tableQuote = (await app.inject({ url: `/comandas/${tableSale.id}/checkout-summary`, headers })).json<{ expectedSnapshot: string }>();
+    tablePayload.expectedSnapshot = tableQuote.expectedSnapshot;
+    const waivedPreview = await app.inject({ url: `/comandas/${tableSale.id}/print-document?kind=CHECKOUT_PREVIEW&includeServiceFee=false&expectedSnapshot=${tableQuote.expectedSnapshot}`, headers });
+    assert.equal(waivedPreview.statusCode, 200, waivedPreview.body);
+    assert.equal(waivedPreview.json<{ document: { totalCents: number } }>().document.totalCents, 1015);
+    // A real database failure must roll back every financial side effect, including the fee decision.
+    assert.match(tableSale.id, /^[a-z0-9]+$/u);
+    await prisma.$executeRawUnsafe(`ALTER TABLE AuditLog ADD CONSTRAINT fee_audit_failure CHECK (NOT (action = 'COMANDA_CLOSED' AND resourceId = '${tableSale.id}'))`);
+    try {
+      const failed = await app.inject({ method: 'POST', url: `/comandas/${tableSale.id}/close`, headers, payload: tablePayload });
+      assert.equal(failed.statusCode, 503, failed.body);
+      const unchanged = await prisma.comanda.findUniqueOrThrow({ where: { id: tableSale.id } });
+      assert.equal(unchanged.status, 'OPEN'); assert.equal(unchanged.serviceFeeApplied, null);
+      assert.equal(await prisma.payment.count({ where: { comandaId: tableSale.id } }), 0);
+      assert.equal(await prisma.comandaCheckoutOperation.count({ where: { comandaId: tableSale.id } }), 0);
+      assert.equal(await prisma.comandaEvent.count({ where: { comandaId: tableSale.id, type: 'SERVICE_FEE_CHANGED' } }), 0);
+    } finally { await prisma.$executeRawUnsafe('ALTER TABLE AuditLog DROP CHECK fee_audit_failure'); }
+    const waived = await app.inject({ method: 'POST', url: `/comandas/${tableSale.id}/close`, headers, payload: tablePayload });
+    assert.equal(waived.statusCode, 200, waived.body);
+    const waivedSaved = await prisma.comanda.findUniqueOrThrow({ where: { id: tableSale.id } });
+    assert.equal(waivedSaved.serviceFeeApplied, false); assert.equal(waivedSaved.serviceFeeAmountCents, 0);
+    const foreignSession = await persistence.auth.login(integrationUserName, integrationUserPassword);
+    const foreignQuote = await app.inject({ url: `/comandas/${sale.id}/checkout-summary`, headers: { authorization: `Bearer ${foreignSession.token}` } });
+    assert.equal(foreignQuote.statusCode, 404);
+    const manual = await persistence.credits.createOrder(tenant.id, customer.id, ownerId);
+    const delivery = await persistence.deliveries.createOrder(tenant.id, { customerName: 'Fee excluded', phone: '11999999999', address: 'Rua teste', feeCents: 0 }, ownerId);
+    for (const excludedId of [manual.comandaId, delivery.comandaId]) {
+      const excluded = await app.inject({ url: `/comandas/${excludedId}/checkout-summary`, headers });
+      assert.equal(excluded.statusCode, 200, excluded.body);
+      const excludedQuote = excluded.json<{ expectedSnapshot: string; eligible: boolean }>();
+      assert.equal(excludedQuote.eligible, false);
+      const rejected = await app.inject({ method: 'POST', url: `/comandas/${excludedId}/close`, headers,
+        payload: { includeServiceFee: true, expectedSnapshot: excludedQuote.expectedSnapshot, requestId: `fee-excluded-${excludedId}`, payments: [] } });
+      assert.ok(rejected.statusCode >= 400, rejected.body);
+      assert.equal((await prisma.comanda.findUniqueOrThrow({ where: { id: excludedId } })).serviceFeeApplied, null);
+    }
+    const real = await startIsolatedApi();
+    try {
+      const realQuote = await fetch(`${real.address}/comandas/${sale.id}/checkout-summary`, { headers });
+      assert.equal(realQuote.status, 200);
+      const closedQuote = await realQuote.json() as { totalWithServiceFeeCents: number; eligible: boolean };
+      assert.equal(closedQuote.totalWithServiceFeeCents, 1117); assert.equal(closedQuote.eligible, false);
+      const realReplay = await fetch(`${real.address}/comandas/${sale.id}/close`, { method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      assert.equal(realReplay.status, 200);
+      assert.equal(await prisma.payment.count({ where: { comandaId: sale.id } }), 1);
+    } finally { await real.stop(); }
+  } finally { await app.close(); await cleanupEstablishment(name); }
+});
+
+void test('server entry wires tenant roles into the running API', async () => {
+  const server = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../../src/server.ts', import.meta.url))], {
+    env: { ...process.env, HOST: '127.0.0.1', PORT: '0', CORS_ORIGINS: 'http://localhost' },
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const stopped = once(server, 'exit');
+  try {
+    const address = await new Promise<string>((resolve, reject) => {
+      let output = '';
+      const timeout = setTimeout(() => reject(new Error('Isolated API did not start')), 30_000);
+      server.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      server.once('exit', () => { clearTimeout(timeout); reject(new Error('Isolated API exited before startup')); });
+      server.stdout.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+        const match = /Server listening at (http:\/\/127\.0\.0\.1:\d+)/u.exec(output);
+        if (match) { clearTimeout(timeout); resolve(match[1]); }
+      });
+    });
+    const login = await fetch(`${address}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: integrationUserName, password: integrationUserPassword }) });
+    assert.equal(login.status, 200);
+    const session = await login.json() as { session: { token: string } };
+    const roles = await fetch(`${address}/admin/roles`, { headers: { Authorization: `Bearer ${session.session.token}` } });
+    assert.equal(roles.status, 200);
+    const data = await roles.json() as { roles: { code: string; protected: boolean }[] };
+    assert.ok(data.roles.some((role) => role.code === 'OWNER' && role.protected));
+  } finally { server.kill(); await stopped; }
+});
+
+void test('tenant roles delegate safely, isolate users and enforce operational origins on shared endpoints', async () => {
+  const name = 'Roles Integration Bistro';
+  await cleanupEstablishment(name);
+  const tenant = await provisionEstablishment(prisma, { name, ownerName: 'Roles Integration Owner', ownerPassword: integrationUserPassword });
+  const persistence = createPersistence();
+  const app = await buildApp(persistence);
+  const login = async (user: string) => {
+    const response = await app.inject({ method: 'POST', url: '/auth/login', payload: { name: user, password: integrationUserPassword } });
+    assert.equal(response.statusCode, 200, response.body);
+    return { authorization: `Bearer ${response.json<{ session: { token: string } }>().session.token}` };
+  };
+  try {
+    const owner = await login('Roles Integration Owner');
+    const createRole = async (name: string, permissions: string[], headers = owner) => {
+      const response = await app.inject({ method: 'POST', url: '/admin/roles', headers, payload: { name, permissions } });
+      assert.equal(response.statusCode, 201, response.body);
+      return response.json<{ role: { id: string; version: number; name: string; permissions: string[] } }>().role;
+    };
+    const operatorRole = await createRole('Operador de Balcão', ['counter-sales.read', 'counter-sales.write', 'products.read', 'printing.write']);
+    const adminRole = await createRole('Administrador delegado', ['roles.manage', 'users.manage', 'counter-sales.read', 'counter-sales.write', 'products.read', 'printing.write']);
+    const createUser = async (name: string, roleId: string, headers = owner) => {
+      const response = await app.inject({ method: 'POST', url: '/admin/users', headers, payload: { name, password: integrationUserPassword, roleId } });
+      assert.equal(response.statusCode, 201, response.body);
+      return response.json<{ user: { id: string; roleVersion: number } }>().user;
+    };
+    const operator = await createUser('Roles Counter Operator', operatorRole.id);
+    const admin = await createUser('Roles Delegated Admin', adminRole.id);
+    const delegate = await login('Roles Delegated Admin');
+    const operatorHeaders = await login('Roles Counter Operator');
+    for (const payload of [
+      { name: 'Invalid permissions', permissions: ['unknown.read'] },
+      { name: 'Invalid dependencies', permissions: ['counter-sales.write'] },
+      { name: 'Pretend owner', permissions: [], code: 'OWNER' },
+    ]) assert.equal((await app.inject({ method: 'POST', url: '/admin/roles', headers: owner, payload })).statusCode, 400);
+    assert.equal((await app.inject({ method: 'POST', url: '/admin/roles', headers: owner,
+      payload: { name: '  OPERADOR   DE BALCÃO ', permissions: [] } })).statusCode, 409);
+    const childRole = await createRole('Consulta delegada', ['counter-sales.read'], delegate);
+    const childUser = await createUser('Roles Delegated Child', childRole.id, delegate);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${childUser.id}/role`, headers: delegate,
+      payload: { roleId: operatorRole.id, expectedVersion: 1 } })).statusCode, 200);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${childUser.id}/role`, headers: delegate,
+      payload: { roleId: operatorRole.id, expectedVersion: 1 } })).statusCode, 409);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${childUser.id}/role`, headers: delegate,
+      payload: { roleId: childRole.id, expectedVersion: 2 } })).statusCode, 200);
+    await prisma.user.update({ where: { id: childUser.id }, data: { active: false } });
+    assert.equal((await app.inject({ method: 'DELETE', url: `/admin/roles/${childRole.id}`, headers: owner,
+      payload: { expectedVersion: 1 } })).statusCode, 409);
+    for (const payload of [
+      { name: 'Elevação', permissions: ['statements.read'] },
+      { name: 'Elevação', permissions: ['roles.manage'] },
+    ]) assert.equal((await app.inject({ method: 'POST', url: '/admin/roles', headers: delegate, payload })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/roles/${adminRole.id}`, headers: delegate,
+      payload: { name: adminRole.name, permissions: adminRole.permissions, expectedVersion: 1 } })).statusCode, 403);
+    const list = await app.inject({ method: 'GET', url: '/admin/roles', headers: owner });
+    assert.equal(list.statusCode, 200);
+    assert.equal(list.json<{ permissions: { code: string; ownerOnly: boolean }[] }>().permissions.find((permission) => permission.code === 'roles.manage')?.ownerOnly, false);
+    const protectedRole = list.json<{ roles: { id: string; protected: boolean }[] }>().roles.find((role) => role.protected)!;
+    assert.equal((await app.inject({ method: 'DELETE', url: `/admin/roles/${protectedRole.id}`, headers: owner, payload: { expectedVersion: 1 } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'DELETE', url: `/admin/roles/${operatorRole.id}`, headers: owner, payload: { expectedVersion: 1 } })).statusCode, 409);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${admin.id}/role`, headers: delegate,
+      payload: { roleId: operatorRole.id, expectedVersion: 1 } })).statusCode, 403);
+    const otherRole = await prisma.tenantRole.findFirstOrThrow({ where: { establishmentId: integrationEstablishmentId } });
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/roles/${otherRole.id}`, headers: owner,
+      payload: { name: 'Cross tenant', permissions: [], expectedVersion: 1 } })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${operator.id}/role`, headers: owner,
+      payload: { roleId: otherRole.id, expectedVersion: 1 } })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'GET', url: '/counter-sales', headers: operatorHeaders })).statusCode, 200);
+    for (const url of ['/quick-sales', '/tables', '/credit-customers', '/delivery/orders']) {
+      assert.equal((await app.inject({ method: 'GET', url, headers: operatorHeaders })).statusCode, 403, url);
+    }
+    const opened = await app.inject({ method: 'POST', url: '/counter-sales', headers: operatorHeaders, payload: { requestId: 'roles-counter-open-001' } });
+    assert.equal(opened.statusCode, 200, opened.body);
+    const counterId = opened.json<{ comanda: { id: string } }>().comanda.id;
+    assert.equal((await app.inject({ method: 'GET', url: `/comandas/${counterId}`, headers: operatorHeaders })).statusCode, 200);
+    const ownerId = tenant.users[0].id;
+    const quick = await persistence.comandas.openQuickSale(tenant.id, 'Cliente', ownerId);
+    const table = await prisma.restaurantTable.findFirstOrThrow({ where: { establishmentId: tenant.id } });
+    const mesa = await persistence.comandas.openForTable(tenant.id, table.id, null, ownerId);
+    const customer = await persistence.credits.createCustomer(tenant.id, 'Cliente de fiado', ownerId);
+    const creditOrder = await persistence.credits.createOrder(tenant.id, customer.id, ownerId);
+    const delivery = await persistence.deliveries.createOrder(tenant.id, { customerName: 'Cliente', phone: '11999999999', address: 'Rua de teste', feeCents: 0 }, ownerId);
+    for (const id of [quick.id, mesa.id, creditOrder.comandaId, delivery.comandaId]) {
+      assert.equal((await app.inject({ url: `/comandas/${id}/checkout-summary`, headers: operatorHeaders })).statusCode, 403);
+      for (const method of ['GET', 'POST'] as const) {
+        const url = `/comandas/${id}${method === 'POST' ? '/items' : ''}`;
+        const response = await app.inject({ method, url, headers: operatorHeaders, ...(method === 'POST' ? { payload: { productId: 'invalid' } } : {}) });
+        assert.equal(response.statusCode, 403, response.body);
+      }
+    }
+    assert.equal((await app.inject({ method: 'GET', url: `/comandas/${quick.id}/print-document?kind=CONFIRMED`, headers: operatorHeaders })).statusCode, 403);
+    const update = await app.inject({ method: 'PATCH', url: `/admin/roles/${operatorRole.id}`, headers: owner,
+      payload: { name: operatorRole.name, permissions: ['counter-sales.read', 'products.read'], expectedVersion: 1 } });
+    assert.equal(update.statusCode, 200, update.body);
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/roles/${operatorRole.id}`, headers: owner,
+      payload: { name: operatorRole.name, permissions: [], expectedVersion: 1 } })).statusCode, 409);
+    assert.equal((await app.inject({ method: 'POST', url: '/counter-sales', headers: operatorHeaders, payload: { requestId: 'roles-counter-open-002' } })).statusCode, 403);
+    const me = await app.inject({ method: 'GET', url: '/auth/me', headers: operatorHeaders });
+    assert.ok(!me.json<{ user: { permissions: string[] } }>().user.permissions.includes('counter-sales.write'));
+    const unused = await createRole('Cargo sem usuários', [], owner);
+    const deletes = await Promise.all([1, 1].map((expectedVersion) => app.inject({ method: 'DELETE', url: `/admin/roles/${unused.id}`, headers: owner, payload: { expectedVersion } })));
+    assert.deepEqual(deletes.map((response) => response.statusCode).sort(), [204, 404]);
+    assert.equal(await prisma.auditLog.count({ where: { establishmentId: tenant.id, action: 'ROLE_DELETED', resourceId: unused.id } }), 1);
+    const atomic = await createRole('Cargo atômico', ['counter-sales.read']);
+    assert.match(atomic.id, /^[a-z0-9]+$/);
+    await prisma.$executeRawUnsafe(`ALTER TABLE AuditLog ADD CONSTRAINT roles_audit_failure CHECK (NOT (action = 'ROLE_UPDATED' AND resourceId = '${atomic.id}'))`);
+    try {
+      const failure = await app.inject({ method: 'PATCH', url: `/admin/roles/${atomic.id}`, headers: owner,
+        payload: { name: 'Não deve persistir', permissions: [], expectedVersion: 1 } });
+      assert.equal(failure.statusCode, 503);
+      const unchanged = await prisma.tenantRole.findUniqueOrThrow({ where: { id: atomic.id }, include: { permissions: true } });
+      assert.equal(unchanged.version, 1); assert.equal(unchanged.name, atomic.name); assert.equal(unchanged.permissions.length, 1);
+      assert.equal(await prisma.auditLog.count({ where: { action: 'ROLE_UPDATED', resourceId: atomic.id } }), 0);
+    } finally { await prisma.$executeRawUnsafe('ALTER TABLE AuditLog DROP CHECK roles_audit_failure'); }
+    const concurrentEdits = await Promise.all(['Cargo concorrente A', 'Cargo concorrente B'].map((name) => app.inject({
+      method: 'PATCH', url: `/admin/roles/${atomic.id}`, headers: owner, payload: { name, permissions: [], expectedVersion: 1 },
+    })));
+    assert.deepEqual(concurrentEdits.map((response) => response.statusCode).sort(), [200, 409]);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'ROLE_UPDATED', resourceId: atomic.id } }), 1);
+    const customized = await prisma.tenantRole.findUniqueOrThrow({ where: { id: atomic.id }, include: { permissions: true } });
+    await ensureSystemAccessControl(prisma);
+    assert.deepEqual(await prisma.tenantRole.findUniqueOrThrow({ where: { id: atomic.id }, include: { permissions: true } }), customized);
+    const financeRole = await createRole('Financeiro', ['credits.read', 'credits.write', 'products.read']);
+    await createUser('Roles Finance Operator', financeRole.id);
+    const financeHeaders = await login('Roles Finance Operator');
+    assert.equal((await app.inject({ method: 'GET', url: '/credit-customers', headers: financeHeaders })).statusCode, 200);
+    assert.equal((await app.inject({ method: 'GET', url: `/comandas/${creditOrder.comandaId}`, headers: financeHeaders })).statusCode, 200);
+    const tableRole = await createRole('Operador de mesas', ['comandas.read', 'comandas.write', 'products.read']);
+    await createUser('Roles Table Operator', tableRole.id);
+    const tableHeaders = await login('Roles Table Operator');
+    const product = await prisma.product.findFirstOrThrow({ where: { establishmentId: tenant.id, active: true } });
+    const added = await persistence.comandas.addItem(tenant.id, mesa.id, product.id, ownerId);
+    await persistence.comandas.confirmItemsBatch(tenant.id, mesa.id, { requestId: 'roles-source-race-confirm', items: added.items.map((item) => ({
+      itemId: item.id, expectedQuantity: item.quantity, expectedConfirmedQuantity: item.confirmedQuantity,
+    })) }, ownerId);
+    // A second authenticated operation changes the persisted origin after the first request's pre-handler.
+    const addItem = persistence.comandas.addItem.bind(persistence.comandas);
+    persistence.comandas.addItem = async (...args) => {
+      persistence.comandas.addItem = addItem;
+      const conversion = await app.inject({ method: 'POST', url: `/comandas/${mesa.id}/credit`, headers: owner, payload: { customerId: customer.id } });
+      assert.equal(conversion.statusCode, 200, conversion.body);
+      return addItem(...args);
+    };
+    const race = await app.inject({ method: 'POST', url: `/comandas/${mesa.id}/items`, headers: tableHeaders, payload: { productId: product.id } });
+    assert.equal(race.statusCode, 403, race.body);
+    const afterRace = await persistence.comandas.findById(tenant.id, mesa.id);
+    assert.ok(afterRace.items.every((item) => item.quantity === item.confirmedQuantity));
+    const secondOwner = await createUser('Roles Second Owner', protectedRole.id);
+    const secondOwnerHeaders = await login('Roles Second Owner');
+    assert.equal((await app.inject({ method: 'PATCH', url: `/admin/users/${ownerId}/role`, headers: owner,
+      payload: { roleId: operatorRole.id, expectedVersion: 1 } })).statusCode, 403);
+    const demotions = await Promise.all([
+      app.inject({ method: 'PATCH', url: `/admin/users/${secondOwner.id}/role`, headers: owner, payload: { roleId: operatorRole.id, expectedVersion: 1 } }),
+      app.inject({ method: 'PATCH', url: `/admin/users/${ownerId}/role`, headers: secondOwnerHeaders, payload: { roleId: operatorRole.id, expectedVersion: 1 } }),
+    ]);
+    assert.deepEqual(demotions.map((response) => response.statusCode).sort(), [200, 403]);
+    assert.equal(await prisma.user.count({ where: { establishmentId: tenant.id, active: true, localRole: { protected: true } } }), 1);
+  } finally { await app.close(); await cleanupEstablishment(name); }
+});
+
 async function cleanupEstablishment(name: string) {
   const establishment = await prisma.establishment.findUnique({
     select: { id: true },
@@ -78,6 +436,8 @@ async function cleanupEstablishment(name: string) {
       data: { activeComandaId: null, status: "FREE" },
       where: { establishmentId },
     });
+    await transaction.counterSaleOperation.deleteMany({ where: { establishmentId } });
+    await transaction.comandaCheckoutOperation.deleteMany({ where: { establishmentId } });
     await transaction.paymentAllocation.deleteMany({ where: { establishmentId } });
     await transaction.payment.deleteMany({
       where: { establishmentId },
@@ -95,6 +455,9 @@ async function cleanupEstablishment(name: string) {
     await transaction.kitchenTicketItemConfiguration.deleteMany({ where: { establishmentId } });
     await transaction.kitchenTicketItem.deleteMany({ where: { establishmentId } });
     await transaction.kitchenTicket.deleteMany({ where: { establishmentId } });
+    await transaction.comandaConfirmationBatch.deleteMany({
+      where: { establishmentId },
+    });
     await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemAdditional.deleteMany({ where: { establishmentId } });
     await transaction.comandaItemConfiguration.deleteMany({ where: { establishmentId } });
@@ -121,6 +484,7 @@ async function cleanupEstablishment(name: string) {
       where: { user: { establishmentId } },
     });
     await transaction.user.deleteMany({ where: { establishmentId } });
+    await transaction.tenantRole.deleteMany({ where: { establishmentId } });
     await transaction.product.deleteMany({ where: { establishmentId } });
     await transaction.additional.deleteMany({ where: { establishmentId } });
     await transaction.menuCategory.deleteMany({ where: { establishmentId } });
@@ -163,6 +527,90 @@ async function createAuthenticatedApp(
 
   return app;
 }
+
+void test('counter sales persist retries, isolate tenants, serialize item changes and record external payment once', async () => {
+  const repository = createComandaRepository(prisma);
+  const counter = repository.counterSales;
+  assert.ok(counter, 'Counter sales repository must be available');
+  const actor = await prisma.user.findFirstOrThrow({ where: { establishmentId: counterEstablishmentId } });
+  const tenant = counterEstablishmentId;
+  const [opened, retry] = await Promise.all([
+    counter.open(tenant, actor.id, 'counter-open-001'), counter.open(tenant, actor.id, 'counter-open-001'),
+  ]);
+  assert.equal(opened.id, retry.id);
+  assert.equal(opened.name, null);
+  assert.equal(opened.tableName, 'Balcão');
+  assert.ok(opened.counterSnapshot);
+  assert.equal((await repository.listQuickSales(tenant)).some((sale) => sale.id === opened.id), false);
+  await assert.rejects(counter.complete('foreign-tenant', actor.id, opened.id, 'counter-close-001', opened.counterSnapshot));
+  await assert.rejects(counter.complete(tenant, actor.id, opened.id, 'counter-close-empty', opened.counterSnapshot));
+  await assert.rejects(counter.complete(tenant, actor.id, opened.id, 'counter-open-001', opened.counterSnapshot));
+  const category = await prisma.menuCategory.findFirstOrThrow({ where: { establishmentId: tenant } });
+  const product = await prisma.product.create({ data: { establishmentId: tenant, categoryId: category.id,
+    code: 'counter-integration', name: 'Counter integration item', priceCents: 500, requiresKitchen: true } });
+  const added = await repository.addItem(tenant, opened.id, product.id, actor.id);
+  assert.ok(added.counterSnapshot);
+  await assert.rejects(counter.complete(tenant, actor.id, opened.id, 'counter-close-pending', added.counterSnapshot));
+  const confirmation = { requestId: 'counter-batch-confirm', items: [{ itemId: added.items[0].id,
+    expectedQuantity: added.items[0].quantity, expectedConfirmedQuantity: added.items[0].confirmedQuantity }] };
+  await Promise.all([
+    repository.confirmItemsBatch(tenant, opened.id, confirmation, actor.id),
+    repository.confirmItemsBatch(tenant, opened.id, confirmation, actor.id),
+  ]);
+  const renamed = await counter.rename(tenant, actor.id, opened.id, 'Cliente balcão');
+  assert.equal(renamed.name, 'Cliente balcão');
+  const snapshot = renamed.counterSnapshot;
+  assert.ok(snapshot);
+  await assert.rejects(counter.complete(tenant, actor.id, opened.id, 'counter-close-stale', opened.counterSnapshot));
+  const closed = await Promise.all([
+    counter.complete(tenant, actor.id, opened.id, 'counter-close-001', snapshot),
+    counter.complete(tenant, actor.id, opened.id, 'counter-close-001', snapshot),
+  ]);
+  assert.ok(closed.every((sale) => sale.status === 'CLOSED'));
+  assert.equal(closed[0].payments.length, 1);
+  assert.equal(closed[0].payments[0].origin, 'COUNTER_CHECKOUT');
+  assert.deepEqual(closed[0].payments[0].allocations.map(({ amountCents, method }) => ({ amountCents, method })), [{ amountCents: 500, method: 'COUNTER' }]);
+  assert.equal(await prisma.comandaEvent.count({ where: { comandaId: opened.id, type: 'CLOSED' } }), 1);
+  assert.equal(await prisma.kitchenTicket.count({ where: { comandaId: opened.id } }), 1);
+  assert.equal(await prisma.auditLog.count({ where: { resourceId: opened.id, action: 'COUNTER_SALE_COMPLETED' } }), 1);
+  await assert.rejects(counter.complete(tenant, actor.id, opened.id, 'counter-close-new-key', snapshot));
+  await assert.rejects(counter.rename(tenant, actor.id, opened.id, 'Changed'));
+  const race = await counter.open(tenant, actor.id, 'counter-open-race');
+  const raceItem = await repository.addItem(tenant, race.id, product.id, actor.id);
+  await repository.confirmItem(tenant, race.id, raceItem.items[0].id, actor.id);
+  const raceReady = await repository.findById(tenant, race.id);
+  assert.ok(raceReady.counterSnapshot);
+  const outcomes = await Promise.allSettled([
+    counter.complete(tenant, actor.id, race.id, 'counter-close-race', raceReady.counterSnapshot), repository.addItem(tenant, race.id, product.id, actor.id),
+  ]);
+  assert.equal(outcomes.filter((result) => result.status === 'fulfilled').length, 1);
+});
+
+void test('counter sales dates use Sao Paulo and failed payments roll back the whole completion', async () => {
+  const tenant = counterEstablishmentId;
+  const actor = await prisma.user.findFirstOrThrow({ where: { establishmentId: tenant } });
+  let now = new Date('2026-10-16T02:59:59.000Z');
+  const repository = createComandaRepository(prisma, () => now);
+  const counter = repository.counterSales;
+  assert.ok(counter);
+  const opened = await counter.open(tenant, actor.id, 'counter-boundary-open');
+  const product = await prisma.product.findFirstOrThrow({ where: { establishmentId: tenant, active: true, priceCents: { gt: 0 } } });
+  const added = await repository.addItem(tenant, opened.id, product.id, actor.id);
+  await repository.confirmItem(tenant, opened.id, added.items[0].id, actor.id);
+  const ready = await repository.findById(tenant, opened.id);
+  assert.ok(ready.counterSnapshot);
+  await assert.rejects(counter.complete(tenant, 'missing-actor', opened.id, 'counter-rollback-close', ready.counterSnapshot));
+  assert.equal((await repository.findById(tenant, opened.id)).status, 'OPEN');
+  assert.equal(await prisma.payment.count({ where: { comandaId: opened.id } }), 0);
+  assert.equal(await prisma.counterSaleOperation.count({ where: { comandaId: opened.id, action: 'COMPLETE' } }), 0);
+  now = new Date('2026-10-16T03:00:00.000Z');
+  await counter.complete(tenant, actor.id, opened.id, 'counter-boundary-close', ready.counterSnapshot);
+  assert.equal((await counter.list(tenant, 'CLOSED', '2026-10-15')).some((sale) => sale.id === opened.id), false);
+  assert.equal((await counter.list(tenant, 'CLOSED', '2026-10-16')).some((sale) => sale.id === opened.id), true);
+  assert.equal((await counter.list(integrationEstablishmentId, 'CLOSED', '2026-10-16')).some((sale) => sale.id === opened.id), false);
+  const cancelled = await counter.open(tenant, actor.id, 'counter-empty-cancel');
+  assert.equal((await repository.cancel(tenant, cancelled.id, null, false, actor.id)).status, 'CANCELLED');
+});
 
 void test("GET /ready connects to the configured MySQL database", async () => {
   const app = await createAuthenticatedApp();
@@ -4292,14 +4740,14 @@ void test("admin users: owner creates roles with tenant isolation and atomic aud
       const response = await app.inject({ method: "POST", url: "/admin/users", payload: { name, password, roleCode } });
       assert.equal(response.statusCode, 201, response.body);
       const { user } = response.json<{ user: AdminUser }>();
-      assert.deepEqual(Object.keys(user).sort(), ["active", "id", "name", "roles"]);
+      assert.deepEqual(Object.keys(user).sort(), ['active', 'canReassign', 'id', 'name', 'permissions', 'roleVersion', 'roles'].sort());
       assert.equal(user.active, true);
       assert.equal(user.roles.length, 1);
       assert.equal(user.roles[0].code, roleCode);
-      const persisted = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { roles: true } });
+      const persisted = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { localRole: true } });
       assert.equal(persisted.establishmentId, integrationEstablishmentId);
       assert.notEqual(persisted.passwordHash, password);
-      assert.equal(persisted.roles[0]?.assignedByUserId, owner.id);
+      assert.equal(persisted.localRole.code, roleCode);
       const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "USER_CREATED", resourceId: user.id } });
       assert.equal(audit.userId, owner.id);
       assert.equal(audit.establishmentId, integrationEstablishmentId);
@@ -4491,4 +4939,627 @@ void test("quick sales persist without tables and support normal checkout, cance
     await secondaryApp?.close();
     await cleanupEstablishment("Quick Sale Isolation Bistro");
   }
+});
+
+void test("batch confirmation is atomic, idempotent, concurrent-safe and tenant-scoped", async (t) => {
+  await resetOperationalData(prisma, integrationEstablishmentId);
+  const app = await createAuthenticatedApp();
+  t.after(() => app.close());
+  const category = await prisma.menuCategory.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId },
+  });
+  const missingRecipeProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "BATCH_MISSING_RECIPE",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto sem receita em lote",
+      priceCents: 900,
+      requiresKitchen: true,
+    },
+  });
+  const insufficientProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "BATCH_INSUFFICIENT_STOCK",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto com deficit em lote",
+      priceCents: 1_100,
+      requiresKitchen: true,
+    },
+  });
+  const ingredient = await prisma.ingredient.create({
+    data: {
+      code: "BATCH_INSUFFICIENT_STOCK",
+      establishmentId: integrationEstablishmentId,
+      name: "Insumo de lote sem saldo",
+      unit: "UNIT",
+    },
+  });
+  const stock = await prisma.inventoryStock.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      minimumQuantity: 0,
+      quantity: 0,
+    },
+  });
+  await prisma.productIngredient.create({
+    data: {
+      establishmentId: integrationEstablishmentId,
+      ingredientId: ingredient.id,
+      productId: insufficientProduct.id,
+      quantity: 2,
+    },
+  });
+
+  const openSale = async (name: string) => {
+    const response = await app.inject({
+      method: "POST",
+      payload: { name },
+      url: "/quick-sales",
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    return response.json<{ comanda: Comanda }>().comanda;
+  };
+  const addProduct = async (comandaId: string, productId: string) => {
+    const response = await app.inject({
+      method: "POST",
+      payload: { productId },
+      url: `/comandas/${comandaId}/items`,
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    return response
+      .json<{ comanda: Comanda }>()
+      .comanda.items.find((item) => item.productId === productId)!;
+  };
+  const createPendingBatch = async (name: string) => {
+    const comanda = await openSale(name);
+    const first = await addProduct(comanda.id, missingRecipeProduct.id);
+    const second = await addProduct(comanda.id, insufficientProduct.id);
+    return {
+      comanda,
+      items: [first, second].map((item) => ({
+        expectedConfirmedQuantity: item.confirmedQuantity,
+        expectedQuantity: item.quantity,
+        itemId: item.id,
+      })),
+    };
+  };
+
+  const firstBatch = await createPendingBatch("Lote atomico");
+  const conflicting = await app.inject({
+    method: "POST",
+    payload: {
+      items: [
+        firstBatch.items[0],
+        { ...firstBatch.items[1], expectedQuantity: 2 },
+      ],
+      requestId: "batch-atomic-conflict",
+    },
+    url: `/comandas/${firstBatch.comanda.id}/items/confirm-batch`,
+  });
+  assert.equal(conflicting.statusCode, 409, conflicting.body);
+  assert.equal(
+    await prisma.comandaItem.count({
+      where: {
+        comandaId: firstBatch.comanda.id,
+        confirmedQuantity: { gt: 0 },
+      },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.comandaConfirmationBatch.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.kitchenTicket.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.inventoryOperation.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    0,
+  );
+
+  const payload = {
+    items: firstBatch.items,
+    requestId: "batch-atomic-success",
+  };
+  const confirmed = await app.inject({
+    method: "POST",
+    payload,
+    url: `/comandas/${firstBatch.comanda.id}/items/confirm-batch`,
+  });
+  assert.equal(confirmed.statusCode, 200, confirmed.body);
+  const confirmedBody = confirmed.json<{
+    comanda: Comanda;
+    inventoryWarnings: Array<{ type: string }>;
+    replayed: boolean;
+  }>();
+  assert.equal(confirmedBody.replayed, false);
+  assert.equal(
+    confirmedBody.comanda.items.every(
+      (item) => item.confirmedQuantity === item.quantity,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    confirmedBody.inventoryWarnings.map(({ type }) => type).sort(),
+    ["INSUFFICIENT_STOCK", "MISSING_RECIPE"],
+  );
+  assert.equal(
+    await prisma.kitchenTicket.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    2,
+  );
+  assert.equal(
+    await prisma.inventoryOperation.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    2,
+  );
+  assert.deepEqual(
+    await prisma.inventoryStock.findUniqueOrThrow({
+      select: { deficitQuantity: true, quantity: true },
+      where: { id: stock.id },
+    }),
+    { deficitQuantity: 2, quantity: -2 },
+  );
+  assert.equal(
+    await prisma.auditLog.count({
+      where: {
+        action: "COMANDA_ITEMS_CONFIRMED_BATCH",
+        establishmentId: integrationEstablishmentId,
+        resourceId: firstBatch.comanda.id,
+      },
+    }),
+    1,
+  );
+
+  const replay = await app.inject({
+    method: "POST",
+    payload,
+    url: `/comandas/${firstBatch.comanda.id}/items/confirm-batch`,
+  });
+  assert.equal(replay.statusCode, 200, replay.body);
+  assert.equal(replay.json<{ replayed: boolean }>().replayed, true);
+  assert.equal(
+    await prisma.kitchenTicket.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    2,
+  );
+  assert.equal(
+    await prisma.inventoryOperation.count({
+      where: { comandaId: firstBatch.comanda.id },
+    }),
+    2,
+  );
+  const fingerprintConflict = await app.inject({
+    method: "POST",
+    payload: {
+      items: payload.items.map((item, index) =>
+        index === 0 ? { ...item, expectedQuantity: item.expectedQuantity + 1 } : item,
+      ),
+      requestId: payload.requestId,
+    },
+    url: `/comandas/${firstBatch.comanda.id}/items/confirm-batch`,
+  });
+  assert.equal(fingerprintConflict.statusCode, 409, fingerprintConflict.body);
+
+  const concurrentBatch = await createPendingBatch("Lote concorrente");
+  const concurrentPayload = {
+    items: concurrentBatch.items,
+    requestId: "batch-concurrent-retry",
+  };
+  const concurrentResponses = await Promise.all([
+    app.inject({
+      method: "POST",
+      payload: concurrentPayload,
+      url: `/comandas/${concurrentBatch.comanda.id}/items/confirm-batch`,
+    }),
+    app.inject({
+      method: "POST",
+      payload: concurrentPayload,
+      url: `/comandas/${concurrentBatch.comanda.id}/items/confirm-batch`,
+    }),
+  ]);
+  assert.deepEqual(
+    concurrentResponses.map(({ statusCode }) => statusCode),
+    [200, 200],
+  );
+  assert.equal(
+    await prisma.comandaConfirmationBatch.count({
+      where: {
+        establishmentId: integrationEstablishmentId,
+        requestId: concurrentPayload.requestId,
+      },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.kitchenTicket.count({
+      where: { comandaId: concurrentBatch.comanda.id },
+    }),
+    2,
+  );
+  assert.equal(
+    await prisma.inventoryOperation.count({
+      where: { comandaId: concurrentBatch.comanda.id },
+    }),
+    2,
+  );
+
+  const isolationName = "Batch Isolation Bistro";
+  await provisionEstablishment(prisma, {
+    name: isolationName,
+    ownerName: "Batch Isolation Owner",
+    ownerPassword: integrationUserPassword,
+  });
+  const otherApp = await createAuthenticatedApp(
+    "Batch Isolation Owner",
+    integrationUserPassword,
+  );
+  try {
+    const isolated = await otherApp.inject({
+      method: "POST",
+      payload,
+      url: `/comandas/${firstBatch.comanda.id}/items/confirm-batch`,
+    });
+    assert.equal(isolated.statusCode, 404, isolated.body);
+  } finally {
+    await otherApp.close();
+    await cleanupEstablishment(isolationName);
+  }
+});
+
+void test("absolute pending quantity and discard preserve confirmed items atomically", async () => {
+  const app = await createAuthenticatedApp();
+  const products = await prisma.product.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true },
+    take: 2,
+    where: { active: true, establishmentId: integrationEstablishmentId },
+  });
+  assert.equal(products.length, 2);
+
+  try {
+    const opened = await app.inject({
+      method: "POST",
+      payload: { name: "Quantidade direta" },
+      url: "/quick-sales",
+    });
+    assert.equal(opened.statusCode, 201);
+    const comandaId = opened.json<{ comanda: Comanda }>().comanda.id;
+
+    const firstAdded = await app.inject({
+      method: "POST",
+      payload: { productId: products[0].id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    const firstItemId = firstAdded.json<{ comanda: Comanda }>().comanda.items[0].id;
+
+    const setQuantity = await app.inject({
+      method: "PATCH",
+      payload: { pendingQuantity: 7 },
+      url: `/comandas/${comandaId}/items/${firstItemId}`,
+    });
+    assert.equal(setQuantity.statusCode, 200);
+    assert.equal(
+      setQuantity
+        .json<{ comanda: Comanda }>()
+        .comanda.items.find(({ id }) => id === firstItemId)?.quantity,
+      7,
+    );
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/comandas/${comandaId}/items/${firstItemId}/confirm`,
+    });
+    assert.equal(confirmed.statusCode, 200);
+
+    await app.inject({
+      method: "POST",
+      payload: { productId: products[0].id },
+      url: `/comandas/${comandaId}/items`,
+    });
+    await app.inject({
+      method: "POST",
+      payload: { productId: products[1].id },
+      url: `/comandas/${comandaId}/items`,
+    });
+
+    const discarded = await app.inject({
+      method: "DELETE",
+      url: `/comandas/${comandaId}/items/pending`,
+    });
+    assert.equal(discarded.statusCode, 200);
+    const remainingItems = discarded.json<{ comanda: Comanda }>().comanda.items;
+    assert.equal(remainingItems.length, 1);
+    assert.equal(remainingItems[0].id, firstItemId);
+    assert.equal(remainingItems[0].confirmedQuantity, 7);
+    assert.equal(remainingItems[0].quantity, 7);
+
+    const configurations = await prisma.comandaItemConfiguration.findMany({
+      select: { confirmedQuantity: true, quantity: true },
+      where: { comandaItemId: firstItemId },
+    });
+    assert.ok(configurations.length > 0);
+    assert.ok(
+      configurations.every(
+        ({ confirmedQuantity, quantity }) => quantity === confirmedQuantity,
+      ),
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+void test("today dashboard scopes live metrics by tenant and permission", async (t) => {
+  await resetOperationalData(prisma, integrationEstablishmentId);
+  const ownerApp = await createAuthenticatedApp();
+  t.after(() => ownerApp.close());
+  const category = await prisma.menuCategory.findFirstOrThrow({
+    where: { establishmentId: integrationEstablishmentId },
+  });
+  const kitchenProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "DASHBOARD_KITCHEN_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto painel cozinha",
+      priceCents: 800,
+      requiresKitchen: true,
+    },
+  });
+  const saleProduct = await prisma.product.create({
+    data: {
+      categoryId: category.id,
+      code: "DASHBOARD_SALE_PRODUCT",
+      establishmentId: integrationEstablishmentId,
+      name: "Produto painel venda",
+      priceCents: 1_250,
+      requiresKitchen: false,
+    },
+  });
+  const tables = await prisma.restaurantTable.findMany({
+    orderBy: { number: "asc" },
+    take: 2,
+    where: { establishmentId: integrationEstablishmentId },
+  });
+  assert.equal(tables.length, 2);
+  for (const table of tables) {
+    const opened = await ownerApp.inject({
+      method: "POST",
+      url: `/tables/${table.id}/comandas`,
+    });
+    assert.equal(opened.statusCode, 201, opened.body);
+  }
+  const firstTable = await prisma.restaurantTable.findUniqueOrThrow({
+    where: { id: tables[0].id },
+  });
+  assert.ok(firstTable.activeComandaId);
+  const kitchenItemResponse = await ownerApp.inject({
+    method: "POST",
+    payload: { productId: kitchenProduct.id },
+    url: `/comandas/${firstTable.activeComandaId}/items`,
+  });
+  assert.equal(kitchenItemResponse.statusCode, 200, kitchenItemResponse.body);
+  const kitchenItem = kitchenItemResponse
+    .json<{ comanda: Comanda }>()
+    .comanda.items.find((item) => item.productId === kitchenProduct.id)!;
+  const kitchenConfirmation = await ownerApp.inject({
+    method: "POST",
+    url: `/comandas/${firstTable.activeComandaId}/items/${kitchenItem.id}/confirm`,
+  });
+  assert.equal(kitchenConfirmation.statusCode, 200, kitchenConfirmation.body);
+  await prisma.restaurantTable.update({
+    data: { status: "AWAITING_CHECK" },
+    where: { id: tables[1].id },
+  });
+
+  const quickSaleResponse = await ownerApp.inject({
+    method: "POST",
+    payload: { name: "Venda do painel" },
+    url: "/quick-sales",
+  });
+  assert.equal(quickSaleResponse.statusCode, 201, quickSaleResponse.body);
+  const quickSale = quickSaleResponse.json<{ comanda: Comanda }>().comanda;
+  const saleItemResponse = await ownerApp.inject({
+    method: "POST",
+    payload: { productId: saleProduct.id },
+    url: `/comandas/${quickSale.id}/items`,
+  });
+  assert.equal(saleItemResponse.statusCode, 200, saleItemResponse.body);
+  const saleItem = saleItemResponse
+    .json<{ comanda: Comanda }>()
+    .comanda.items.find((item) => item.productId === saleProduct.id)!;
+  const saleConfirmation = await ownerApp.inject({
+    method: "POST",
+    url: `/comandas/${quickSale.id}/items/${saleItem.id}/confirm`,
+  });
+  assert.equal(saleConfirmation.statusCode, 200, saleConfirmation.body);
+  const closeSale = await ownerApp.inject({
+    method: "POST",
+    payload: {
+      payments: [{ amountCents: saleProduct.priceCents, method: "PIX" }],
+    },
+    url: `/comandas/${quickSale.id}/close`,
+  });
+  assert.equal(closeSale.statusCode, 200, closeSale.body);
+
+  const ownerDashboard = await ownerApp.inject({
+    method: "GET",
+    url: "/dashboard/today",
+  });
+  assert.equal(ownerDashboard.statusCode, 200, ownerDashboard.body);
+  const ownerToday = ownerDashboard.json<{
+    today: {
+      closedSalesCents: number | null;
+      date: string;
+      occupiedTables: number | null;
+      pendingKitchenTickets: number | null;
+    };
+  }>().today;
+  assert.equal(ownerToday.closedSalesCents, saleProduct.priceCents);
+  assert.equal(ownerToday.occupiedTables, 2);
+  assert.equal(ownerToday.pendingKitchenTickets, 1);
+  assert.equal(
+    ownerToday.date,
+    new Intl.DateTimeFormat("en-CA", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+    }).format(new Date()),
+  );
+
+  await provisionUser(prisma, {
+    establishmentName: integrationEstablishmentName,
+    name: "Dashboard Waiter",
+    password: integrationUserPassword,
+    roleCodes: ["WAITER"],
+  });
+  await provisionUser(prisma, {
+    establishmentName: integrationEstablishmentName,
+    name: "Dashboard Kitchen",
+    password: integrationUserPassword,
+    roleCodes: ["KITCHEN"],
+  });
+  const waiterApp = await createAuthenticatedApp(
+    "Dashboard Waiter",
+    integrationUserPassword,
+  );
+  const kitchenApp = await createAuthenticatedApp(
+    "Dashboard Kitchen",
+    integrationUserPassword,
+  );
+  try {
+    const waiterToday = (
+      await waiterApp.inject({ method: "GET", url: "/dashboard/today" })
+    ).json<{ today: typeof ownerToday }>().today;
+    assert.equal(waiterToday.closedSalesCents, null);
+    assert.equal(waiterToday.occupiedTables, 2);
+    assert.equal(waiterToday.pendingKitchenTickets, null);
+
+    const kitchenToday = (
+      await kitchenApp.inject({ method: "GET", url: "/dashboard/today" })
+    ).json<{ today: typeof ownerToday }>().today;
+    assert.equal(kitchenToday.closedSalesCents, null);
+    assert.equal(kitchenToday.occupiedTables, 2);
+    assert.equal(kitchenToday.pendingKitchenTickets, 1);
+  } finally {
+    await waiterApp.close();
+    await kitchenApp.close();
+  }
+
+  const isolationName = "Dashboard Isolation Bistro";
+  await provisionEstablishment(prisma, {
+    name: isolationName,
+    ownerName: "Dashboard Isolation Owner",
+    ownerPassword: integrationUserPassword,
+  });
+  const otherApp = await createAuthenticatedApp(
+    "Dashboard Isolation Owner",
+    integrationUserPassword,
+  );
+  try {
+    const otherToday = (
+      await otherApp.inject({ method: "GET", url: "/dashboard/today" })
+    ).json<{ today: typeof ownerToday }>().today;
+    assert.equal(otherToday.closedSalesCents, 0);
+    assert.equal(otherToday.occupiedTables, 0);
+    assert.equal(otherToday.pendingKitchenTickets, 0);
+  } finally {
+    await otherApp.close();
+    await cleanupEstablishment(isolationName);
+  }
+});
+
+
+void test('counter printing filters live deliveries, blocks premature final, isolates access and has no operational side effects', async () => {
+  const repository = createComandaRepository(prisma);
+  const counter = repository.counterSales!;
+  const tenant = counterEstablishmentId;
+  const actor = await prisma.user.findFirstOrThrow({ where: { establishmentId: tenant } });
+  const category = await prisma.menuCategory.findFirstOrThrow({ where: { establishmentId: tenant } });
+  const product = await prisma.product.create({ data: { establishmentId: tenant, categoryId: category.id,
+    code: 'COUNTER_PRINT_DRINK', name: 'Café balcão impressão', priceCents: 500, requiresKitchen: false } });
+  const sale = await counter.open(tenant, actor.id, 'counter-print-open');
+  const app = await createAuthenticatedApp('Counter Integration Operator', integrationUserPassword);
+  const other = await createAuthenticatedApp();
+  const print = (kind: string) => app.inject({ url: `/comandas/${sale.id}/print-document?kind=${kind}` });
+  const state = async () => ({
+    sale: await repository.findById(tenant, sale.id),
+    payments: await prisma.payment.count({ where: { comandaId: sale.id } }),
+    audit: await prisma.auditLog.count({ where: { establishmentId: tenant } }),
+    movements: await prisma.inventoryMovement.count({ where: { establishmentId: tenant } }),
+    tickets: await prisma.kitchenTicket.count({ where: { comandaId: sale.id } }),
+  });
+  try {
+    for (const kind of ['COUNTER_PENDING', 'COUNTER_FINAL']) assert.equal((await print(kind)).statusCode, 409);
+    const added = await repository.addItem(tenant, sale.id, product.id, actor.id);
+    const itemId = added.items[0].id;
+    await repository.changeItemQuantity(tenant, sale.id, itemId, 1, actor.id);
+    await repository.changeItemQuantity(tenant, sale.id, itemId, 1, actor.id);
+    const before = await state();
+    for (const kind of ['COUNTER_PENDING', 'COUNTER_FINAL']) {
+      assert.equal((await other.inject({ url: `/comandas/${sale.id}/print-document?kind=${kind}` })).statusCode, 404);
+      assert.equal((await app.inject({ url: `/comandas/${sale.id}/print-document?kind=${kind}`, headers: { authorization: '' } })).statusCode, 401);
+    }
+    const pending = await print('COUNTER_PENDING');
+    assert.equal(pending.statusCode, 200, pending.body);
+    const pendingDocument = pending.json<{ document: { items: { quantity: number; unitPriceCents: number }[]; totalCents: number; serviceFee?: unknown } }>().document;
+    assert.equal(pendingDocument.items[0].quantity, 3);
+    assert.equal(pendingDocument.items[0].unitPriceCents, 500);
+    assert.equal(pendingDocument.totalCents, 1500);
+    assert.equal(pendingDocument.serviceFee, undefined);
+    assert.equal((await print('COUNTER_FINAL')).statusCode, 409);
+    assert.equal((await print('COUNTER_PENDING')).statusCode, 200);
+    assert.deepEqual(await state(), before);
+    await repository.confirmItem(tenant, sale.id, itemId, actor.id);
+    const delivered = await state();
+    assert.equal((await print('COUNTER_PENDING')).statusCode, 409);
+    const final = await print('COUNTER_FINAL');
+    assert.equal(final.statusCode, 200, final.body);
+    assert.equal(final.json<{ document: { totalCents: number } }>().document.totalCents, 1500);
+    assert.deepEqual(await state(), delivered);
+    await repository.addItem(tenant, sale.id, product.id, actor.id);
+    assert.equal((await print('COUNTER_FINAL')).statusCode, 409);
+    const newPending = await print('COUNTER_PENDING');
+    assert.equal(newPending.json<{ document: { totalCents: number } }>().document.totalCents, 500);
+    await repository.removeItem(tenant, sale.id, itemId, actor.id);
+    const updated = await print('COUNTER_FINAL');
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(updated.json<{ document: { totalCents: number } }>().document.totalCents, 1500);
+    // Printing permission alone cannot read counter sales or another operational source.
+    await provisionUser(prisma, { establishmentName: counterEstablishmentName, name: 'Counter Print Kitchen',
+      password: integrationUserPassword, roleCodes: ['KITCHEN'] });
+    const kitchenRole = await prisma.tenantRole.findUniqueOrThrow({ where: { establishmentId_code: { establishmentId: tenant, code: 'KITCHEN' } } });
+    await prisma.tenantRolePermission.deleteMany({ where: { roleId: kitchenRole.id, permission: { code: { in: ['counter-sales.read', 'counter-sales.write'] } } } });
+    const kitchen = await createAuthenticatedApp('Counter Print Kitchen', integrationUserPassword);
+    try {
+      for (const kind of ['COUNTER_PENDING', 'COUNTER_FINAL', 'CONFIRMED']) {
+        assert.equal((await kitchen.inject({ url: `/comandas/${sale.id}/print-document?kind=${kind}` })).statusCode, 403);
+      }
+    } finally { await kitchen.close(); }
+    const quick = await repository.openQuickSale(tenant, 'Impressão não balcão', actor.id);
+    assert.equal((await app.inject({ url: `/comandas/${quick.id}/print-document?kind=COUNTER_PENDING` })).statusCode, 409);
+    assert.equal((await app.inject({ url: `/comandas/${quick.id}/print-document?kind=COUNTER_FINAL` })).statusCode, 409);
+    assert.equal((await repository.findById(tenant, sale.id)).status, 'OPEN');
+    assert.equal(await prisma.payment.count({ where: { comandaId: sale.id } }), 0);
+    const cancelled = await counter.open(tenant, actor.id, 'counter-print-cancelled');
+    await repository.cancel(tenant, cancelled.id, null, false, actor.id);
+    for (const kind of ['COUNTER_PENDING', 'COUNTER_FINAL']) {
+      assert.equal((await app.inject({ url: `/comandas/${cancelled.id}/print-document?kind=${kind}` })).statusCode, 409);
+    }
+  } finally { await app.close(); await other.close(); }
 });

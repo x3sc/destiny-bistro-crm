@@ -35,7 +35,7 @@ export async function provisionUser(
     ...new Set(rawRoleCodes.map((code) => code.trim().toUpperCase())),
   ].filter(Boolean);
 
-  if (roleCodes.length === 0) {
+  if (roleCodes.length !== 1) {
     throw new AuthInputError();
   }
 
@@ -49,9 +49,9 @@ export async function provisionUser(
     throw new EstablishmentNotFoundError();
   }
 
-  const roles = await prisma.role.findMany({
+  const roles = await prisma.tenantRole.findMany({
     select: { id: true },
-    where: { code: { in: roleCodes } },
+    where: { establishmentId: establishment.id, code: { in: roleCodes } },
   });
 
   if (roles.length !== roleCodes.length) {
@@ -67,9 +67,7 @@ export async function provisionUser(
         name,
         normalizedName,
         passwordHash,
-        roles: {
-          create: roles.map(({ id }) => ({ roleId: id })),
-        },
+        localRoleId: roles[0].id,
       },
       select: {
         establishment: {
@@ -80,13 +78,7 @@ export async function provisionUser(
         },
         id: true,
         name: true,
-        roles: {
-          select: {
-            role: {
-              select: { code: true, name: true },
-            },
-          },
-        },
+        localRole: { select: { code: true, name: true } },
       },
     });
   } catch (error) {

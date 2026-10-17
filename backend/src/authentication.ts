@@ -5,6 +5,7 @@ import type {
 } from "fastify";
 import type { PermissionCode } from "./access-control.js";
 import type { AuthRepository, AuthUser } from "./auth-repository.js";
+import { requestAccess } from './comanda-source-access.js';
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -24,6 +25,7 @@ export function registerAuthentication(
 ) {
   app.decorateRequest("authToken", null);
   app.decorateRequest("authUser", null);
+  app.addHook('onRequest', (_request, _reply, done) => requestAccess.run({ actor: null }, done));
 
   app.addHook("preHandler", async (request, reply) => {
     if (request.routeOptions.config.authPublic === true) {
@@ -42,7 +44,10 @@ export function registerAuthentication(
 
     const permission = request.routeOptions.config.permission;
 
-    if (permission && !hasAppPermission(user, permission)) {
+    const shared = request.routeOptions.url?.startsWith('/comandas/') && (permission === 'comandas.read' || permission === 'comandas.write');
+    const allowed = shared ? ['comandas', 'credits', 'deliveries', 'quick-sales', 'counter-sales'].some((module) =>
+      user.permissions.includes(`${module}.${permission === 'comandas.write' ? 'write' : 'read'}`)) : !permission || hasAppPermission(user, permission);
+    if (!allowed) {
       return reply.code(403).send({
         message: "Permission denied",
         status: "error",
@@ -51,6 +56,9 @@ export function registerAuthentication(
 
     request.authToken = token;
     request.authUser = user;
+    const context = requestAccess.getStore();
+    if (!context) throw new Error('Request access context unavailable');
+    context.actor = user;
   });
 }
 
@@ -83,8 +91,5 @@ export type AuthorizationReply = FastifyReply;
 
 export function hasAppPermission(user: AuthUser | null, permission: string): boolean {
   if (!user?.permissions.includes(permission)) return false;
-  if (permission === 'credits.read' || permission === 'credits.write') {
-    return user.roles.some(({ code }) => code === 'OWNER' || code === 'MANAGER');
-  }
   return true;
 }

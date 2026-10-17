@@ -1,5 +1,11 @@
 import { type PrismaClient } from "./generated/prisma/client.js";
 import { createAuditData } from "./audit.js";
+import { checkoutFingerprint, checkoutSummary, CheckoutConflictError, CheckoutInputError } from './service-fee.js';
+import type { Prisma } from './generated/prisma/client.js';
+import {
+  buildBatchConfirmationFingerprint,
+  confirmComandaItemsBatch,
+} from "./comanda-batch-confirmation.js";
 import {
   buildComandaCancellationFingerprint,
   buildItemCancellationFingerprint,
@@ -11,7 +17,9 @@ import {
   addComandaItem,
   changeComandaItemQuantity,
   confirmComandaItem,
+  discardPendingComandaItems,
   removeComandaItem,
+  setComandaItemPendingQuantity,
 } from "./comanda-item-operations.js";
 import {
   cancelComandaItemConfiguration,
@@ -27,6 +35,7 @@ import {
   QUICK_SALE_TABLE_NAME,
   ComandaNotCancellableError,
   ComandaCancellationConflictError,
+  ComandaBatchConfirmationConflictError,
   ComandaInventoryPermissionError,
   ComandaNotClosableError,
   ComandaNotFoundError,
@@ -35,8 +44,14 @@ import {
   TableNotFoundError,
   TableUnavailableError,
   type ComandaRepository,
+  type ConfirmItemsBatchResult,
+  type InventoryWarning,
 } from "./comanda-types.js";
 import { createPayment } from "./payment-persistence.js";
+import { createCounterSalesRepository } from './counter-sales-repository.js';
+import { COUNTER_TABLE_NAME } from './counter-sales-types.js';
+import { lockCounterSale } from './counter-sales-lock.js';
+import { authorizeComandaMutation, assertComandaSource } from './comanda-source-access.js';
 import { paymentTotal } from "./payment-types.js";
 import {
   allocateComandaIdentity,
@@ -50,6 +65,15 @@ export function createComandaRepository(
   clock: Clock = () => new Date(),
 ): ComandaRepository {
   return {
+    counterSales: createCounterSalesRepository(prisma, clock),
+    async checkoutSummary(establishmentId, id) {
+      return prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM Comanda WHERE id = ${id} AND establishmentId = ${establishmentId} FOR SHARE`;
+        const comanda = await getComandaOrThrow(tx, establishmentId, id);
+        assertComandaSource(comanda, 'read');
+        return checkoutSummary(comanda);
+      });
+    },
     async openQuickSale(establishmentId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {
         const identity = await allocateComandaIdentity(
@@ -132,6 +156,8 @@ export function createComandaRepository(
 
       try {
         return await prisma.$transaction(async (transaction) => {
+          await lockCounterSale(transaction, establishmentId, id);
+          await authorizeComandaMutation(transaction, establishmentId, id);
           if (cancellationInput) {
             const replay = await transaction.inventoryOperation.findUnique({
               where: {
@@ -193,7 +219,7 @@ export function createComandaRepository(
         if (
           activeComanda.status !== "OPEN" ||
           (!activeComanda.activeForTable &&
-            !(activeComanda.tableId === null && activeComanda.tableName === QUICK_SALE_TABLE_NAME && !activeComanda.creditOrder)) ||
+            !(activeComanda.tableId === null && [QUICK_SALE_TABLE_NAME, COUNTER_TABLE_NAME].includes(activeComanda.tableName ?? '') && !activeComanda.creditOrder)) ||
           (activeComanda.items.length > 0 && !cancellationInput)
         ) {
           throw new ComandaNotCancellableError();
@@ -458,8 +484,26 @@ export function createComandaRepository(
       customerId,
       canCreateCredit,
       actorUserId,
+      checkout,
     ) {
       return prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT id FROM Comanda WHERE id = ${id} AND establishmentId = ${establishmentId} FOR UPDATE`;
+        await authorizeComandaMutation(transaction, establishmentId, id);
+        const fingerprint = checkout ? checkoutFingerprint({ establishmentId, id, actorUserId, checkout, customerId,
+          payments: [...payments].sort((a, b) => a.method.localeCompare(b.method)) }) : null;
+        const result = async () => {
+          const value = await getComandaOrThrow(transaction, establishmentId, id);
+          if (checkout) await transaction.comandaCheckoutOperation.create({ data: { establishmentId, comandaId: id, actorUserId,
+            requestId: checkout.requestId, requestFingerprint: fingerprint!, result: JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue } });
+          return value;
+        };
+        if (checkout) {
+          const replay = await transaction.comandaCheckoutOperation.findUnique({ where: { establishmentId_requestId: { establishmentId, requestId: checkout.requestId } } });
+          if (replay) {
+            if (replay.comandaId !== id || replay.actorUserId !== actorUserId || replay.requestFingerprint !== fingerprint) throw new CheckoutConflictError();
+            return replay.result as unknown as import('./comanda-types.js').Comanda;
+          }
+        }
         const activeComanda = await transaction.comanda.findFirst({
           select: {
             activeForTable: {
@@ -509,11 +553,22 @@ export function createComandaRepository(
           throw new ComandaNotClosableError();
         }
 
+        const quote = checkout ? checkoutSummary(await getComandaOrThrow(transaction, establishmentId, id)) : null;
+        if (checkout && quote) {
+          if (quote.expectedSnapshot !== checkout.expectedSnapshot) throw new CheckoutConflictError();
+          if (checkout.includeServiceFee && !quote.eligible) throw new CheckoutInputError();
+          if (!quote.canClose) throw new ComandaNotClosableError();
+        }
+        const feeAmountCents = checkout?.includeServiceFee ? quote!.serviceFee.amountCents : 0;
+        if (quote?.eligible) await transaction.comanda.update({ where: { id_establishmentId: { id, establishmentId } }, data: {
+          serviceFeeApplied: checkout!.includeServiceFee, serviceFeePercent: checkout!.includeServiceFee ? 10 : 0,
+          serviceFeeSubtotalCents: quote.subtotalCents, serviceFeeAmountCents: feeAmountCents,
+        } });
         const totalCents = activeComanda.items.reduce(
           (total, item) =>
             total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
           0,
-        ) + (activeComanda.deliveryOrder?.feeCents ?? 0);
+        ) + (activeComanda.deliveryOrder?.feeCents ?? 0) + feeAmountCents;
         const paidCents = paymentTotal(payments);
         const balanceCents = totalCents - paidCents;
 
@@ -545,6 +600,10 @@ export function createComandaRepository(
         }
 
         const paidAt = new Date();
+        if (quote?.eligible) await transaction.comandaEvent.create({ data: { establishmentId, comandaId: id,
+          actorUserId, type: 'SERVICE_FEE_CHANGED', serviceFeeDeltaCents: feeAmountCents,
+          confirmedItemDelta: activeComanda.items.reduce((sum, item) => sum + item.confirmedQuantity, 0),
+          consumptionDeltaCents: quote.subtotalCents, createdAt: paidAt } });
 
         if (balanceCents > 0) {
           const order = await transaction.creditOrder.create({
@@ -582,6 +641,7 @@ export function createComandaRepository(
               establishmentId,
               metadata: {
                 balanceCents,
+                serviceFee: quote?.eligible ? { included: checkout!.includeServiceFee, percent: checkout!.includeServiceFee ? 10 : 0, subtotalCents: quote.subtotalCents, amountCents: feeAmountCents } : null,
                 customerId,
                 paidCents,
                 payments: payments.map(({ amountCents, method }) => ({
@@ -596,7 +656,7 @@ export function createComandaRepository(
             }),
           });
 
-          return getComandaOrThrow(transaction, establishmentId, id);
+          return result();
         }
 
         if (paidCents > 0) {
@@ -642,6 +702,7 @@ export function createComandaRepository(
             action: "COMANDA_CLOSED",
             establishmentId,
             metadata: {
+              serviceFee: quote?.eligible ? { included: checkout!.includeServiceFee, percent: checkout!.includeServiceFee ? 10 : 0, subtotalCents: quote.subtotalCents, amountCents: feeAmountCents } : null,
               paidCents,
               payments: payments.map(({ amountCents, method }) => ({
                 amountCents,
@@ -655,7 +716,10 @@ export function createComandaRepository(
           }),
         });
 
-        return getComandaOrThrow(transaction, establishmentId, id);
+        return result();
+      }).catch((error: unknown) => {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') throw new CheckoutConflictError();
+        throw error;
       });
     },
     async confirmItem(establishmentId, comandaId, itemId, actorUserId) {
@@ -669,6 +733,66 @@ export function createComandaRepository(
         ),
       );
     },
+    async discardPendingItems(establishmentId, comandaId, actorUserId) {
+      return prisma.$transaction((transaction) =>
+        discardPendingComandaItems(
+          transaction,
+          establishmentId,
+          comandaId,
+          actorUserId,
+        ),
+      );
+    },
+    async confirmItemsBatch(
+      establishmentId,
+      comandaId,
+      input,
+      actorUserId,
+    ) {
+      const fingerprint = buildBatchConfirmationFingerprint(
+        comandaId,
+        actorUserId,
+        input,
+      );
+      const replay = await findBatchConfirmationReplay(
+        prisma,
+        establishmentId,
+        comandaId,
+        input.requestId,
+        fingerprint,
+      );
+      if (replay) {
+        return replay;
+      }
+
+      try {
+        return await prisma.$transaction((transaction) =>
+          confirmComandaItemsBatch(
+            transaction,
+            establishmentId,
+            comandaId,
+            input,
+            actorUserId,
+            fingerprint,
+          ),
+        );
+      } catch (error) {
+        if (!isUniqueConstraintError(error) && !(error instanceof ComandaBatchConfirmationConflictError)) {
+          throw error;
+        }
+        const concurrentReplay = await findBatchConfirmationReplay(
+          prisma,
+          establishmentId,
+          comandaId,
+          input.requestId,
+          fingerprint,
+        );
+        if (concurrentReplay) {
+          return concurrentReplay;
+        }
+        throw new ComandaBatchConfirmationConflictError();
+      }
+    },
     async findById(establishmentId, id) {
       const comanda = await prisma.comanda.findFirst({
         select: comandaSelect,
@@ -679,13 +803,27 @@ export function createComandaRepository(
         throw new ComandaNotFoundError();
       }
 
+      assertComandaSource(comanda, 'read');
       return mapComanda(comanda);
     },
-    async findPrintDocument(establishmentId, id, kind, generatedBy) {
-      const comanda = await prisma.comanda.findFirst({
+    async findPrintDocument(establishmentId, id, kind, generatedBy, preview) {
+      return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM Comanda WHERE id = ${id} AND establishmentId = ${establishmentId} FOR SHARE`;
+      let previewFee: { serviceFeeApplied: boolean; serviceFeePercent: number; serviceFeeSubtotalCents: number; serviceFeeAmountCents: number } | undefined;
+      if (kind === 'CHECKOUT_PREVIEW') {
+        const current = await getComandaOrThrow(tx, establishmentId, id);
+        assertComandaSource(current, 'read');
+        const quote = checkoutSummary(current);
+        if (!preview || !quote.canClose || !quote.eligible || preview.expectedSnapshot !== quote.expectedSnapshot) throw new CheckoutConflictError();
+        previewFee = { serviceFeeApplied: preview.includeServiceFee, serviceFeePercent: preview.includeServiceFee ? 10 : 0,
+          serviceFeeSubtotalCents: quote.subtotalCents, serviceFeeAmountCents: preview.includeServiceFee ? quote.serviceFee.amountCents : 0 };
+      } else if (preview) throw new CheckoutInputError();
+      const comanda = await tx.comanda.findFirst({
         select: {
+          serviceFeeApplied: true, serviceFeePercent: true, serviceFeeSubtotalCents: true, serviceFeeAmountCents: true,
           deliveryOrder: { select: { feeCents: true } },
           establishment: { select: { name: true } },
+          creditOrder: { select: { id: true } },
           id: true,
           items: {
             orderBy: { createdAt: "asc" },
@@ -726,9 +864,11 @@ export function createComandaRepository(
         throw new ComandaNotFoundError();
       }
 
+      assertComandaSource(comanda, 'read');
       return buildComandaPrintDocument(
         {
           ...comanda,
+          ...previewFee,
           deliveryFeeCents: comanda.deliveryOrder?.feeCents ?? null,
           establishmentName: comanda.establishment.name,
           tableNumber: comanda.table?.number ?? null,
@@ -736,6 +876,7 @@ export function createComandaRepository(
         kind,
         generatedBy,
       );
+      });
     },
     async openForTable(establishmentId, tableId, name, actorUserId) {
       return prisma.$transaction(async (transaction) => {
@@ -832,6 +973,24 @@ export function createComandaRepository(
         ),
       );
     },
+    async setItemPendingQuantity(
+      establishmentId,
+      comandaId,
+      itemId,
+      pendingQuantity,
+      actorUserId,
+    ) {
+      return prisma.$transaction((transaction) =>
+        setComandaItemPendingQuantity(
+          transaction,
+          establishmentId,
+          comandaId,
+          itemId,
+          pendingQuantity,
+          actorUserId,
+        ),
+      );
+    },
   };
 }
 
@@ -891,4 +1050,48 @@ function isUniqueConstraintError(error: unknown) {
     "code" in error &&
     error.code === "P2002"
   );
+}
+
+async function findBatchConfirmationReplay(
+  prisma: PrismaClient,
+  establishmentId: string,
+  comandaId: string,
+  requestId: string,
+  fingerprint: string,
+): Promise<ConfirmItemsBatchResult | null> {
+  const batch = await prisma.comandaConfirmationBatch.findUnique({
+    select: {
+      comandaId: true,
+      inventoryWarnings: true,
+      requestFingerprint: true,
+    },
+    where: {
+      establishmentId_requestId: {
+        establishmentId,
+        requestId,
+      },
+    },
+  });
+  if (!batch) {
+    return null;
+  }
+  if (
+    batch.comandaId !== comandaId ||
+    batch.requestFingerprint !== fingerprint
+  ) {
+    throw new ComandaBatchConfirmationConflictError();
+  }
+  const comanda = await prisma.comanda.findFirst({
+    select: comandaSelect,
+    where: { establishmentId, id: comandaId },
+  });
+  if (!comanda) {
+    throw new ComandaNotFoundError();
+  }
+
+  return {
+    comanda: mapComanda(comanda),
+    inventoryWarnings: batch.inventoryWarnings as unknown as InventoryWarning[],
+    replayed: true,
+  };
 }

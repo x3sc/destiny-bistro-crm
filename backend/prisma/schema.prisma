@@ -20,6 +20,7 @@ enum ComandaStatus {
 }
 
 enum ComandaEventType {
+  SERVICE_FEE_CHANGED
   OPENED
   CANCELLED
   CLOSED
@@ -51,6 +52,7 @@ enum CreditOrderStatus {
 }
 
 enum PaymentMethod {
+  COUNTER
   CASH
   PIX
   DEBIT_CARD
@@ -58,6 +60,7 @@ enum PaymentMethod {
 }
 
 enum PaymentOrigin {
+  COUNTER_CHECKOUT
   QUICK_SALE_CHECKOUT
   TABLE_CHECKOUT
   CREDIT_INSTALLMENT
@@ -125,6 +128,9 @@ enum InventoryDisposition {
 }
 
 model Establishment {
+  checkoutOperations ComandaCheckoutOperation[]
+  localRoles                 TenantRole[]
+  counterSaleOperations CounterSaleOperation[]
   id                 String              @id @default(cuid())
   name               String              @db.VarChar(80)
   normalizedName     String              @unique @db.VarChar(80)
@@ -145,6 +151,7 @@ model Establishment {
   inventoryMovements InventoryMovement[]
   inventoryLots      InventoryLot[]
   inventoryOperations InventoryOperation[]
+  comandaConfirmationBatches ComandaConfirmationBatch[]
   inventoryMovementLots InventoryMovementLot[]
   productIngredients ProductIngredient[]
   additionals        Additional[]
@@ -186,6 +193,12 @@ model RestaurantTable {
 }
 
 model Comanda {
+  serviceFeeApplied Boolean?
+  serviceFeePercent Int @default(0)
+  serviceFeeSubtotalCents Int?
+  serviceFeeAmountCents Int @default(0)
+  checkoutOperations ComandaCheckoutOperation[]
+  counterSaleOperations CounterSaleOperation[]
   id                 String                     @id @default(cuid())
   establishmentId    String
   establishment      Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
@@ -208,6 +221,7 @@ model Comanda {
   events             ComandaEvent[]
   kitchenTickets     KitchenTicket[]
   inventoryOperations InventoryOperation[]
+  confirmationBatches ComandaConfirmationBatch[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -217,6 +231,38 @@ model Comanda {
   @@index([tableId])
   @@index([status, closedAt])
   @@index([status, cancelledAt])
+}
+
+model ComandaCheckoutOperation {
+  id String @id @default(cuid())
+  establishmentId String
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId String
+  comanda Comanda @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  actorUserId String
+  requestId String @db.VarChar(191)
+  requestFingerprint String @db.Char(64)
+  result Json
+  createdAt DateTime @default(now())
+
+  @@unique([establishmentId, requestId])
+  @@index([comandaId, establishmentId])
+}
+
+model CounterSaleOperation {
+  id                 String        @id @default(cuid())
+  establishmentId    String
+  establishment      Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId          String
+  comanda            Comanda       @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  actorUserId        String
+  action             String        @db.VarChar(16)
+  requestId          String        @db.VarChar(191)
+  requestFingerprint String        @db.Char(64)
+  createdAt          DateTime      @default(now())
+
+  @@unique([establishmentId, requestId])
+  @@index([comandaId, establishmentId])
 }
 
 model ComandaDailySequence {
@@ -377,6 +423,9 @@ model ComandaItem {
 }
 
 model ComandaEvent {
+  confirmedItemDelta Int?
+  consumptionDeltaCents Int?
+  serviceFeeDeltaCents Int?
   id               String                     @id @default(cuid())
   establishmentId  String
   establishment    Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
@@ -416,6 +465,25 @@ model KitchenTicket {
   @@unique([establishmentId, confirmationKey])
   @@index([establishmentId, status, createdAt])
   @@index([comandaId, establishmentId])
+}
+
+model ComandaConfirmationBatch {
+  id                 String        @id @default(cuid())
+  establishmentId    String
+  establishment      Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  comandaId          String
+  comanda             Comanda       @relation(fields: [comandaId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  actorUserId         String
+  actorUser           User          @relation(fields: [actorUserId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
+  requestId           String        @db.VarChar(191)
+  requestFingerprint  String        @db.VarChar(64)
+  inventoryWarnings   Json
+  createdAt           DateTime      @default(now())
+
+  @@unique([establishmentId, requestId])
+  @@unique([id, establishmentId])
+  @@index([comandaId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model KitchenTicketItem {
@@ -475,6 +543,9 @@ model KitchenTicketItemAdditional {
 }
 
 model User {
+  localRoleId        String
+  roleVersion        Int                 @default(1)
+  localRole          TenantRole          @relation(fields: [localRoleId, establishmentId], references: [id, establishmentId], onDelete: Restrict)
   id                 String              @id @default(cuid())
   establishmentId    String
   establishment      Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
@@ -492,6 +563,7 @@ model User {
   inventoryMovements InventoryMovement[]
   inventoryLots      InventoryLot[]
   inventoryOperations InventoryOperation[]
+  confirmationBatches ComandaConfirmationBatch[]
   inventoryCancellations ComandaItemCancellation[]
   deliveryDaysOpened DeliveryDay[]       @relation("DeliveryDayOpenedBy")
   deliveryDaysClosed DeliveryDay[]       @relation("DeliveryDayClosedBy")
@@ -503,6 +575,7 @@ model User {
   @@unique([id, establishmentId])
   @@index([establishmentId, active, name])
   @@index([active, name])
+  @@index([localRoleId, establishmentId])
 }
 
 model Role {
@@ -519,6 +592,7 @@ model Role {
 }
 
 model Permission {
+  tenantRoles TenantRolePermission[]
   id          String           @id @default(cuid())
   code        String           @unique @db.VarChar(80)
   name        String           @db.VarChar(100)
@@ -551,6 +625,37 @@ model RolePermission {
 
   @@id([roleId, permissionId])
   @@index([permissionId])
+}
+
+model TenantRole {
+  id              String                 @id @default(cuid())
+  establishmentId String
+  establishment   Establishment          @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  code            String                 @db.VarChar(80)
+  name            String                 @db.VarChar(80)
+  normalizedName  String                 @db.VarChar(80)
+  description     String?                @db.VarChar(255)
+  protected       Boolean                @default(false)
+  version         Int                    @default(1)
+  permissions     TenantRolePermission[]
+  users           User[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([id, establishmentId])
+  @@unique([establishmentId, code])
+  @@unique([establishmentId, normalizedName])
+}
+
+model TenantRolePermission {
+  roleId          String
+  establishmentId String
+  permissionId    String
+  role            TenantRole @relation(fields: [roleId, establishmentId], references: [id, establishmentId], onDelete: Cascade)
+  permission      Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([roleId, permissionId])
+  @@index([roleId, establishmentId])
 }
 
 model AuthSession {

@@ -12,6 +12,8 @@ export async function resetOperationalData(
       },
       where: { establishmentId },
     });
+    await transaction.counterSaleOperation.deleteMany({ where: { establishmentId } });
+    await transaction.comandaCheckoutOperation.deleteMany({ where: { establishmentId } });
     await transaction.paymentAllocation.deleteMany({
       where: { establishmentId },
     });
@@ -41,6 +43,9 @@ export async function resetOperationalData(
       where: { establishmentId },
     });
     const kitchenTickets = await transaction.kitchenTicket.deleteMany({
+      where: { establishmentId },
+    });
+    await transaction.comandaConfirmationBatch.deleteMany({
       where: { establishmentId },
     });
     await transaction.comandaItemCancellation.deleteMany({ where: { establishmentId } });

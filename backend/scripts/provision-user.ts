@@ -16,7 +16,7 @@ try {
   const establishmentName = await terminal.question("Nome do estabelecimento: ");
   const name = await terminal.question("Nome do usuario: ");
   const rolesInput = await terminal.question(
-    "Cargos separados por virgula (OWNER, MANAGER, WAITER, KITCHEN): ",
+    "Cargo único (OWNER, MANAGER, WAITER, KITCHEN): ",
   );
   const password = process.env.USER_PROVISION_PASSWORD;
 
@@ -34,9 +34,7 @@ try {
   });
 
   stdout.write(
-    `Usuario ${user.name} criado em ${user.establishment.name} com os cargos ${user.roles
-      .map(({ role }) => role.name)
-      .join(", ")}.\n`,
+    `Usuario ${user.name} criado em ${user.establishment.name} com o cargo ${user.localRole.name}.\n`,
   );
 } catch (error) {
   if (error instanceof AuthInputError) {
