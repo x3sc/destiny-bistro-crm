@@ -49,3 +49,40 @@ finalidade de acesso à rede local.
 As configurações ficam somente no dispositivo: `expo-secure-store` em Android
 e iOS e `localStorage` como implementação de armazenamento para futuro suporte
 web. Nenhuma credencial ou dado operacional é salvo com a configuração.
+
+
+## Balcão: impressão por destinatário
+
+Confirmar significa entregar ao cliente. O Balcão oferece impressão manual em
+build nativo, com `printing.write` e acesso de leitura à origem da comanda.
+
+- No topo dos itens em aberto: **Imprimir pendentes para o cliente** e
+  **Imprimir pendentes para o balcão**. Cada ação imprime uma única via.
+- Junto aos itens confirmados: **Imprimir conferência final para o cliente** e
+  **Imprimir conferência final para o balcão**. Cada ação imprime uma única via.
+- Os quatro botões mostram Balcão, número da comanda e nome do cliente. Se não
+  houver nome, indicam cliente não identificado, sem tornar o nome obrigatório.
+
+`kind=COUNTER_PENDING` continua retornando todas as quantidades não entregues,
+incluindo produtos sem cozinha, com preços, adicionais e subtotal sem taxa de
+serviço. As duas ações de pendentes desaparecem quando não há pendências.
+
+`kind=COUNTER_FINAL` continua retornando todos os entregues e o total vigente.
+Exige comanda aberta, com entregues e sem pendências; caso contrário responde
+`409`. As duas ações finais ficam desabilitadas enquanto houver pendências.
+
+A escolha de destinatário é local ao frontend e não muda o contrato da API. O
+mesmo documento carregado é usado na prévia, no envio e na repetição após falha.
+Cada ação envia uma via e um corte. O gerador preserva o modo padrão de duas
+vias para chamadas sem destinatário; os quatro botões sempre selecionam um.
+
+Cada via imprime Balcão, número da comanda, nome do cliente (ou identificação
+não informada), data/hora, configurações/adicionais e valores. A via do cliente
+na final informa apresentar ao caixa; a do balcão informa controle. A final
+substitui a conferência anterior. Nenhuma das vias comprova pagamento.
+
+Imprimir não entrega itens, movimenta estoque, cria pagamento ou fecha comanda.
+Novos pedidos bloqueiam a final até entregar ou cancelar os pendentes. Atualizar
+a comanda invalida a prévia. Uma falha permite repetir manualmente a mesma via;
+falhas parciais de TCP podem causar duplicação física, sem reenvio automático.
+O modelo atual não possui observação livre por item; adicionais são impressos.

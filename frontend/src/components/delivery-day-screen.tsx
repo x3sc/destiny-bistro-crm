@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -54,6 +55,10 @@ export function DeliveryDayScreen({
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [form, setForm] = useState<FormKind>(null);
   const [saving, setSaving] = useState(false);
+  useNavigationGuard({ busy: saving,
+    resource: state.kind === 'success' ? { courierId: state.day.courierId } : undefined,
+    closeModal: form ? () => setForm(null) : undefined,
+  });
   const [formError, setFormError] = useState<string | null>(null);
 
   const [customerName, setCustomerName] = useState('');

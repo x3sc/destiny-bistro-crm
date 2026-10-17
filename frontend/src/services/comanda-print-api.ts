@@ -1,9 +1,12 @@
 import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
+import { isServiceFee } from './comandas-api';
 
-export type ComandaPrintKind = 'CONFIRMED' | 'KITCHEN_PENDING';
+export type ComandaPrintKind = 'CONFIRMED' | 'KITCHEN_PENDING' | 'CHECKOUT_PREVIEW' | 'COUNTER_PENDING' | 'COUNTER_FINAL';
 
 export interface ComandaPrintDocument {
+  serviceFee?: { included: boolean; percent: number; subtotalCents: number; amountCents: number };
+  externalPaymentMethod?: 'COUNTER';
   comandaId: string;
   comandaName: string | null;
   comandaNumber: number;
@@ -36,6 +39,7 @@ export async function loadComandaPrintDocument(
   apiBaseUrl: string,
   comandaId: string,
   kind: ComandaPrintKind,
+  preview?: { includeServiceFee: boolean; expectedSnapshot: string },
 ) {
   const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
   if (!baseUrl) {
@@ -43,9 +47,12 @@ export async function loadComandaPrintDocument(
   }
 
   const response = await authenticatedFetch(
-    `${baseUrl}/comandas/${encodeURIComponent(comandaId)}/print-document?kind=${kind}`,
+    `${baseUrl}/comandas/${encodeURIComponent(comandaId)}/print-document?kind=${kind}${preview ? `&includeServiceFee=${preview.includeServiceFee}&expectedSnapshot=${encodeURIComponent(preview.expectedSnapshot)}` : ''}`,
   );
   if (response.status === 409) {
+    if (kind === 'COUNTER_FINAL') throw new PrintAccountConflictError('A comanda mudou ou ainda tem pendências. Recarregue antes de emitir a conferência final.');
+    if (kind === 'COUNTER_PENDING') throw new PrintAccountConflictError('Não há pendentes disponíveis para imprimir. Recarregue a comanda.');
+    if (kind === 'CHECKOUT_PREVIEW') throw new PrintAccountConflictError('A conta mudou. Recarregue antes de imprimir.');
     throw new Error(
       kind === 'CONFIRMED'
         ? 'Não há itens confirmados para imprimir.'
@@ -75,8 +82,10 @@ function isPrintResponse(value: unknown): value is { document: ComandaPrintDocum
 function isPrintDocument(value: unknown): value is ComandaPrintDocument {
   if (!value || typeof value !== 'object') return false;
   const document = value as Partial<ComandaPrintDocument>;
+  if (document.serviceFee !== undefined && !isServiceFee(document.serviceFee)) return false;
   return (
     typeof document.comandaId === 'string' &&
+    (document.externalPaymentMethod === undefined || (document.externalPaymentMethod === 'COUNTER' && document.status === 'CLOSED' && document.destination === 'COUNTER' && document.kind === 'CONFIRMED')) &&
     (document.comandaName === null || typeof document.comandaName === 'string') &&
     Number.isInteger(document.comandaNumber) &&
     (document.deliveryFeeCents === null || Number.isInteger(document.deliveryFeeCents)) &&
@@ -89,13 +98,15 @@ function isPrintDocument(value: unknown): value is ComandaPrintDocument {
     typeof document.generatedBy === 'string' &&
     Array.isArray(document.items) &&
     document.items.every(isPrintItem) &&
-    (document.kind === 'CONFIRMED' || document.kind === 'KITCHEN_PENDING') &&
+    (document.kind === 'CONFIRMED' || document.kind === 'KITCHEN_PENDING' || document.kind === 'CHECKOUT_PREVIEW' || document.kind === 'COUNTER_PENDING' || document.kind === 'COUNTER_FINAL') &&
     typeof document.openedAt === 'string' &&
     (document.status === 'OPEN' || document.status === 'CANCELLED' || document.status === 'CLOSED') &&
     (document.tableNumber === null || Number.isInteger(document.tableNumber)) &&
     (document.totalCents === null || Number.isInteger(document.totalCents))
   );
 }
+
+export class PrintAccountConflictError extends Error {}
 
 function isPrintItem(value: unknown): value is ComandaPrintItem {
   if (!value || typeof value !== 'object') return false;

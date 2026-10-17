@@ -5,7 +5,6 @@ import {
   FlatList,
   Pressable,
   ScrollView,
-  Text,
   TextInput,
   useWindowDimensions,
   View,
@@ -13,12 +12,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
+import { formatOperationalDateTime } from '../services/date-time';
 import {
   loadTables,
   type RestaurantTable,
   type RestaurantTableStatus,
 } from '../services/tables-api';
 import { themeColors, themeSpacing } from '../theme/tokens';
+import { OperationalText as Text } from '../theme/operational-typography';
 import {
   styles,
   tableStatusBadgeStyles,
@@ -101,38 +102,40 @@ export function TableGridScreen({
   const { cardWidth, columnCount } = getTableGridMetrics(windowWidth);
 
   const refreshTables = useCallback(() => {
-    if (!normalizedApiBaseUrl) {
+    const currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+    if (!currentApiBaseUrl) {
       return;
     }
 
-    setState({ apiBaseUrl: normalizedApiBaseUrl, kind: 'loading' });
-    void loadTablesRequest(normalizedApiBaseUrl).then(
+    setState({ apiBaseUrl: currentApiBaseUrl, kind: 'loading' });
+    void loadTablesRequest(currentApiBaseUrl).then(
       (tables) => {
-        setState({ apiBaseUrl: normalizedApiBaseUrl, kind: 'success', tables });
+        setState({ apiBaseUrl: currentApiBaseUrl, kind: 'success', tables });
       },
       () => {
-        setState({ apiBaseUrl: normalizedApiBaseUrl, kind: 'error' });
+        setState({ apiBaseUrl: currentApiBaseUrl, kind: 'error' });
       },
     );
-  }, [loadTablesRequest, normalizedApiBaseUrl]);
+  }, [apiBaseUrl, loadTablesRequest]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!normalizedApiBaseUrl) {
+      const currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+      if (!currentApiBaseUrl) {
         return;
       }
 
       let active = true;
 
-      void loadTablesRequest(normalizedApiBaseUrl).then(
+      void loadTablesRequest(currentApiBaseUrl).then(
         (tables) => {
           if (active) {
-            setState({ apiBaseUrl: normalizedApiBaseUrl, kind: 'success', tables });
+            setState({ apiBaseUrl: currentApiBaseUrl, kind: 'success', tables });
           }
         },
         () => {
           if (active) {
-            setState({ apiBaseUrl: normalizedApiBaseUrl, kind: 'error' });
+            setState({ apiBaseUrl: currentApiBaseUrl, kind: 'error' });
           }
         },
       );
@@ -140,16 +143,18 @@ export function TableGridScreen({
       return () => {
         active = false;
       };
-    }, [loadTablesRequest, normalizedApiBaseUrl]),
+    }, [apiBaseUrl, loadTablesRequest]),
   );
 
   const tables = visibleState?.kind === 'success' ? visibleState.tables : [];
   const normalizedSearchQuery = normalizeSearchText(searchQuery.trim());
-  const filteredTables = tables.filter(
-    (table) =>
-      (selectedFilter === 'ALL' || table.status === selectedFilter) &&
-      tableMatchesSearch(table, normalizedSearchQuery),
-  );
+  const filteredTables = tables
+    .filter(
+      (table) =>
+        (selectedFilter === 'ALL' || table.status === selectedFilter) &&
+        tableMatchesSearch(table, normalizedSearchQuery),
+    )
+    .sort((left, right) => left.number - right.number);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -293,7 +298,7 @@ function SummaryCard({
       style={[styles.summaryCard, tableStatusCardStyles[status]]}
     >
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{count}</Text>
+      <Text fontRole="heading" style={styles.summaryValue}>{count}</Text>
     </View>
   );
 }
@@ -390,7 +395,7 @@ function TableCard({
     <Pressable
       accessibilityLabel={`Mesa ${table.number} ${tableStatusLabels[table.status]}${
         table.activeComanda
-          ? `${table.activeComanda.name ? ` ${table.activeComanda.name}` : ''} Comanda #${table.activeComanda.number}`
+          ? `${table.activeComanda.name ? ` ${table.activeComanda.name}` : ''} Comanda #${table.activeComanda.number} aberta em ${formatOperationalDateTime(table.activeComanda.openedAt)}`
           : ''
       }`}
       accessibilityRole="button"
@@ -406,7 +411,7 @@ function TableCard({
       ]}
     >
       <View style={styles.tableCardHeading}>
-        <Text style={styles.tableNumber}>Mesa {table.number}</Text>
+        <Text fontRole="heading" style={styles.tableNumber}>Mesa {table.number}</Text>
         <Text
           style={[
             styles.tableStatus,
@@ -420,9 +425,14 @@ function TableCard({
         <Text style={styles.comandaName}>{table.activeComanda.name}</Text>
       )}
       {table.activeComanda ? (
-        <Text style={styles.comandaNumber}>
-          Comanda #{table.activeComanda.number}
-        </Text>
+        <View style={styles.comandaIdentity}>
+          <Text style={styles.comandaNumber}>
+            Comanda #{table.activeComanda.number}
+          </Text>
+          <Text style={styles.comandaOpenedAt}>
+            Aberta em {formatOperationalDateTime(table.activeComanda.openedAt)}
+          </Text>
+        </View>
       ) : table.status === 'FREE' ? (
         <Text style={styles.openComandaAction}>＋ Abrir comanda</Text>
       ) : null}

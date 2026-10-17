@@ -1,11 +1,14 @@
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 import { hasPermission, useAuth } from '@/auth/auth-context';
-import { Redirect, type Href, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 
 import { CreditCustomerPickerScreen } from '@/components/credit-customer-picker-screen';
 import { convertComandaToCredit } from '@/services/credits-api';
+import { useCompletedFlowNavigation } from '@/navigation/use-completed-flow-navigation';
 
 export default function ConvertComandaCreditRoute() {
-  const router = useRouter();
+  const safeBack = useRouteSafeBack();
+  const finishFlow = useCompletedFlowNavigation();
   const { user } = useAuth();
   const { comandaId = '', name = '' } = useLocalSearchParams<{
     comandaId?: string;
@@ -18,16 +21,14 @@ export default function ConvertComandaCreditRoute() {
     <CreditCustomerPickerScreen
       actionLabel="Cadastrar e fechar como fiado"
       initialName={name}
-      onBack={() => {
-        router.back();
-      }}
+      onBack={safeBack}
       onSelectCustomer={async (customer) => {
         await convertComandaToCredit(
           process.env.EXPO_PUBLIC_API_URL ?? '',
           comandaId,
           customer.id,
         );
-        router.replace(`/credits/${encodeURIComponent(customer.id)}` as Href);
+        finishFlow({ kind: 'credit', customerId: customer.id });
       }}
       title="Fechar como fiado"
     />

@@ -10,6 +10,8 @@ export function AdminHomeScreen({
   bottomNavigation,
   canManageMenu,
   canManageUsers,
+  canManageRoles = false,
+  onRoles,
   onUsers,
   canReadInventory,
   canReadStatements,
@@ -21,6 +23,8 @@ export function AdminHomeScreen({
   bottomNavigation?: ReactNode;
   canManageMenu: boolean;
   canManageUsers: boolean;
+  canManageRoles?: boolean;
+  onRoles?: () => void;
   onUsers: () => void;
   canReadInventory: boolean;
   canReadStatements: boolean;
@@ -38,6 +42,7 @@ export function AdminHomeScreen({
       />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.cards}>
+          {canManageRoles && onRoles && <AdminCard label="Cargos" description="Escolha o que cada grupo pode visualizar e operar." onPress={onRoles} />}
           {canReadStatements && (
             <AdminCard
               description="Vendas, recebimentos e comandas do dia atual."

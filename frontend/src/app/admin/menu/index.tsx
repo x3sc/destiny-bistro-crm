@@ -1,9 +1,9 @@
-import { type Href, useRouter } from 'expo-router';
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 
 import { MenuManagementScreen } from '@/components/menu-management-screen';
 
 export default function MenuManagementRoute() {
-  const router = useRouter();
+  const safeBack = useRouteSafeBack();
 
-  return <MenuManagementScreen onBack={() => router.replace('/admin' as Href)} />;
+  return <MenuManagementScreen onBack={safeBack} />;
 }

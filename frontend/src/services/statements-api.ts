@@ -2,6 +2,7 @@ import { normalizeApiBaseUrl } from './api-base-url';
 import { authenticatedFetch } from './auth-session';
 
 export type StatementOrigin =
+  | 'COUNTER'
   | 'QUICK_SALE'
   | 'TABLE'
   | 'CREDIT_MANUAL'
@@ -23,17 +24,20 @@ export const defaultStatementEntryFilters: StatementEntryFilters = {
   origin: 'ALL',
 };
 export type StatementPaymentSummaryMethod =
+  | 'COUNTER'
   | 'CASH'
   | 'PIX'
   | 'DEBIT_CARD'
   | 'CREDIT_CARD'
   | 'UNSPECIFIED';
 export type StatementPaymentOrigin =
+  | 'COUNTER_CHECKOUT'
   | 'QUICK_SALE_CHECKOUT'
   | 'TABLE_CHECKOUT'
   | 'CREDIT_INSTALLMENT'
   | 'DELIVERY_PAYMENT';
 export type StatementEvent =
+  | 'COUNTER_CLOSED'
   | 'QUICK_SALE_CLOSED'
   | 'TABLE_CLOSED'
   | 'CREDIT_FINALIZED'
@@ -58,6 +62,7 @@ export interface StatementDay extends StatementSummary {
 }
 
 export interface StatementEntry {
+  serviceFeeCents?: number;
   comandaId: string;
   comandaName: string | null;
   comandaNumber: number | null;
@@ -75,7 +80,7 @@ export interface StatementEntry {
   origin: StatementOrigin;
   payments: {
     amountCents: number;
-    method: 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
+    method: 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD' | 'COUNTER';
   }[];
   paymentOrigin: StatementPaymentOrigin | null;
   receivedCents: number;
@@ -218,9 +223,7 @@ function isSummary(value: unknown): value is StatementSummary {
     summary.processedCommandCount,
     summary.receivedCents,
     summary.receivedItemCount,
-    summary.soldCents,
-    summary.soldItemCount,
-  ].every(isNonNegativeInteger);
+  ].every(isNonNegativeInteger) && Number.isSafeInteger(summary.soldCents) && Number.isSafeInteger(summary.soldItemCount);
 }
 
 function isDay(value: unknown): value is StatementDay {
@@ -236,6 +239,7 @@ function isEntry(value: unknown): value is StatementEntry {
   }
 
   const entry = value as Partial<StatementEntry>;
+  if (entry.serviceFeeCents !== undefined && !Number.isSafeInteger(entry.serviceFeeCents)) return false;
   return (
     typeof entry.comandaId === 'string' &&
     (entry.comandaName === null || typeof entry.comandaName === 'string') &&
@@ -264,20 +268,20 @@ function isEntry(value: unknown): value is StatementEntry {
     entry.payments.every(
       (payment) =>
         isNonNegativeInteger(payment.amountCents) &&
-        (payment.method === 'CASH' ||
+        (payment.method === 'COUNTER' || payment.method === 'CASH' ||
           payment.method === 'PIX' ||
           payment.method === 'DEBIT_CARD' ||
           payment.method === 'CREDIT_CARD'),
     ) &&
     (entry.paymentOrigin === null ||
-      entry.paymentOrigin === 'QUICK_SALE_CHECKOUT' ||
+      entry.paymentOrigin === 'COUNTER_CHECKOUT' || entry.paymentOrigin === 'QUICK_SALE_CHECKOUT' ||
       entry.paymentOrigin === 'TABLE_CHECKOUT' ||
       entry.paymentOrigin === 'CREDIT_INSTALLMENT' ||
       entry.paymentOrigin === 'DELIVERY_PAYMENT') &&
     isNonNegativeInteger(entry.receivedCents) &&
     isNonNegativeInteger(entry.receivedItemCount) &&
-    isNonNegativeInteger(entry.soldCents) &&
-    isNonNegativeInteger(entry.soldItemCount) &&
+    (isNonNegativeInteger(entry.soldCents) || (entry.serviceFeeCents !== undefined && Number.isSafeInteger(entry.soldCents))) &&
+    (isNonNegativeInteger(entry.soldItemCount) || (entry.serviceFeeCents !== undefined && Number.isSafeInteger(entry.soldItemCount))) &&
     (entry.status === 'OPEN' ||
       entry.status === 'CLOSED' ||
       entry.status === 'CANCELLED') &&
@@ -307,7 +311,7 @@ function isIndicators(value: unknown): value is StatementIndicators {
   }
   const indicators = value as Partial<StatementIndicators>;
   return (
-    isNonNegativeInteger(indicators.averageTicketCents) &&
+    Number.isSafeInteger(indicators.averageTicketCents) &&
     Number.isInteger(indicators.differenceCents) &&
     Array.isArray(indicators.originSummaries) &&
     indicators.originSummaries.every(isOriginSummary) &&
@@ -344,7 +348,7 @@ function isPaymentSummaryMethod(
   value: unknown,
 ): value is StatementPaymentSummaryMethod {
   return (
-    value === 'CASH' ||
+    value === 'COUNTER' || value === 'CASH' ||
     value === 'PIX' ||
     value === 'DEBIT_CARD' ||
     value === 'CREDIT_CARD' ||
@@ -363,15 +367,13 @@ function isOriginSummary(value: unknown): value is StatementOriginSummary {
       summary.movementCount,
       summary.receivedCents,
       summary.receivedItemCount,
-      summary.soldCents,
-      summary.soldItemCount,
-    ].every(isNonNegativeInteger)
+      ].every(isNonNegativeInteger) && Number.isSafeInteger(summary.soldCents) && Number.isSafeInteger(summary.soldItemCount)
   );
 }
 
 function isStatementEvent(value: unknown): value is StatementEvent {
   return (
-    value === 'QUICK_SALE_CLOSED' ||
+    value === 'COUNTER_CLOSED' || value === 'QUICK_SALE_CLOSED' ||
     value === 'TABLE_CLOSED' ||
     value === 'CREDIT_FINALIZED' ||
     value === 'CREDIT_ADDITION' ||
@@ -384,7 +386,7 @@ function isStatementEvent(value: unknown): value is StatementEvent {
 
 function isStatementOrigin(value: unknown): value is StatementOrigin {
   return (
-    value === 'QUICK_SALE' ||
+    value === 'COUNTER' || value === 'QUICK_SALE' ||
     value === 'TABLE' ||
     value === 'CREDIT_MANUAL' ||
     value === 'CREDIT_TABLE' ||

@@ -119,7 +119,7 @@ export async function addComandaItem(
     unitPriceCents: existingItem.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
 }
 
 export async function changeComandaItemQuantity(
@@ -192,7 +192,94 @@ export async function changeComandaItemQuantity(
     unitPriceCents: item.unitPriceCents,
   });
 
-  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
+}
+
+export async function setComandaItemPendingQuantity(
+  transaction: Transaction,
+  establishmentId: string,
+  comandaId: string,
+  itemId: string,
+  pendingQuantity: number,
+  actorUserId: string,
+): Promise<Comanda> {
+  await findOpenComanda(transaction, establishmentId, comandaId);
+  const item = await transaction.comandaItem.findFirst({
+    select: {
+      confirmedQuantity: true,
+      id: true,
+      product: { select: { active: true } },
+      productId: true,
+      productName: true,
+      quantity: true,
+      unitPriceCents: true,
+    },
+    where: { comandaId, id: itemId },
+  });
+
+  if (!item) {
+    throw new ComandaItemNotFoundError();
+  }
+  const nextQuantity = item.confirmedQuantity + pendingQuantity;
+  if (
+    !Number.isInteger(pendingQuantity) ||
+    pendingQuantity < 1 ||
+    nextQuantity > maxItemQuantity
+  ) {
+    throw new ComandaItemQuantityError();
+  }
+  if (nextQuantity > item.quantity && !item.product.active) {
+    throw new ProductUnavailableError();
+  }
+  if (nextQuantity === item.quantity) {
+    return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
+  }
+
+  const updated = await transaction.comandaItem.updateMany({
+    data: { quantity: nextQuantity },
+    where: {
+      comandaId,
+      confirmedQuantity: item.confirmedQuantity,
+      id: itemId,
+      quantity: item.quantity,
+    },
+  });
+  if (updated.count !== 1) {
+    throw new ComandaItemQuantityError();
+  }
+
+  const difference = nextQuantity - item.quantity;
+  if (difference > 0) {
+    await incrementBaseConfiguration(
+      transaction,
+      establishmentId,
+      itemId,
+      difference,
+    );
+  } else {
+    for (let remaining = -difference; remaining > 0; remaining -= 1) {
+      await changePendingConfigurationQuantity(
+        transaction,
+        establishmentId,
+        itemId,
+        -1,
+      );
+    }
+  }
+  await recordItemEvent(transaction, {
+    actorUserId,
+    comandaId,
+    establishmentId,
+    itemId,
+    newQuantity: nextQuantity,
+    previousQuantity: item.quantity,
+    productId: item.productId,
+    productName: item.productName,
+    type: "ITEM_QUANTITY_CHANGED",
+    unitPriceCents: item.unitPriceCents,
+  });
+
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
 }
 
 export async function confirmComandaItem(
@@ -246,8 +333,7 @@ export async function confirmComandaItem(
       comanda: await getComandaAfterItemMutation(
         transaction,
         establishmentId,
-        comandaId,
-      ),
+        comandaId, actorUserId),
       inventoryWarnings: [],
     };
   }
@@ -329,8 +415,7 @@ export async function confirmComandaItem(
     comanda: await getComandaAfterItemMutation(
       transaction,
       establishmentId,
-      comandaId,
-    ),
+      comandaId, actorUserId),
     inventoryWarnings,
   };
 }
@@ -401,7 +486,7 @@ export async function removeComandaItem(
       unitPriceCents: item.unitPriceCents,
     });
 
-    return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
+    return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
   }
 
   await recordItemEvent(transaction, {
@@ -436,7 +521,35 @@ export async function removeComandaItem(
     where: { id: itemId },
   });
 
-  return getComandaAfterItemMutation(transaction, establishmentId, comandaId);
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
+}
+
+export async function discardPendingComandaItems(
+  transaction: Transaction,
+  establishmentId: string,
+  comandaId: string,
+  actorUserId: string,
+): Promise<Comanda> {
+  await findOpenComanda(transaction, establishmentId, comandaId);
+  const pendingItems = await transaction.comandaItem.findMany({
+    select: { id: true },
+    where: {
+      comandaId,
+      establishmentId,
+      quantity: { gt: transaction.comandaItem.fields.confirmedQuantity },
+    },
+  });
+
+  for (const item of pendingItems) {
+    await removeComandaItem(
+      transaction,
+      establishmentId,
+      comandaId,
+      item.id,
+      actorUserId,
+    );
+  }
+  return getComandaAfterItemMutation(transaction, establishmentId, comandaId, actorUserId);
 }
 
 async function createFirstComandaItem(
@@ -492,6 +605,7 @@ async function createFirstComandaItem(
     transaction,
     product.establishmentId,
     product.comandaId,
+    product.actorUserId,
   );
 }
 
@@ -499,15 +613,16 @@ async function incrementBaseConfiguration(
   transaction: Transaction,
   establishmentId: string,
   itemId: string,
+  quantity = 1,
 ) {
   await transaction.comandaItemConfiguration.upsert({
     create: {
       comandaItemId: itemId,
       configurationKey: "base",
       establishmentId,
-      quantity: 1,
+      quantity,
     },
-    update: { quantity: { increment: 1 } },
+    update: { quantity: { increment: quantity } },
     where: {
       comandaItemId_configurationKey: {
         comandaItemId: itemId,
@@ -567,8 +682,9 @@ async function getComandaAfterItemMutation(
   transaction: Transaction,
   establishmentId: string,
   comandaId: string,
+  actorUserId: string,
 ) {
-  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId);
+  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId, actorUserId);
   return getComandaOrThrow(transaction, establishmentId, comandaId);
 }
 

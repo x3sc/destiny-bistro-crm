@@ -1,5 +1,6 @@
-export type PaymentMethod = "CASH" | "PIX" | "DEBIT_CARD" | "CREDIT_CARD";
+export type PaymentMethod = "CASH" | "PIX" | "DEBIT_CARD" | "CREDIT_CARD" | "COUNTER";
 export type PaymentOrigin =
+  | "COUNTER_CHECKOUT"
   | "QUICK_SALE_CHECKOUT"
   | "TABLE_CHECKOUT"
   | "CREDIT_INSTALLMENT"

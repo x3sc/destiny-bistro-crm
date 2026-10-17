@@ -1,3 +1,4 @@
+import { useNavigationGuard, useSafeBack } from '../navigation/safe-navigation';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -80,6 +81,7 @@ export function MenuManagementScreen({
   const [recipeMessage, setRecipeMessage] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [mutating, setMutating] = useState(false);
+  useNavigationGuard({ busy: mutating, closeModal: recipeEditor ? () => setRecipeEditor(undefined) : undefined });
 
   const refresh = useCallback(() => {
     const request = normalizedApiBaseUrl
@@ -665,8 +667,9 @@ function EditorModal({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  const modalBack = useSafeBack(onClose);
   return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible>
+    <Modal animationType="fade" onRequestClose={modalBack} transparent visible>
       <View style={styles.modalBackdrop}>
         <View
           accessibilityLabel={accessibilityLabel}

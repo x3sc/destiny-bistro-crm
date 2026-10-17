@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildApp } from "../../src/app.js";
+import { RoleAccessError } from "../../src/role-policy.js";
 import {
   AuthCredentialsError,
   type AuthRepository,
   type AuthUser,
 } from "../../src/auth-repository.js";
 import {
+  ComandaCancellationConflictError,
+  ComandaBatchConfirmationConflictError,
   ComandaNotCancellableError,
   ComandaInventoryPermissionError,
   ComandaNotClosableError,
@@ -78,6 +81,7 @@ const authenticatedUser: AuthUser = {
   id: "user-id",
   name: "Operador",
   permissions: [
+    'quick-sales.read', 'quick-sales.write', 'counter-sales.read', 'counter-sales.write',
     "comandas.read",
     "comandas.write",
     "credits.read",
@@ -494,6 +498,13 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
     configureItemAdditionals: () => Promise.resolve(comandaWithItem),
     confirmItem: () =>
       Promise.resolve({ comanda: comandaWithItem, inventoryWarnings: [] }),
+    confirmItemsBatch: () =>
+      Promise.resolve({
+        comanda: comandaWithItem,
+        inventoryWarnings: [],
+        replayed: false,
+      }),
+    discardPendingItems: () => Promise.resolve(comanda),
     findById: () => Promise.resolve(comanda),
     findPrintDocument: (_establishmentId, _id, kind, generatedBy) =>
       Promise.resolve({
@@ -516,6 +527,7 @@ function createComandas(overrides: Partial<ComandaRepository> = {}): ComandaRepo
     openQuickSale: () => Promise.resolve(comanda),
     listQuickSales: () => Promise.resolve([]),
     removeItem: () => Promise.resolve(comanda),
+    setItemPendingQuantity: () => Promise.resolve(comandaWithItem),
     ...overrides,
   };
 }
@@ -710,6 +722,14 @@ async function createApp({
   return app;
 }
 
+void test('source authorization rejected inside a mutation remains a permission denial', async () => {
+  const app = await createApp({ comandas: createComandas({ addItem: () => Promise.reject(new RoleAccessError()) }) });
+  try {
+    const response = await app.inject({ method: 'POST', url: '/comandas/comanda-id/items', payload: { productId: 'product-id' } });
+    assert.equal(response.statusCode, 403);
+  } finally { await app.close(); }
+});
+
 void test("GET /health reports the API status without querying the database", async () => {
   let pingCalls = 0;
   const app = await createApp({
@@ -857,7 +877,12 @@ void test("GET /tables returns restaurant tables ordered by number", async () =>
   const tables: RestaurantTable[] = [
     { activeComanda: null, id: 1, number: 1, status: "FREE" },
     {
-      activeComanda: { id: "comanda-id", name: "João", number: 42 },
+      activeComanda: {
+        id: "comanda-id",
+        name: "João",
+        number: 42,
+        openedAt: new Date(openedAt),
+      },
       id: 2,
       number: 2,
       status: "OPEN",
@@ -873,7 +898,18 @@ void test("GET /tables returns restaurant tables ordered by number", async () =>
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { tables });
+  assert.deepEqual(response.json(), {
+    tables: [
+      tables[0],
+      {
+        ...tables[1],
+        activeComanda: {
+          ...tables[1].activeComanda,
+          openedAt,
+        },
+      },
+    ],
+  });
 
   await app.close();
 });
@@ -1624,6 +1660,105 @@ void test("POST /comandas/:comandaId/cancel cancels an open empty comanda", asyn
   await app.close();
 });
 
+void test("POST /comandas/:comandaId/cancel accepts an empty JSON body", async () => {
+  let capturedInput: unknown = "not-called";
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {},
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(capturedInput, null);
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel accepts a null body", async () => {
+  let capturedInput: unknown = "not-called";
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: null as unknown as string,
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(capturedInput, null);
+  await app.close();
+});
+
+
+void test("POST /comandas/:comandaId/cancel accepts a pending-only cancellation", async () => {
+  let capturedInput: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: (_establishmentId, _id, input) => {
+        capturedInput = input;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      reason: "  Cliente   desistiu  ",
+      requestId: "pending-cancel-request",
+    },
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(capturedInput, {
+    reason: "Cliente desistiu",
+    requestId: "pending-cancel-request",
+  });
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/cancel rejects partial cancellation payloads", async () => {
+  let calls = 0;
+  const app = await createApp({
+    comandas: createComandas({
+      cancel: () => {
+        calls += 1;
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: { reason: "Cliente desistiu" },
+    url: "/comandas/comanda-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(calls, 0);
+  assert.deepEqual(response.json(), {
+    message: "Invalid comanda cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
 void test("POST /comandas/:comandaId/cancel rejects an inactive comanda", async () => {
   const app = await createApp({
     comandas: createComandas({
@@ -1801,6 +1936,121 @@ void test("POST /comandas/:comandaId/items/:itemId/confirm maps optimistic confl
   await app.close();
 });
 
+void test("PATCH /comandas/:comandaId/items/:itemId sets an absolute pending quantity", async () => {
+  let received: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      setItemPendingQuantity: (tenant, comandaId, itemId, quantity, actor) => {
+        received = { actor, comandaId, itemId, quantity, tenant };
+        return Promise.resolve(comandaWithItem);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    payload: { pendingQuantity: 7 },
+    url: "/comandas/comanda-id/items/item-id",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(received, {
+    actor: "user-id",
+    comandaId: "comanda-id",
+    itemId: "item-id",
+    quantity: 7,
+    tenant: "establishment-id",
+  });
+  await app.close();
+});
+
+void test("PATCH /comandas/:comandaId/items/:itemId rejects ambiguous quantity input", async () => {
+  const app = await createApp();
+  const response = await app.inject({
+    method: "PATCH",
+    payload: { delta: 1, pendingQuantity: 7 },
+    url: "/comandas/comanda-id/items/item-id",
+  });
+
+  assert.equal(response.statusCode, 409);
+  await app.close();
+});
+
+void test("POST /comandas/:comandaId/items/confirm-batch confirms the expected snapshot", async () => {
+  let received: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      confirmItemsBatch: (_tenant, _comandaId, input, _actor) => {
+        void _actor;
+        received = input;
+        return Promise.resolve({
+          comanda: comandaWithItem,
+          inventoryWarnings: [],
+          replayed: false,
+        });
+      },
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      items: [
+        {
+          expectedConfirmedQuantity: 0,
+          expectedQuantity: 1,
+          itemId: "item-id",
+        },
+      ],
+      requestId: "batch-request-1",
+    },
+    url: "/comandas/comanda-id/items/confirm-batch",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(received, {
+    items: [
+      {
+        expectedConfirmedQuantity: 0,
+        expectedQuantity: 1,
+        itemId: "item-id",
+      },
+    ],
+    requestId: "batch-request-1",
+  });
+  assert.equal(response.json<{ replayed: boolean }>().replayed, false);
+  await app.close();
+});
+
+void test("batch confirmation maps snapshot conflicts without partial success", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      confirmItemsBatch: () =>
+        Promise.reject(new ComandaBatchConfirmationConflictError()),
+    }),
+  });
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      items: [
+        {
+          expectedConfirmedQuantity: 0,
+          expectedQuantity: 1,
+          itemId: "item-id",
+        },
+      ],
+      requestId: "batch-request-1",
+    },
+    url: "/comandas/comanda-id/items/confirm-batch",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    message: "Comanda items changed; reload before confirming",
+    status: "error",
+  });
+  await app.close();
+});
+
 void test("POST /comandas/:comandaId/cancel validates a total cancellation request", async () => {
   const app = await createApp({
     comandas: createComandas({
@@ -1909,6 +2159,39 @@ void test("PUT /comandas/:comandaId/items/:itemId/additionals configures pending
   await app.close();
 });
 
+void test("malformed item cancellation returns 400 before inventory permission", async () => {
+  const app = await createApp({
+    auth: createAuth({
+      authenticate: () =>
+        Promise.resolve({
+          ...authenticatedUser,
+          permissions: authenticatedUser.permissions.filter(
+            (permission) => permission !== "inventory.write",
+          ),
+        }),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "LOSS",
+      quantity: 0,
+      reason: "x",
+      requestId: "short",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), {
+    message: "Invalid item cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
+
 void test("confirmed item cancellation requires inventory.write", async () => {
   const app = await createApp({
     auth: createAuth({
@@ -1935,6 +2218,64 @@ void test("confirmed item cancellation requires inventory.write", async () => {
 
   assert.equal(response.statusCode, 403);
   assert.deepEqual(response.json(), { status: "error", message: "Permission denied" });
+  await app.close();
+});
+
+void test("confirmed item cancellation rejects malformed input before persistence", async () => {
+  let calls = 0;
+  const app = await createApp({
+    comandas: createComandas({
+      cancelItemConfiguration: () => {
+        calls += 1;
+        return Promise.resolve({ comanda, inventoryWarnings: [] });
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      quantity: 0,
+      reason: "x",
+      requestId: "short",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(calls, 0);
+  assert.deepEqual(response.json(), {
+    message: "Invalid item cancellation",
+    status: "error",
+  });
+  await app.close();
+});
+
+void test("confirmed item cancellation reports idempotency conflicts", async () => {
+  const app = await createApp({
+    comandas: createComandas({
+      cancelItemConfiguration: () =>
+        Promise.reject(new ComandaCancellationConflictError()),
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    payload: {
+      disposition: "RETURN_TO_STOCK",
+      quantity: 1,
+      reason: "Cliente desistiu",
+      requestId: "item-cancel-request",
+    },
+    url: "/comandas/comanda-id/items/item-id/configurations/config-id/cancel",
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.json(), {
+    message: "Idempotency key already used",
+    status: "error",
+  });
   await app.close();
 });
 
@@ -1973,6 +2314,31 @@ void test("DELETE /comandas/:comandaId/items/:itemId removes a single unit item"
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json(), { comanda });
 
+  await app.close();
+});
+
+void test("DELETE /comandas/:comandaId/items/pending discards all pending quantities", async () => {
+  let received: unknown;
+  const app = await createApp({
+    comandas: createComandas({
+      discardPendingItems: (tenant, comandaId, actor) => {
+        received = { actor, comandaId, tenant };
+        return Promise.resolve(comanda);
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "DELETE",
+    url: "/comandas/comanda-id/items/pending",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(received, {
+    actor: "user-id",
+    comandaId: "comanda-id",
+    tenant: "establishment-id",
+  });
   await app.close();
 });
 
@@ -2533,9 +2899,11 @@ void test("closing a delivery day is rejected when it is already closed", async 
   await app.close();
 });
 
-void test("credit endpoints reject operational roles even with legacy permissions", async () => {
+void test("credit endpoints reject operational roles without explicit credit permissions", async () => {
   for (const code of ["WAITER", "KITCHEN"]) {
-    const app = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, roles: [{ id: "role", name: code, code }] }) }) });
+    const app = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser,
+      permissions: authenticatedUser.permissions.filter((permission) => !permission.startsWith('credits.')),
+      roles: [{ id: "role", name: code, code }] }) }) });
     try {
       for (const [method, url] of [["GET", "/credit-customers"], ["GET", "/credit-customers/customer"], ["POST", "/credit-customers"], ["POST", "/credit-customers/customer/orders"], ["POST", "/credit-orders/order/finalize"], ["POST", "/credit-orders/order/cancel"], ["POST", "/credit-orders/order/settle"], ["POST", "/comandas/comanda/credit"]] as const) {
         const response = await app.inject({ method, url, ...(method === "POST" ? { payload: {} } : {}) });
@@ -2544,10 +2912,12 @@ void test("credit endpoints reject operational roles even with legacy permission
     } finally { await app.close(); }
   }
 });
-void test("checkout passes no credit authority for waiter with legacy permissions", async () => {
+void test("checkout passes no credit authority without an explicit credit grant", async () => {
   let allowed: boolean | undefined;
   const app = await createApp({
-    auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, roles: [{ id: "role", name: "Waiter", code: "WAITER" }] }) }),
+    auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser,
+      permissions: authenticatedUser.permissions.filter((permission) => !permission.startsWith('credits.')),
+      roles: [{ id: "role", name: "Waiter", code: "WAITER" }] }) }),
     comandas: createComandas({ close: (_tenant, _id, _payments, _customer, canCredit) => { allowed = canCredit; return Promise.resolve(comanda); } }),
   });
   try {
@@ -2588,7 +2958,7 @@ void test("quick sales validate customer name and use authenticated tenant and a
 });
 
 void test("quick sales require authenticated read and write permissions", async () => {
-  for (const permissions of [[], ["comandas.read"]]) {
+  for (const permissions of [[], ["quick-sales.read"]]) {
     const app = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser, permissions }) }) });
     try {
       assert.equal((await app.inject({ method: "POST", url: "/quick-sales", payload: { name: "Maria" } })).statusCode, 403);
@@ -2596,4 +2966,25 @@ void test("quick sales require authenticated read and write permissions", async 
       assert.equal((await app.inject({ method: "POST", url: "/quick-sales", headers: { authorization: "" }, payload: { name: "Maria" } })).statusCode, 401);
     } finally { await app.close(); }
   }
+});
+
+
+void test('counter print kinds require printing.write and preserve tenant and operator context', async () => {
+  const calls: unknown[][] = [];
+  const app = await createApp({ comandas: createComandas({
+    findPrintDocument: (...args) => { calls.push(args); return createComandas().findPrintDocument(...args); },
+  }) });
+  const denied = await createApp({ auth: createAuth({ authenticate: () => Promise.resolve({ ...authenticatedUser,
+    permissions: authenticatedUser.permissions.filter((permission) => permission !== 'printing.write'),
+  }) }) });
+  try {
+    for (const kind of ['COUNTER_PENDING', 'COUNTER_FINAL']) {
+      assert.equal((await app.inject({ url: `/comandas/comanda-id/print-document?kind=${kind}` })).statusCode, 200);
+      assert.equal((await denied.inject({ url: `/comandas/comanda-id/print-document?kind=${kind}` })).statusCode, 403);
+    }
+    assert.deepEqual(calls.map((args) => args.slice(0, 4)), [
+      ['establishment-id', 'comanda-id', 'COUNTER_PENDING', 'Operador'],
+      ['establishment-id', 'comanda-id', 'COUNTER_FINAL', 'Operador'],
+    ]);
+  } finally { await app.close(); await denied.close(); }
 });

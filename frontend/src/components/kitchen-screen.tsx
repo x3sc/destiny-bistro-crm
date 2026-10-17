@@ -1,3 +1,4 @@
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -63,6 +64,7 @@ export function KitchenScreen({
   >({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const [mutatingId, setMutatingId] = useState<string>();
+  useNavigationGuard({ busy: Boolean(mutatingId) });
 
   const refresh = useCallback(
     async (showLoading = false) => {

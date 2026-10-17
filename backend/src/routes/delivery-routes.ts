@@ -86,12 +86,6 @@ export function registerDeliveryRoutes(
     { config: { permission: "deliveries.write" } },
     async (request, reply) => {
       const user = requireAuthUser(request);
-      if (!user.permissions.includes("comandas.write")) {
-        return reply.code(403).send({
-          status: "error",
-          message: "Permission denied",
-        });
-      }
       try {
         const input = normalizeDeliveryOrderInput(request.body);
         return reply.code(201).send({

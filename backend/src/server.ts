@@ -6,6 +6,7 @@ const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3333);
 const corsOrigins = parseCorsOrigins();
 const {
+  roles,
   auth,
   users,
   comandas,
@@ -19,6 +20,7 @@ const {
   statements,
 } = createPersistence();
 const app = await buildApp({
+  roles,
   auth,
   users,
   comandas,

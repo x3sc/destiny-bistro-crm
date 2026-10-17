@@ -7,8 +7,13 @@ import {
 } from "./comanda-types.js";
 import { createAuditData } from "./audit.js";
 import { mapPayment, paymentSelect } from "./payment-persistence.js";
+import { COUNTER_TABLE_NAME, counterSaleSnapshot } from './counter-sales-types.js';
+import { lockCounterSale } from './counter-sales-lock.js';
+import { authorizeComandaMutation } from './comanda-source-access.js';
+import { serviceFeeCents, CheckoutConflictError } from './service-fee.js';
 
 export const comandaSelect = {
+  serviceFeeApplied: true, serviceFeePercent: true, serviceFeeSubtotalCents: true, serviceFeeAmountCents: true,
   cancellationReason: true,
   cancelledAt: true,
   closedAt: true,
@@ -142,7 +147,12 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
   }));
 
   return {
+    ...(comanda.serviceFeeApplied !== null ? { serviceFee: { included: comanda.serviceFeeApplied,
+      percent: comanda.serviceFeePercent, subtotalCents: comanda.serviceFeeSubtotalCents ?? 0, amountCents: comanda.serviceFeeAmountCents } } : {}),
+    operationalOrigin: creditOrder ? 'CREDIT' : deliveryOrder ? 'DELIVERY' : comanda.tableName === 'Balcão' ? 'COUNTER' :
+      comanda.tableName === 'Venda rápida' ? 'QUICK_SALE' : 'TABLE',
     ...persistedComanda,
+    ...(comanda.tableName === COUNTER_TABLE_NAME ? { counterSnapshot: counterSaleSnapshot(comanda.id, items) } : {}),
     cancelledAt: comanda.cancelledAt?.toISOString() ?? null,
     closedAt: comanda.closedAt?.toISOString() ?? null,
     credit: creditOrder
@@ -172,8 +182,8 @@ export function mapComanda(comanda: PersistedComanda): Comanda {
     openedAt: comanda.openedAt.toISOString(),
     payments: payments.map(mapPayment),
     totalCents:
-      items.reduce((total, item) => total + item.subtotalCents, 0) +
-      (deliveryOrder?.feeCents ?? 0),
+      (comanda.serviceFeeApplied !== null ? comanda.serviceFeeSubtotalCents ?? 0 : items.reduce((total, item) => total + item.subtotalCents, 0)) +
+      (deliveryOrder?.feeCents ?? 0) + comanda.serviceFeeAmountCents,
   };
 }
 
@@ -182,6 +192,10 @@ export async function findOpenComanda(
   establishmentId: string,
   id: string,
 ) {
+  await transaction.$queryRaw`SELECT id FROM Comanda WHERE id = ${id} AND establishmentId = ${establishmentId} FOR UPDATE`;
+  const counter = await lockCounterSale(transaction, establishmentId, id);
+  await authorizeComandaMutation(transaction, establishmentId, id);
+  if (counter && counter.status !== 'OPEN') throw new ComandaNotMutableError();
   const comanda = await transaction.comanda.findFirst({
     select: {
       activeForTable: {
@@ -215,7 +229,7 @@ export async function findOpenComanda(
   if (
     comanda.status !== "OPEN" ||
     (!comanda.activeForTable && !isMutableCreditOrder && !comanda.deliveryOrder &&
-      !(comanda.tableId === null && comanda.tableName === QUICK_SALE_TABLE_NAME && !comanda.creditOrder))
+      !(comanda.tableId === null && [QUICK_SALE_TABLE_NAME, COUNTER_TABLE_NAME].includes(comanda.tableName ?? '') && !comanda.creditOrder))
   ) {
     throw new ComandaNotMutableError();
   }
@@ -238,11 +252,14 @@ export async function syncOpenCreditOrderTotal(
   transaction: Transaction,
   establishmentId: string,
   comandaId: string,
+  actorUserId: string,
 ) {
   const order = await transaction.creditOrder.findFirst({
     select: {
       id: true,
       status: true,
+      payments: { select: { amountCents: true } },
+      comanda: { select: { serviceFeeApplied: true, serviceFeePercent: true, serviceFeeSubtotalCents: true, serviceFeeAmountCents: true } },
     },
     where: {
       comandaId,
@@ -261,6 +278,7 @@ export async function syncOpenCreditOrderTotal(
       additionalTotalCents: true,
       quantity: true,
       unitPriceCents: true,
+      configurations: { select: { confirmedQuantity: true, additionals: { select: { quantityPerUnit: true, unitPriceCents: true } } } },
     },
     where: {
       comandaId,
@@ -270,11 +288,31 @@ export async function syncOpenCreditOrderTotal(
     select: { feeCents: true },
     where: { comandaId, establishmentId },
   });
-  const totalCents = items.reduce(
+  const hasFeeDecision = order.comanda.serviceFeeApplied !== null;
+  const confirmedSubtotal = items.reduce((sum, item) => sum + item.configurations.reduce((value, config) => value +
+    config.confirmedQuantity * (item.unitPriceCents + config.additionals.reduce((cost, extra) => cost + extra.quantityPerUnit * extra.unitPriceCents, 0)), 0), 0);
+  const confirmedItemCount = items.reduce((sum, item) => sum + item.configurations.reduce((count, config) => count + config.confirmedQuantity, 0), 0);
+  const previousCount = hasFeeDecision ? await transaction.comandaEvent.aggregate({ where: { establishmentId, comandaId, type: 'SERVICE_FEE_CHANGED' }, _sum: { confirmedItemDelta: true } }) : null;
+  const itemCountDelta = confirmedItemCount - (previousCount?._sum.confirmedItemDelta ?? 0);
+  const subtotalCents = hasFeeDecision ? confirmedSubtotal : items.reduce(
     (total, item) =>
       total + item.quantity * item.unitPriceCents + item.additionalTotalCents,
     0,
-  ) + (deliveryOrder?.feeCents ?? 0);
+  );
+  const fee = serviceFeeCents(subtotalCents, order.comanda.serviceFeePercent);
+  const totalCents = subtotalCents + fee + (deliveryOrder?.feeCents ?? 0);
+  if (hasFeeDecision && totalCents < order.payments.reduce((sum, payment) => sum + payment.amountCents, 0)) throw new CheckoutConflictError();
+  if (hasFeeDecision && (itemCountDelta !== 0 || fee !== order.comanda.serviceFeeAmountCents || subtotalCents !== order.comanda.serviceFeeSubtotalCents)) {
+    await transaction.comanda.update({ where: { id_establishmentId: { id: comandaId, establishmentId } }, data: { serviceFeeSubtotalCents: subtotalCents, serviceFeeAmountCents: fee } });
+    const delta = fee - order.comanda.serviceFeeAmountCents;
+    await transaction.comandaEvent.create({ data: { establishmentId, comandaId, actorUserId,
+      type: 'SERVICE_FEE_CHANGED', serviceFeeDeltaCents: delta,
+      confirmedItemDelta: itemCountDelta,
+      consumptionDeltaCents: subtotalCents - (order.comanda.serviceFeeSubtotalCents ?? 0) } });
+    await transaction.auditLog.create({ data: createAuditData({ action: 'SERVICE_FEE_RECALCULATED', establishmentId,
+      resourceType: 'COMANDA', resourceId: comandaId, userId: actorUserId,
+      metadata: { before: order.comanda, after: { subtotalCents, percent: order.comanda.serviceFeePercent, amountCents: fee } } }) });
+  }
   const updated = await transaction.creditOrder.updateMany({
     data: {
       totalCents,

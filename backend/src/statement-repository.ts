@@ -26,6 +26,7 @@ export function createStatementRepository(
             },
             select: {
               closedAt: true,
+              serviceFeeAmountCents: true, serviceFeeSubtotalCents: true,
               creditOrder: {
                 select: {
                   customer: {
@@ -158,6 +159,7 @@ export function createStatementRepository(
                     },
                     select: {
                       createdAt: true,
+                      id: true, serviceFeeDeltaCents: true, consumptionDeltaCents: true, confirmedItemDelta: true,
                       newQuantity: true,
                       previousQuantity: true,
                       productId: true,
@@ -165,7 +167,7 @@ export function createStatementRepository(
                       unitPriceCents: true,
                     },
                     where: {
-                      type: "ITEM_CONFIRMED",
+                      type: { in: ['ITEM_CONFIRMED', 'SERVICE_FEE_CHANGED'] },
                     },
                   },
                   id: true,
@@ -225,7 +227,7 @@ export function createStatementRepository(
                           gte: period.startAt,
                           lt: period.endAt,
                         },
-                        type: "ITEM_CONFIRMED",
+                        type: { in: ['ITEM_CONFIRMED', 'SERVICE_FEE_CHANGED'] },
                       },
                     },
                   },
@@ -300,6 +302,7 @@ export function createStatementRepository(
             ? [
                 {
                   closedAt: comanda.closedAt,
+                  serviceFeeAmountCents: comanda.serviceFeeAmountCents, serviceFeeSubtotalCents: comanda.serviceFeeSubtotalCents,
                   creditOrder: comanda.creditOrder
                     ? {
                         customerName: comanda.creditOrder.customer.name,
@@ -354,6 +357,10 @@ export function createStatementRepository(
                 closedAt: order.comanda.closedAt,
                 deliveryOrder: order.comanda.deliveryOrder,
                 events,
+                serviceFeeEvents: order.comanda.events.flatMap((event) => event.serviceFeeDeltaCents === null || event.consumptionDeltaCents === null ? [] : [{
+                  id: event.id, createdAt: event.createdAt, deltaCents: event.serviceFeeDeltaCents, consumptionDeltaCents: event.consumptionDeltaCents,
+                  itemCountDelta: event.confirmedItemDelta ?? 0,
+                }]),
                 id: order.comanda.id,
                 name: order.comanda.name,
                 tableName: order.comanda.tableName,

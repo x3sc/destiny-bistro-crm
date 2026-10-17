@@ -1,4 +1,6 @@
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
+
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import { creditStyles } from './credit-screens.styles';
 

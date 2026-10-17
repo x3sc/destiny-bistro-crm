@@ -49,6 +49,15 @@ const comanda: Comanda = {
   totalCents: 0,
 };
 
+it('never exposes confirmed cancellation on an already closed comanda', async () => {
+  render(<ComandaDetailsScreen apiBaseUrl="http://localhost:3333" comandaId={comanda.id} canCancelConfirmed
+    loadRequest={async () => ({ ...comanda, status: 'CLOSED', items: [{ ...comanda.items[0], quantity: 1, confirmedQuantity: 1,
+      configurations: [{ id: 'closed-config', configurationKey: 'BASE', quantity: 1, confirmedQuantity: 1, subtotalCents: 500, additionals: [] }],
+    }] })} onBack={jest.fn()} onCancelled={jest.fn()} onAddProducts={jest.fn()} />);
+  await screen.findByText('Itens confirmados');
+  expect(screen.queryByRole('button', { name: 'Cancelar unidades confirmadas' })).toBeNull();
+});
+
 const comandaWithItem: Comanda = {
   ...comanda,
   items: [
@@ -139,6 +148,7 @@ it('shows comanda details', async () => {
   );
 
   expect(await screen.findByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByText('Aberta em 02/06/2026, 16:00')).toBeTruthy();
   expect(screen.getByText('Mesa 1')).toBeTruthy();
   expect(screen.getByText('• Aberta')).toBeTruthy();
   expect(screen.getByText(/Nenhum item/)).toBeTruthy();
@@ -389,6 +399,88 @@ it('does not cancel an empty comanda when browser confirm is cancelled', async (
   }
 });
 
+it('cancels a pending-only comanda with a reason and without an inventory disposition', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.resolve({
+    ...comandaWithItem,
+    status: 'CANCELLED' as const,
+  }));
+  const onCancelled = jest.fn();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={onCancelled}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+
+  expect(screen.getByLabelText('Motivo do cancelamento total')).toBeTruthy();
+  expect(screen.getByTestId('total-cancellation-screen')).toBeTruthy();
+  expect(screen.queryByTestId('comanda-footer')).toBeNull();
+  expect(screen.queryByText('Itens em aberto')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Devolver ao estoque' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Registrar perda' })).toBeNull();
+
+  fireEvent.changeText(
+    screen.getByLabelText('Motivo do cancelamento total'),
+    'Cliente desistiu',
+  );
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar cancelamento total' }),
+  );
+
+  await waitFor(() => {
+    expect(cancelRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      {
+        reason: 'Cliente desistiu',
+        requestId: expect.stringMatching(/^cancel-comanda-/),
+      },
+    );
+  });
+  expect(onCancelled).toHaveBeenCalled();
+});
+
+it('keeps the loaded comanda visible when cancellation fails', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.reject(new Error('request failed')));
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comanda)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda vazia' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+
+  expect(
+    await screen.findByText('Não foi possível cancelar a comanda. Tente novamente.'),
+  ).toBeTruthy();
+  expect(screen.getByText('Comanda #42')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancelar comanda vazia' })).toBeTruthy();
+  expect(screen.queryByText('Não foi possível carregar a comanda.')).toBeNull();
+});
+
 it('shows items, total and blocks cancellation when the comanda has consumption', async () => {
   const onCheckout = jest.fn();
 
@@ -419,6 +511,40 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.getByText('Confirme todos os itens antes de fechar')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
   expect(onCheckout).not.toHaveBeenCalled();
+});
+
+it('allows entering an integer pending quantity directly', async () => {
+  const setItemPendingQuantityRequest = jest.fn(() =>
+    Promise.resolve({
+      ...comandaWithItem,
+      items: [{ ...comandaWithItem.items[0], quantity: 7 }],
+    }),
+  );
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
+    />,
+  );
+
+  const input = await screen.findByLabelText('Quantidade nova de Cafe');
+  fireEvent.changeText(input, '7');
+  fireEvent(input, 'submitEditing');
+
+  await waitFor(() => {
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+      7,
+    );
+  });
 });
 
 it('keeps cancellation inside the scroll content and outside the fixed footer', async () => {
@@ -538,6 +664,89 @@ it('cancels a confirmed comanda with inventory disposition and a stable request'
   });
   expect(onCancelled).toHaveBeenCalled();
 });
+
+it('cancels a confirmed comanda as a loss when selected', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation();
+  const cancelRequest = jest.fn(() => Promise.resolve({
+    ...comandaWithConfirmedItem,
+    status: 'CANCELLED' as const,
+  }));
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      cancelRequest={cancelRequest}
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar comanda' }));
+  await act(async () => {
+    alertSpy.mock.calls[0][2]?.[1]?.onPress?.();
+  });
+  fireEvent.press(screen.getByRole('button', { name: 'Registrar perda' }));
+  fireEvent.changeText(
+    screen.getByLabelText('Motivo do cancelamento total'),
+    'Produto perdido',
+  );
+  fireEvent.press(
+    screen.getByRole('button', { name: 'Confirmar cancelamento total' }),
+  );
+
+  await waitFor(() => {
+    expect(cancelRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      expect.objectContaining({
+        disposition: 'LOSS',
+        reason: 'Produto perdido',
+        requestId: expect.stringMatching(/^cancel-comanda-/),
+      }),
+    );
+  });
+});
+
+it('hides cancellation when comanda or inventory permission is missing', async () => {
+  const { unmount } = render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithConfirmedItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+    />,
+  );
+
+  await screen.findByText('Cafe');
+  expect(screen.queryByRole('button', { name: 'Cancelar comanda' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Cancelar unidades confirmadas' }),
+  ).toBeNull();
+  unmount();
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      canCancelConfirmed
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      readOnly
+    />,
+  );
+
+  await screen.findByText('Cafe');
+  expect(screen.queryByRole('button', { name: 'Cancelar comanda' })).toBeNull();
+});
+
 
 it('opens the unified checkout after all item quantities are confirmed', async () => {
   const onCheckout = jest.fn();
@@ -846,6 +1055,9 @@ it('does not expose a separate close-as-credit action', async () => {
   );
 
   expect(await screen.findByRole('button', { name: 'Fechar mesa' })).toBeTruthy();
+  expect(screen.getByTestId('comanda-details-header')).toHaveStyle({
+    backgroundColor: themeColors.primary,
+  });
   expect(screen.queryByRole('button', { name: 'Fechar como fiado' })).toBeNull();
 });
 
@@ -862,4 +1074,26 @@ it('shows an error when loading fails', async () => {
   );
 
   expect(await screen.findByText(/foi poss/)).toBeTruthy();
+});
+
+
+it('places the two pending print actions with pending items and the final actions with delivered items', async () => {
+  const originalPlatform = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  try {
+    const sale = { ...comandaWithConfirmedAndNewItem, name: 'João', number: 42, table: null, tableName: 'Balcão' };
+    render(<ComandaDetailsScreen apiBaseUrl="http://localhost:3333" comandaId={sale.id} canPrint
+      loadRequest={async () => sale} onBack={jest.fn()} onCancelled={jest.fn()} onAddProducts={jest.fn()} />);
+    await screen.findByText('Itens em aberto');
+    const pending = within(screen.getByTestId('comanda-pending-items'));
+    const delivered = within(screen.getByTestId('comanda-confirmed-items'));
+    expect(pending.getByRole('button', { name: 'Imprimir pendentes para o cliente' })).toBeTruthy();
+    expect(pending.getByRole('button', { name: 'Imprimir pendentes para o balcão' })).toBeTruthy();
+    expect(pending.queryByText('Imprimir conferência final para o cliente')).toBeNull();
+    expect(delivered.getByRole('button', { name: 'Imprimir conferência final para o cliente' })).toBeDisabled();
+    expect(delivered.getByRole('button', { name: 'Imprimir conferência final para o balcão' })).toBeDisabled();
+    expect(delivered.queryByText('Imprimir pendentes para o cliente')).toBeNull();
+    expect(screen.getAllByText('Balcão · Comanda #42 · João')).toHaveLength(4);
+    expect(screen.queryByText(/2 vias/)).toBeNull();
+  } finally { Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform }); }
 });

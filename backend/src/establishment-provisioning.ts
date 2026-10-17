@@ -10,6 +10,7 @@ import {
 import { seedEstablishmentData } from "./establishment-data.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
 import { hashPassword } from "./password.js";
+import { createInitialTenantRoles } from './tenant-role-provisioning.js';
 
 export function normalizeEstablishmentName(rawName: string) {
   const name = rawName.trim().replace(/\s+/gu, " ");
@@ -41,32 +42,18 @@ export async function provisionEstablishment(
   validatePassword(ownerPassword);
 
   await ensureSystemAccessControl(prisma);
-  const ownerRole = await prisma.role.findUniqueOrThrow({
-    select: { id: true },
-    where: { code: "OWNER" },
-  });
   const passwordHash = await hashPassword(ownerPassword);
 
   try {
     return await prisma.$transaction(
       async (transaction) => {
-        const establishment = await transaction.establishment.create({
-          data: {
-            name,
-            normalizedName,
-            users: {
-              create: {
-                name: owner.name,
-                normalizedName: owner.normalizedName,
-                passwordHash,
-                roles: {
-                  create: {
-                    roleId: ownerRole.id,
-                  },
-                },
-              },
-            },
-          },
+        const base = await transaction.establishment.create({ data: { name, normalizedName }, select: { id: true } });
+        await createInitialTenantRoles(transaction, base.id);
+        const ownerRole = await transaction.tenantRole.findUniqueOrThrow({ where: { establishmentId_code: { establishmentId: base.id, code: 'OWNER' } } });
+        await transaction.user.create({ data: { establishmentId: base.id, localRoleId: ownerRole.id,
+          name: owner.name, normalizedName: owner.normalizedName, passwordHash } });
+        const establishment = await transaction.establishment.findUniqueOrThrow({
+          where: { id: base.id },
           select: {
             id: true,
             name: true,

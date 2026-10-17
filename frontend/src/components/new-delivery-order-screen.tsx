@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigationGuard, useSafeNavigationCompletion } from '../navigation/safe-navigation';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -34,6 +35,8 @@ export function NewDeliveryOrderScreen({
   const [feeCents, setFeeCents] = useState(0);
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
+  const completeNavigation = useSafeNavigationCompletion();
+  useNavigationGuard({ busy: saving });
   const [error, setError] = useState(false);
   const phoneValid = isBrazilianMobile(phone);
   const valid =
@@ -47,14 +50,13 @@ export function NewDeliveryOrderScreen({
     setSaving(true);
     setError(false);
     try {
-      onCreated(
-        await createRequest(normalizedApiBaseUrl, {
+      const created = await createRequest(normalizedApiBaseUrl, {
           address: address.trim(),
           customerName: customerName.trim(),
           feeCents,
           phone: phone.trim(),
-        }),
-      );
+        });
+      completeNavigation(() => onCreated(created));
     } catch {
       setError(true);
       setSaving(false);

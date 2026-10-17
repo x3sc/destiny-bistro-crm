@@ -83,7 +83,7 @@ export const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     flex: 1,
     gap: 3,
@@ -105,7 +105,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,
@@ -173,7 +173,7 @@ export const styles = StyleSheet.create({
   messageCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: themeRadii.compact,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     color: themeColors.message,
     padding: 15,
@@ -198,7 +198,7 @@ export const styles = StyleSheet.create({
   tableCard: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     flexGrow: 0,
     flexShrink: 0,
@@ -234,12 +234,19 @@ export const styles = StyleSheet.create({
     fontSize: 12,
   },
   comandaNumber: {
-    borderTopColor: themeColors.divider,
-    borderTopWidth: 1,
     color: themeColors.foregroundBody,
     fontSize: 12,
+  },
+  comandaIdentity: {
+    borderTopColor: themeColors.divider,
+    borderTopWidth: 1,
+    gap: 2,
     marginTop: 'auto',
     paddingTop: 7,
+  },
+  comandaOpenedAt: {
+    color: themeColors.foregroundMuted,
+    fontSize: 11,
   },
   openComandaAction: {
     color: themeColors.primary,
@@ -253,7 +260,7 @@ export const styles = StyleSheet.create({
   },
   emptyResults: {
     borderColor: themeColors.borderStrong,
-    borderRadius: themeRadii.compact,
+    borderRadius: themeRadii.operationalCard,
     borderStyle: 'dashed',
     borderWidth: 1,
     color: themeColors.foregroundSoft,
@@ -265,7 +272,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 45,

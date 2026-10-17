@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
+import { useNavigationGuard, useSafeNavigationCompletion } from '../navigation/safe-navigation';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import { loadQuickSales, openQuickSale, type Comanda } from '../services/comandas-api';
+import { formatOperationalDateTime } from '../services/date-time';
 import { formatCentsAsBrl } from '../services/money';
 import { BrandedScreenHeader } from './branded-screen-header';
 import { CreditButton } from './credit-screen-parts';
@@ -21,6 +23,8 @@ export function QuickSalesScreen({
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const completeNavigation = useSafeNavigationCompletion();
+  useNavigationGuard({ busy: submitting });
   const submittingRef = useRef(false);
   const [error, setError] = useState<string>();
   const [state, setState] = useState<
@@ -49,7 +53,7 @@ export function QuickSalesScreen({
       const sale = await openRequest(url, name.trim());
       setName('');
       refresh();
-      onSelect(sale);
+      completeNavigation(() => onSelect(sale));
     } catch {
       setError('Não foi possível abrir a venda rápida.');
     } finally {
@@ -79,9 +83,10 @@ export function QuickSalesScreen({
         {state.kind === 'error' && <Text style={styles.error}>Não foi possível carregar as vendas rápidas.</Text>}
         <CreditButton label="Atualizar vendas" tone="secondary" onPress={refresh} />
         {state.kind === 'success' && sales.length === 0 && <Text style={styles.empty}>{query.trim() ? 'Nenhuma venda encontrada.' : 'Nenhuma venda rápida em aberto.'}</Text>}
-        {sales.map((sale) => <Pressable key={sale.id} accessibilityRole="button" accessibilityLabel={`Comanda ${sale.number}, ${sale.name}`} onPress={() => onSelect(sale)} style={styles.card}>
+        {sales.map((sale) => <Pressable key={sale.id} accessibilityRole="button" accessibilityLabel={`Comanda ${sale.number}, ${sale.name}, aberta em ${formatOperationalDateTime(sale.openedAt)}`} onPress={() => onSelect(sale)} style={styles.card}>
           <Text style={styles.cardTitle}>{sale.name}</Text>
           <Text style={styles.description}>Comanda #{sale.number} · Venda rápida</Text>
+          <Text style={styles.description}>Aberta em {formatOperationalDateTime(sale.openedAt)}</Text>
           <Text style={styles.balance}>{formatCentsAsBrl(sale.totalCents)}</Text>
         </Pressable>)}
       </ScrollView>

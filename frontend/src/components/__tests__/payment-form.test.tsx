@@ -104,3 +104,38 @@ it('accepts zero only when explicitly allowed', () => {
   fireEvent.press(screen.getByRole('button', { name: 'Tudo em fiado' }));
   expect(onSubmit).toHaveBeenCalledWith([]);
 });
+
+it('offers the checkout method grid and fills or clears the balance without submitting', () => {
+  const onSubmit = jest.fn();
+  const onPaymentChange = jest.fn();
+  render(<PaymentForm allowZero maxCents={3199} variant="checkout"
+    onSubmit={onSubmit} onPaymentChange={onPaymentChange} submitLabel="Confirmar" />);
+
+  expect(screen.getByRole('button', { name: 'Selecionar Pix no pagamento 1' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Forma de pagamento 1' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Selecionar Dinheiro no pagamento 1' }));
+  fireEvent.press(screen.getByRole('button', { name: /Pagamento total/ }));
+  expect(screen.getByLabelText('Valor do pagamento 1').props.value).toBe('R$ 31,99');
+  expect(onPaymentChange).toHaveBeenLastCalledWith({
+    payments: [{ amountCents: 3199, method: 'CASH' }], totalCents: 3199, valid: true,
+  });
+  expect(onSubmit).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Limpar valor do pagamento 1' }));
+  expect(screen.getByLabelText('Valor do pagamento 1').props.value).toBe('R$ 0,00');
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+it('fills only the available balance in mixed checkout and disables duplicate methods', () => {
+  const onPaymentChange = jest.fn();
+  render(<PaymentForm allowZero maxCents={5000} variant="checkout" onPaymentChange={onPaymentChange} />);
+  fireEvent.press(screen.getByRole('button', { name: 'Selecionar Dinheiro no pagamento 1' }));
+  fireEvent.changeText(screen.getByLabelText('Valor do pagamento 1'), '2000');
+  fireEvent.press(screen.getByRole('button', { name: /Adicionar outra forma/ }));
+  expect(screen.getByRole('button', { name: 'Selecionar Dinheiro no pagamento 2' })).toBeDisabled();
+  fireEvent.press(screen.getByRole('button', { name: 'Selecionar Pix no pagamento 2' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Pagamento total no pagamento 2' }));
+  expect(onPaymentChange).toHaveBeenLastCalledWith({
+    payments: [{ amountCents: 2000, method: 'CASH' }, { amountCents: 3000, method: 'PIX' }],
+    totalCents: 5000, valid: true,
+  });
+});

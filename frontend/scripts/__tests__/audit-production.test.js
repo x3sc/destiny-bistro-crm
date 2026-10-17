@@ -14,7 +14,7 @@ const allowedAdvisories = [
 ];
 
 describe('production dependency audit', () => {
-  it('allows only transitive findings rooted in the tracked image-size advisories', () => {
+  it('blocks the former image-size exception and its transitive findings', () => {
     const report = {
       vulnerabilities: {
         'image-size': {
@@ -34,8 +34,8 @@ describe('production dependency audit', () => {
 
     const result = evaluateAuditReport(report);
 
-    expect(result.blocking).toEqual([]);
-    expect(result.allowed.map(({ name }) => name)).toEqual([
+    expect(result.allowed).toEqual([]);
+    expect(result.blocking.map(({ name }) => name)).toEqual([
       'image-size',
       'metro',
       'expo',

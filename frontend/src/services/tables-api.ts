@@ -8,6 +8,7 @@ export interface RestaurantTable {
     id: string;
     name: string | null;
     number: number;
+    openedAt: string;
   } | null;
   id: number;
   number: number;
@@ -38,7 +39,8 @@ function isRestaurantTable(value: unknown): value is RestaurantTable {
         typeof table.activeComanda.id === 'string' &&
         (table.activeComanda.name === null ||
           typeof table.activeComanda.name === 'string') &&
-        Number.isInteger(table.activeComanda.number))) &&
+        Number.isInteger(table.activeComanda.number) &&
+        typeof table.activeComanda.openedAt === 'string')) &&
     Number.isInteger(table.id) &&
     Number.isInteger(table.number) &&
     restaurantTableStatuses.has(table.status as RestaurantTableStatus)

@@ -3,6 +3,7 @@ import { authenticatedFetch } from './auth-session';
 
 export type ComandaStatus = 'OPEN' | 'CANCELLED' | 'CLOSED';
 export type ComandaEventType =
+  | 'SERVICE_FEE_CHANGED'
   | 'OPENED'
   | 'CANCELLED'
   | 'CLOSED'
@@ -15,12 +16,19 @@ export type ComandaEventType =
 export type ComandaCancellationReason = 'OPENED_BY_MISTAKE' | 'OPERATOR_CANCELLED';
 export type CreditOrderSource = 'MANUAL' | 'TABLE' | 'DELIVERY' | 'QUICK_SALE';
 export type CreditOrderStatus = 'DRAFT' | 'OPEN' | 'SETTLED' | 'CANCELLED';
-export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD';
+export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD' | 'COUNTER';
 export type PaymentOrigin =
+  | 'COUNTER_CHECKOUT'
   | 'QUICK_SALE_CHECKOUT'
   | 'TABLE_CHECKOUT'
   | 'CREDIT_INSTALLMENT'
   | 'DELIVERY_CHECKOUT';
+export interface CancelComandaInput {
+  disposition?: 'RETURN_TO_STOCK' | 'LOSS';
+  reason: string;
+  requestId: string;
+}
+
 
 export interface PaymentAllocationInput {
   amountCents: number;
@@ -78,6 +86,9 @@ export interface ComandaItemConfiguration {
 }
 
 export interface Comanda {
+  serviceFee?: { included: boolean; percent: number; subtotalCents: number; amountCents: number };
+  operationalOrigin?: 'TABLE' | 'QUICK_SALE' | 'COUNTER' | 'CREDIT' | 'DELIVERY';
+  counterSnapshot?: string;
   cancellationReason: ComandaCancellationReason | null;
   cancelledAt: string | null;
   closedAt: string | null;
@@ -122,6 +133,23 @@ export interface InventoryWarning {
   unit?: 'UNIT' | 'GRAM' | 'MILLILITER';
 }
 
+export interface ConfirmItemsBatchInput {
+  items: {
+    expectedConfirmedQuantity: number;
+    expectedQuantity: number;
+    itemId: string;
+  }[];
+  requestId: string;
+}
+
+export interface ConfirmItemsBatchResult {
+  comanda: Comanda;
+  inventoryWarnings: InventoryWarning[];
+  replayed: boolean;
+}
+
+export class ComandaBatchConflictError extends Error {}
+
 function isComandaEvent(value: unknown): value is Comanda['events'][number] {
   if (!value || typeof value !== 'object') {
     return false;
@@ -152,7 +180,7 @@ function isComandaEvent(value: unknown): value is Comanda['events'][number] {
       event.type === 'ITEM_QUANTITY_CHANGED' ||
       event.type === 'ITEM_REMOVED' ||
       event.type === 'ITEM_CANCELLED' ||
-      event.type === 'ADDITIONALS_CHANGED') &&
+      event.type === 'ADDITIONALS_CHANGED' || event.type === 'SERVICE_FEE_CHANGED') &&
     (event.unitPriceCents === null || Number.isInteger(event.unitPriceCents))
   );
 }
@@ -221,7 +249,7 @@ function isPayment(value: unknown): value is Payment {
     typeof payment.comandaId === 'string' &&
     (payment.creditOrderId === null || typeof payment.creditOrderId === 'string') &&
     typeof payment.id === 'string' &&
-    (payment.origin === 'QUICK_SALE_CHECKOUT' ||
+    (payment.origin === 'COUNTER_CHECKOUT' || payment.origin === 'QUICK_SALE_CHECKOUT' ||
       payment.origin === 'TABLE_CHECKOUT' ||
       payment.origin === 'CREDIT_INSTALLMENT' ||
       payment.origin === 'DELIVERY_CHECKOUT') &&
@@ -234,22 +262,25 @@ function isPayment(value: unknown): value is Payment {
 
 function isPaymentMethod(value: unknown): value is PaymentMethod {
   return (
-    value === 'CASH' ||
+    value === 'COUNTER' || value === 'CASH' ||
     value === 'PIX' ||
     value === 'DEBIT_CARD' ||
     value === 'CREDIT_CARD'
   );
 }
 
-function isComanda(value: unknown): value is Comanda {
+export function isComanda(value: unknown): value is Comanda {
   if (!value || typeof value !== 'object') {
     return false;
   }
 
   const comanda = value as Partial<Comanda>;
+  if (comanda.serviceFee !== undefined && !isServiceFee(comanda.serviceFee)) return false;
+  if (comanda.operationalOrigin !== undefined && !['TABLE', 'QUICK_SALE', 'COUNTER', 'CREDIT', 'DELIVERY'].includes(comanda.operationalOrigin)) return false;
 
   return (
     typeof comanda.id === 'string' &&
+    (comanda.counterSnapshot === undefined || (typeof comanda.counterSnapshot === 'string' && /^[a-f0-9]{64}$/.test(comanda.counterSnapshot))) &&
     (comanda.name === null || typeof comanda.name === 'string') &&
     (comanda.tableName == null || typeof comanda.tableName === 'string') &&
     Number.isInteger(comanda.number) &&
@@ -354,16 +385,12 @@ export async function loadComanda(apiBaseUrl: string, comandaId: string) {
 export async function cancelComanda(
   apiBaseUrl: string,
   comandaId: string,
-  input?: {
-    disposition: 'RETURN_TO_STOCK' | 'LOSS';
-    reason: string;
-    requestId: string;
-  },
+  input?: CancelComandaInput,
 ) {
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/cancel`,
-      jsonMutationInit('POST', input),
+      input ? jsonMutationInit('POST', input) : { method: 'POST' },
     ),
   );
 }
@@ -373,16 +400,26 @@ export async function closeComanda(
   comandaId: string,
   payments: PaymentAllocationInput[],
   customerId?: string,
+  checkout?: import('./checkout-api').CheckoutOptions,
 ) {
-  return readComanda(
-    await authenticatedFetch(
+  const response = await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/close`,
       jsonMutationInit('POST', {
         payments,
+        ...checkout,
         ...(customerId ? { customerId } : {}),
       }),
-    ),
-  );
+    );
+  if (checkout && !response.ok) throw new CheckoutApiError(response.status);
+  return readComanda(response);
+}
+
+export class CheckoutApiError extends Error { constructor(public readonly status: number) { super('Não foi possível confirmar os valores do fechamento.'); } }
+export function isServiceFee(value: unknown): value is NonNullable<Comanda['serviceFee']> {
+  if (!value || typeof value !== 'object') return false;
+  const fee = value as NonNullable<Comanda['serviceFee']>;
+  return typeof fee.included === 'boolean' && fee.percent === (fee.included ? 10 : 0) &&
+    [fee.subtotalCents, fee.amountCents].every((amount) => Number.isSafeInteger(amount) && amount >= 0 && amount <= 2147483647);
 }
 
 export async function addComandaItem(
@@ -433,6 +470,55 @@ export async function confirmComandaItem(
   return candidate.inventoryWarnings === undefined
     ? candidate.comanda
     : { ...candidate.comanda, inventoryWarnings: candidate.inventoryWarnings };
+}
+
+export async function setComandaItemPendingQuantity(
+  apiBaseUrl: string,
+  comandaId: string,
+  itemId: string,
+  pendingQuantity: number,
+) {
+  return readComanda(
+    await authenticatedFetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
+      jsonMutationInit('PATCH', { pendingQuantity }),
+    ),
+  );
+}
+
+export async function confirmComandaItemsBatch(
+  apiBaseUrl: string,
+  comandaId: string,
+  input: ConfirmItemsBatchInput,
+): Promise<ConfirmItemsBatchResult> {
+  const response = await authenticatedFetch(
+    `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/confirm-batch`,
+    jsonMutationInit('POST', input),
+  );
+  if (response.status === 409) {
+    throw new ComandaBatchConflictError('Comanda items changed');
+  }
+  if (!response.ok) {
+    throw new Error('Comanda request failed');
+  }
+  const payload: unknown = await response.json();
+  const candidate = payload as {
+    comanda?: unknown;
+    inventoryWarnings?: unknown;
+    replayed?: unknown;
+  };
+  if (
+    !isComanda(candidate.comanda) ||
+    !isInventoryWarnings(candidate.inventoryWarnings) ||
+    typeof candidate.replayed !== 'boolean'
+  ) {
+    throw new Error('Invalid comanda response');
+  }
+  return {
+    comanda: candidate.comanda,
+    inventoryWarnings: candidate.inventoryWarnings,
+    replayed: candidate.replayed,
+  };
 }
 
 export async function configureComandaItemAdditionals(
@@ -497,6 +583,18 @@ export async function removeComandaItem(
   return readComanda(
     await authenticatedFetch(
       `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/${encodeURIComponent(itemId)}`,
+      jsonMutationInit('DELETE'),
+    ),
+  );
+}
+
+export async function discardPendingComandaItems(
+  apiBaseUrl: string,
+  comandaId: string,
+) {
+  return readComanda(
+    await authenticatedFetch(
+      `${requireApiBaseUrl(apiBaseUrl)}/comandas/${encodeURIComponent(comandaId)}/items/pending`,
       jsonMutationInit('DELETE'),
     ),
   );

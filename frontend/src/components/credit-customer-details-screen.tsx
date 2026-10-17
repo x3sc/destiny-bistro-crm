@@ -1,3 +1,4 @@
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -5,10 +6,10 @@ import {
   Alert,
   Platform,
   ScrollView,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import type { PaymentMethod } from '../services/comandas-api';
@@ -22,7 +23,7 @@ import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
-import { ScreenBackButton } from './screen-back-button';
+import { BrandedScreenHeader } from './branded-screen-header';
 
 type State =
   | { kind: 'error' }
@@ -37,6 +38,7 @@ const statusLabels: Record<CreditOrder['status'], string> = {
 };
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
+  COUNTER: 'Balcão (caixa externo)',
   CASH: 'Dinheiro',
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
@@ -64,6 +66,7 @@ export function CreditCustomerDetailsScreen({
 }) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [isMutating, setIsMutating] = useState(false);
+  useNavigationGuard({ busy: isMutating });
   const [mutationError, setMutationError] = useState(false);
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [statusFilter, setStatusFilter] = useState<'OPEN' | 'SETTLED'>('OPEN');
@@ -124,14 +127,18 @@ export function CreditCustomerDetailsScreen({
       : [];
 
   return (
-    <SafeAreaView style={creditStyles.safeArea}>
-      <ScrollView contentContainerStyle={creditStyles.content}>
-        <ScreenBackButton onPress={onBack} />
-
-        <View style={creditStyles.heading}>
-          <Text style={creditStyles.eyebrow}>Destiny Bistro CRM</Text>
-          <Text style={creditStyles.title}>Detalhes do fiado</Text>
-        </View>
+    <SafeAreaView edges={['top', 'left', 'right']} style={creditStyles.safeArea}>
+      <BrandedScreenHeader
+        description={
+          state.kind === 'success' ? `Cliente: ${state.customer.name}` : undefined
+        }
+        onBack={onBack}
+        title="Detalhes do fiado"
+      />
+      <ScrollView
+        contentContainerStyle={creditStyles.detailsContent}
+        style={creditStyles.scroll}
+      >
 
         {state.kind === 'loading' && (
           <View style={creditStyles.loading}>
@@ -150,17 +157,6 @@ export function CreditCustomerDetailsScreen({
 
         {state.kind === 'success' && (
           <>
-            <View style={creditStyles.card}>
-              <Text style={creditStyles.cardTitle}>{state.customer.name}</Text>
-              <Text style={creditStyles.balance}>
-                Saldo {formatCentsAsBrl(state.customer.balanceCents)}
-              </Text>
-              <Text style={creditStyles.description}>
-                {state.customer.openOrderCount} pedidos em aberto ·{' '}
-                {state.customer.draftOrderCount} rascunhos
-              </Text>
-            </View>
-
             {mutationError && (
               <Text style={creditStyles.error}>
                 Não foi possível concluir esta operação.
@@ -175,7 +171,31 @@ export function CreditCustomerDetailsScreen({
               }}
             />
 
-            <Text style={creditStyles.sectionTitle}>Pedidos</Text>
+            <View style={creditStyles.debtSummaryCard}>
+              <Text style={creditStyles.summaryLabel}>Saldo devedor total</Text>
+              <Text fontRole="heading" style={creditStyles.summaryValue}>
+                {formatCentsAsBrl(state.customer.balanceCents)}
+              </Text>
+              <Text style={creditStyles.summaryRecordCount}>
+                {state.customer.openOrderCount + state.customer.draftOrderCount}{' '}
+                registros
+              </Text>
+              <View style={creditStyles.summaryMetrics}>
+                <View style={creditStyles.summaryMetric}>
+                  <Text style={creditStyles.summaryMetricLabel}>Em aberto</Text>
+                  <Text fontRole="heading" style={creditStyles.summaryMetricValue}>
+                    {state.customer.openOrderCount}
+                  </Text>
+                </View>
+                <View style={creditStyles.summaryMetric}>
+                  <Text style={creditStyles.summaryMetricLabel}>Rascunhos</Text>
+                  <Text fontRole="heading" style={creditStyles.summaryMetricValue}>
+                    {state.customer.draftOrderCount}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
             <View style={creditStyles.filterRow}>
               <View style={creditStyles.filterOption}>
                 <CreditButton
@@ -207,9 +227,9 @@ export function CreditCustomerDetailsScreen({
 
             <View style={creditStyles.list}>
               {visibleOrders.map((order) => (
-                <View key={order.id} style={creditStyles.card}>
+                <View key={order.id} style={creditStyles.orderCard}>
                   <View style={creditStyles.row}>
-                    <Text style={creditStyles.cardTitle}>
+                    <Text fontRole="heading" style={creditStyles.orderTitle}>
                       Comanda #{order.comandaNumber}
                     </Text>
                     <Text style={creditStyles.badge}>
@@ -228,13 +248,29 @@ export function CreditCustomerDetailsScreen({
                   <Text style={creditStyles.orderMeta}>
                     {formatDateTime(order.orderedAt)}
                   </Text>
-                  <Text style={creditStyles.balance}>Restante {formatCentsAsBrl(order.balanceCents)}</Text>
-                  <Text style={creditStyles.orderMeta}>
-                    Total {formatCentsAsBrl(order.totalCents)} · Pago{' '}
-                    {formatCentsAsBrl(order.paidCents)}
-                  </Text>
+                  <View style={creditStyles.financialSummary}>
+                    <View style={creditStyles.financialRow}>
+                      <Text style={creditStyles.financialLabel}>Total da comanda</Text>
+                      <Text style={creditStyles.financialValue}>
+                        {formatCentsAsBrl(order.totalCents)}
+                      </Text>
+                    </View>
+                    <View style={creditStyles.financialRow}>
+                      <Text style={creditStyles.financialLabel}>Valor já pago</Text>
+                      <Text style={creditStyles.financialValue}>
+                        {formatCentsAsBrl(order.paidCents)}
+                      </Text>
+                    </View>
+                    <View style={creditStyles.financialDivider} />
+                    <View style={creditStyles.financialRow}>
+                      <Text style={creditStyles.remainingLabel}>Saldo restante</Text>
+                      <Text fontRole="heading" style={creditStyles.remainingValue}>
+                        {formatCentsAsBrl(order.balanceCents)}
+                      </Text>
+                    </View>
+                  </View>
                   {order.payments.map((payment) => (
-                    <View key={payment.id} style={creditStyles.card}>
+                    <View key={payment.id} style={creditStyles.paymentCard}>
                       <Text style={creditStyles.cardTitle}>
                         Recebimento {formatCentsAsBrl(payment.amountCents)}
                       </Text>

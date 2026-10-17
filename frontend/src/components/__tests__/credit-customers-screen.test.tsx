@@ -21,6 +21,13 @@ const customers: CreditCustomerSummary[] = [
     name: 'Maria',
     openOrderCount: 2,
   },
+  {
+    balanceCents: 1000,
+    draftOrderCount: 0,
+    id: 'joao-id',
+    name: 'João',
+    openOrderCount: 1,
+  },
 ];
 
 it('shows grouped balance and opens the selected customer', async () => {
@@ -38,13 +45,17 @@ it('shows grouped balance and opens the selected customer', async () => {
 
   expect(await screen.findByText('Maria')).toBeTruthy();
   expect(screen.getByText('Total em aberto')).toBeTruthy();
-  expect(screen.getAllByText('R$ 32,97')).toHaveLength(2);
-  expect(screen.getByText('1 cliente')).toBeTruthy();
+  expect(screen.getAllByText('R$ 42,97')).toHaveLength(1);
+  expect(screen.getByText('2 clientes')).toBeTruthy();
   expect(screen.getByText('2 pedidos abertos')).toBeTruthy();
   expect(screen.getByText('1 rascunho')).toBeTruthy();
 
   fireEvent.press(screen.getByRole('button', { name: /Maria/ }));
   expect(onSelectCustomer).toHaveBeenCalledWith(customers[0]);
+
+  fireEvent.changeText(screen.getByLabelText('Buscar cliente'), 'mari');
+  expect(screen.getByText('Maria')).toBeTruthy();
+  expect(screen.queryByText('João')).toBeNull();
 });
 
 it('starts a new credit from the empty state', async () => {

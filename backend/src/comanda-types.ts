@@ -8,6 +8,7 @@ export const QUICK_SALE_TABLE_NAME = "Venda rápida";
 
 export type ComandaStatus = "OPEN" | "CANCELLED" | "CLOSED";
 export type ComandaEventType =
+  | 'SERVICE_FEE_CHANGED'
   | "OPENED"
   | "CANCELLED"
   | "CLOSED"
@@ -81,7 +82,36 @@ export interface ConfirmItemResult {
   inventoryWarnings: InventoryWarning[];
 }
 
+export interface ConfirmItemsBatchInput {
+  items: {
+    expectedConfirmedQuantity: number;
+    expectedQuantity: number;
+    itemId: string;
+  }[];
+  requestId: string;
+}
+
+export interface ConfirmItemsBatchResult extends ConfirmItemResult {
+  replayed: boolean;
+}
+
+export interface ConfirmItemsBatchInput {
+  items: {
+    expectedConfirmedQuantity: number;
+    expectedQuantity: number;
+    itemId: string;
+  }[];
+  requestId: string;
+}
+
+export interface ConfirmItemsBatchResult extends ConfirmItemResult {
+  replayed: boolean;
+}
+
 export interface Comanda {
+  serviceFee?: { included: boolean; percent: number; subtotalCents: number; amountCents: number };
+  operationalOrigin?: 'TABLE' | 'QUICK_SALE' | 'COUNTER' | 'CREDIT' | 'DELIVERY';
+  counterSnapshot?: string;
   cancellationReason: ComandaCancellationReason | null;
   cancelledAt: string | null;
   closedAt: string | null;
@@ -111,7 +141,15 @@ export interface Comanda {
   totalCents: number;
 }
 
+export interface CancelComandaInput {
+  disposition?: "RETURN_TO_STOCK" | "LOSS";
+  reason: string;
+  requestId: string;
+}
+
 export interface ComandaRepository {
+  checkoutSummary?(establishmentId: string, id: string): Promise<ReturnType<typeof import('./service-fee.js').checkoutSummary>>;
+  counterSales?: import('./counter-sales-types.js').CounterSalesRepository;
   openQuickSale(establishmentId: string, name: string, actorUserId: string): Promise<Comanda>;
   listQuickSales(establishmentId: string): Promise<Comanda[]>;
   addItem(
@@ -123,11 +161,7 @@ export interface ComandaRepository {
   cancel(
     establishmentId: string,
     id: string,
-    input: {
-      disposition: "RETURN_TO_STOCK" | "LOSS";
-      reason: string;
-      requestId: string;
-    } | null,
+    input: CancelComandaInput | null,
     canWriteInventory: boolean,
     actorUserId: string,
   ): Promise<Comanda>;
@@ -138,6 +172,11 @@ export interface ComandaRepository {
     delta: 1 | -1,
     actorUserId: string,
   ): Promise<Comanda>;
+  discardPendingItems(
+    establishmentId: string,
+    comandaId: string,
+    actorUserId: string,
+  ): Promise<Comanda>;
   close(
     establishmentId: string,
     id: string,
@@ -145,6 +184,7 @@ export interface ComandaRepository {
     customerId: string | null,
     canCreateCredit: boolean,
     actorUserId: string,
+    checkout?: import('./service-fee.js').CheckoutOptions,
   ): Promise<Comanda>;
   confirmItem(
     establishmentId: string,
@@ -152,6 +192,12 @@ export interface ComandaRepository {
     itemId: string,
     actorUserId: string,
   ): Promise<ConfirmItemResult>;
+  confirmItemsBatch(
+    establishmentId: string,
+    comandaId: string,
+    input: ConfirmItemsBatchInput,
+    actorUserId: string,
+  ): Promise<ConfirmItemsBatchResult>;
   configureItemAdditionals(
     establishmentId: string,
     comandaId: string,
@@ -182,6 +228,7 @@ export interface ComandaRepository {
     id: string,
     kind: ComandaPrintKind,
     generatedBy: string,
+    preview?: { includeServiceFee: boolean; expectedSnapshot: string },
   ): Promise<ComandaPrintDocument>;
   openForTable(
     establishmentId: string,
@@ -193,6 +240,13 @@ export interface ComandaRepository {
     establishmentId: string,
     comandaId: string,
     itemId: string,
+    actorUserId: string,
+  ): Promise<Comanda>;
+  setItemPendingQuantity(
+    establishmentId: string,
+    comandaId: string,
+    itemId: string,
+    pendingQuantity: number,
     actorUserId: string,
   ): Promise<Comanda>;
 }
@@ -211,6 +265,7 @@ export class ComandaCreditPermissionError extends Error {}
 export class ComandaNotMutableError extends Error {}
 export class ComandaItemNotFoundError extends Error {}
 export class ComandaItemQuantityError extends Error {}
+export class ComandaBatchConfirmationConflictError extends Error {}
 export class ProductUnavailableError extends Error {}
 export class AdditionalUnavailableError extends Error {}
 export class ComandaItemConfigurationError extends Error {}

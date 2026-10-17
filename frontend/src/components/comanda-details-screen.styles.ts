@@ -1,11 +1,11 @@
 import { StyleSheet } from 'react-native';
 
-import { themeColors } from '../theme/tokens';
+import { themeColors, themeRadii } from '../theme/tokens';
 
 export const styles = StyleSheet.create({
   additionalOption: {
     backgroundColor: themeColors.surfaceAccent,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     padding: 12,
   },
   safeArea: {
@@ -35,13 +35,15 @@ export const styles = StyleSheet.create({
   },
   screenHeader: {
     alignItems: 'center',
-    borderBottomColor: themeColors.border,
+    backgroundColor: themeColors.primary,
+    borderBottomColor: themeColors.accent,
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    minHeight: 74,
-    paddingHorizontal: 0,
-    paddingVertical: 10,
+    marginHorizontal: -20,
+    minHeight: 86,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   headerCopy: {
     flex: 1,
@@ -54,19 +56,24 @@ export const styles = StyleSheet.create({
     gap: 4,
   },
   eyebrow: {
-    color: themeColors.foregroundMuted,
+    color: themeColors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
   contextName: {
-    color: themeColors.foregroundMuted,
+    color: themeColors.foregroundOnPrimary,
     fontSize: 13,
     fontWeight: '600',
   },
   title: {
-    color: themeColors.foreground,
+    color: themeColors.foregroundOnPrimary,
     fontSize: 23,
     fontWeight: '700',
+  },
+  openedAt: {
+    color: themeColors.foregroundOnPrimary,
+    fontSize: 12,
+    fontWeight: '500',
   },
   statusBadge: {
     borderWidth: 1,
@@ -98,20 +105,20 @@ export const styles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
   },
   openItemsSection: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     overflow: 'hidden',
   },
   confirmedItemsSection: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -223,7 +230,7 @@ export const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -238,10 +245,19 @@ export const styles = StyleSheet.create({
     minWidth: 28,
     textAlign: 'center',
   },
+  quantityInput: {
+    color: themeColors.foreground,
+    fontSize: 16,
+    fontWeight: '700',
+    minHeight: 44,
+    minWidth: 56,
+    paddingHorizontal: 8,
+    textAlign: 'center',
+  },
   smallButton: {
     alignItems: 'center',
     backgroundColor: themeColors.surfaceAccent,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     height: 44,
     justifyContent: 'center',
     width: 44,
@@ -258,7 +274,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 48,
@@ -269,7 +285,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.dangerBorder,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     justifyContent: 'center',
     marginTop: 8,
@@ -315,7 +331,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
@@ -353,10 +369,17 @@ export const styles = StyleSheet.create({
   cancellationSection: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.border,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     gap: 8,
     padding: 16,
+  },
+  cancellationEditorScreen: {
+    backgroundColor: themeColors.surfaceMuted,
+    borderColor: themeColors.dangerBorder,
+    gap: 14,
+    minHeight: 480,
+    padding: 18,
   },
   cancellationDescription: {
     color: themeColors.foregroundSoft,
@@ -390,7 +413,7 @@ export const styles = StyleSheet.create({
   error: {
     backgroundColor: themeColors.dangerSurface,
     borderColor: themeColors.dangerBorder,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     color: themeColors.dangerText,
     padding: 14,
@@ -398,7 +421,7 @@ export const styles = StyleSheet.create({
   notice: {
     backgroundColor: themeColors.statusAwaitingSurface,
     borderColor: themeColors.statusAwaitingBorder,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     color: themeColors.statusAwaitingText,
     padding: 12,
@@ -407,7 +430,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,

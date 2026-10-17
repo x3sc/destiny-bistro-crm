@@ -78,6 +78,7 @@ type ScreenState =
   | { kind: 'success'; report: StatementReport };
 
 const originLabels: Record<StatementOrigin, string> = {
+  COUNTER: 'Balcão',
   CREDIT_MANUAL: 'Fiado manual',
   CREDIT_TABLE: 'Fiado de mesa',
   DELIVERY: 'Delivery',
@@ -92,6 +93,7 @@ const statusLabels: Record<StatementEntry['status'], string> = {
 };
 
 const paymentMethodLabels = {
+  COUNTER: 'Balcão (caixa externo)',
   CASH: 'Dinheiro',
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
@@ -123,6 +125,7 @@ const originFilterOptions: {
   { label: 'Fiado de mesa', value: 'CREDIT_TABLE' },
   { label: 'Delivery', value: 'DELIVERY' },
   { label: 'Venda rápida', value: 'QUICK_SALE' },
+  { label: 'Balcão', value: 'COUNTER' },
 ];
 
 export function StatementsScreen({
@@ -601,6 +604,10 @@ function StatementEntryCard({
               {row.label}: {formatCentsAsBrl(row.valueCents)}
             </Text>
           ))}
+          {entry.serviceFeeCents !== undefined && <>
+            <Text style={styles.financialDescription}>Consumo: {formatCentsAsBrl(entry.soldCents - entry.serviceFeeCents)}</Text>
+            <Text style={styles.financialDescription}>Taxa de serviço: {formatCentsAsBrl(entry.serviceFeeCents)}</Text>
+          </>}
           {presentation.note && (
             <Text style={styles.financialDescription}>{presentation.note}</Text>
           )}
@@ -655,7 +662,7 @@ function filterEntries(
   return entries.filter((entry) => {
     const matchesType =
       filters.movementType === 'ALL' ||
-      (filters.movementType === 'SALES' && entry.soldCents > 0) ||
+      (filters.movementType === 'SALES' && entry.soldCents !== 0) ||
       (filters.movementType === 'RECEIPTS' && entry.receivedCents > 0) ||
       (filters.movementType === 'CANCELLATIONS' &&
         entry.event === 'COMANDA_CANCELLED');
@@ -680,6 +687,7 @@ function commandLocation(entry: StatementEntry) {
   if (entry.origin === 'DELIVERY') {
     return entry.deliveryAddress ?? 'Entrega';
   }
+  if (entry.origin === 'COUNTER') return 'Balcão';
   if (entry.origin === 'QUICK_SALE') return 'Venda rápida';
   if (entry.tableNumber !== null) {
     return `Mesa ${entry.tableNumber}`;
@@ -710,7 +718,7 @@ function entryPresentation(entry: StatementEntry): {
       title: 'Comanda cancelada',
     };
   }
-  if (entry.event === 'TABLE_CLOSED' || entry.event === 'QUICK_SALE_CLOSED') {
+  if (entry.event === 'COUNTER_CLOSED' || entry.event === 'TABLE_CLOSED' || entry.event === 'QUICK_SALE_CLOSED') {
     return {
       rows: [
         { label: 'Total', valueCents: entry.soldCents },

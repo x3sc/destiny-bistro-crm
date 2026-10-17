@@ -1,23 +1,25 @@
-import { Redirect, type Href, useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 
 import { hasPermission, useAuth } from '@/auth/auth-context';
 import { ComandaCheckoutScreen } from '@/components/comanda-checkout-screen';
 import { DeliveryOrderComandaLoader } from '@/components/delivery-order-comanda-loader';
+import { useCompletedFlowNavigation } from '@/navigation/use-completed-flow-navigation';
 
 export default function DeliveryOrderCheckoutRoute() {
-  const router = useRouter();
+  const safeBack = useRouteSafeBack();
+  const finishFlow = useCompletedFlowNavigation();
   const { user } = useAuth();
   const { orderId = '' } = useLocalSearchParams<{ orderId?: string }>();
   if (
-    !hasPermission(user, 'deliveries.write') ||
-    !hasPermission(user, 'comandas.write')
+    !hasPermission(user, 'deliveries.write')
   ) {
     return <Redirect href="/deliveries" />;
   }
 
   return (
     <DeliveryOrderComandaLoader
-      onBack={() => router.back()}
+      onBack={safeBack}
       orderId={orderId}
       title="Pagamento do pedido"
     >
@@ -27,11 +29,9 @@ export default function DeliveryOrderCheckoutRoute() {
           comandaId={comandaId}
           entityLabel="pedido"
           headingTitle="Pagamento do pedido"
-          onBack={() => router.back()}
+          onBack={safeBack}
           onFinished={() => {
-            router.replace(
-              `/deliveries/orders/${encodeURIComponent(orderId)}` as Href,
-            );
+            finishFlow({ kind: 'delivery', orderId });
           }}
         />
       )}
