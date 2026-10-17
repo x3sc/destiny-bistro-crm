@@ -1,3 +1,4 @@
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { type ReactNode, useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -49,6 +50,7 @@ export function DeliveryCouriersScreen({
   const [name, setName] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  useNavigationGuard({ busy: saving });
   const [formError, setFormError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {

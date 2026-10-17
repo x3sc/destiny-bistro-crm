@@ -99,6 +99,22 @@ it('shows the restaurant table grid with translated statuses', async () => {
   expect(loadTables).toHaveBeenCalledWith('http://192.168.0.10:3333');
 });
 
+it('keeps tables in numeric order even when the API response is unsorted', async () => {
+  render(
+    <TableGridScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      loadTablesRequest={() => Promise.resolve([tables[2], tables[0], tables[1]])}
+    />,
+  );
+
+  const cards = await screen.findAllByRole('button', { name: /^Mesa / });
+  expect(cards.map((card) => card.props.accessibilityLabel)).toEqual([
+    'Mesa 1 Livre',
+    'Mesa 2 Ocupada João Comanda #42 aberta em 02/06/2026, 16:00',
+    'Mesa 3 Aguardando pagamento',
+  ]);
+});
+
 it('uses semantic surfaces and badges for each table status', async () => {
   render(
     <TableGridScreen

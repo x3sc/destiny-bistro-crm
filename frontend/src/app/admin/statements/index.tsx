@@ -1,13 +1,13 @@
-import { type Href, useRouter } from 'expo-router';
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 
 import { StatementsScreen } from '@/components/statements-screen';
 
 export default function DailyStatementRoute() {
-  const router = useRouter();
+  const safeBack = useRouteSafeBack();
 
   return (
     <StatementsScreen
-      onBack={() => router.replace('/admin' as Href)}
+      onBack={safeBack}
       title="Extrato do dia"
     />
   );

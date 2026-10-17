@@ -1,3 +1,4 @@
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 import { StatusBar } from 'expo-status-bar';
 import { type Href, useRouter } from 'expo-router';
 
@@ -8,6 +9,7 @@ import type { RestaurantTable } from '@/services/tables-api';
 
 export default function TablesScreen() {
   const router = useRouter();
+  const safeBack = useRouteSafeBack();
   const { user } = useAuth();
   const canWrite = hasPermission(user, 'comandas.write');
 
@@ -27,9 +29,7 @@ export default function TablesScreen() {
       <StatusBar style="dark" />
       <TableGridScreen
         bottomNavigation={<AppBottomNavigation activeItem="tables" />}
-        onBack={() => {
-          router.replace('/');
-        }}
+        onBack={safeBack}
         onSelectTable={selectTable}
       />
     </>

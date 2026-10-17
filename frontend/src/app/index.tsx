@@ -2,7 +2,8 @@ import { StatusBar } from 'expo-status-bar';
 import { type Href, useRouter } from 'expo-router';
 
 import { hasPermission, useAuth } from '@/auth/auth-context';
-import { MainMenuScreen } from '@/components/main-menu-screen';
+import { OperationalMainMenuScreen } from '@/components/operational-main-menu-screen';
+import { AppBottomNavigation } from '@/components/app-bottom-navigation';
 import { canManageMenu } from '@/services/authorization';
 
 export default function HomeScreen() {
@@ -12,15 +13,19 @@ export default function HomeScreen() {
   return (
     <>
       <StatusBar style="dark" />
-      <MainMenuScreen
+      <OperationalMainMenuScreen
+        bottomNavigation={<AppBottomNavigation activeItem="home" />}
         canAccessAdmin={
-          canManageMenu(user) || hasPermission(user, 'statements.read')
+          canManageMenu(user) || hasPermission(user, 'statements.read') || hasPermission(user, 'inventory.read') || hasPermission(user, 'users.manage') || hasPermission(user, 'roles.manage')
         }
         canAccessCredits={hasPermission(user, 'credits.read')}
         canAccessDeliveries={hasPermission(user, 'deliveries.read')}
         canAccessKitchen={hasPermission(user, 'kitchen.read')}
         canAccessTables={hasPermission(user, 'tables.read')}
-        canAccessQuickSales={hasPermission(user, 'comandas.read')}
+        canAccessQuickSales={hasPermission(user, 'quick-sales.read')}
+        canAccessCounterSales={hasPermission(user, 'counter-sales.read')}
+        onCounterSales={() => router.push('/counter-sales' as Href)}
+        canReadSales={hasPermission(user, 'statements.read')}
         onQuickSales={() => router.push('/quick-sales' as Href)}
         establishmentName={user?.establishment.name}
         onAdmin={() => {

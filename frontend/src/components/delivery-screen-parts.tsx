@@ -10,6 +10,7 @@ import { themeColors } from '../theme/tokens';
 import { deliveryStyles } from './delivery-screens.styles';
 
 export const paymentMethodLabels: Record<PaymentMethod, string> = {
+  COUNTER: 'Balcão (caixa externo)',
   CASH: 'Dinheiro',
   CREDIT_CARD: 'Crédito',
   DEBIT_CARD: 'Débito',

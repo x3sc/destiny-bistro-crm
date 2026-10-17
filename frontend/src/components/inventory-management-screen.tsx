@@ -1,3 +1,4 @@
+import { useNavigationGuard, useSafeBack } from '../navigation/safe-navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -53,6 +54,8 @@ export function InventoryManagementScreen({
   const [editor, setEditor] = useState<Editor>();
   const [ingredientBeingEdited, setIngredientBeingEdited] = useState<InventoryItem>();
   const [busy, setBusy] = useState(false);
+  const modalBack = useSafeBack(() => { if (!busy) { setEditor(undefined); setSelected(undefined); } });
+  useNavigationGuard({ busy, closeModal: editor ? () => setEditor(undefined) : selected ? () => setSelected(undefined) : undefined });
   const [message, setMessage] = useState<string>();
 
   const refresh = useCallback(() => {
@@ -189,7 +192,7 @@ export function InventoryManagementScreen({
       {editor === 'ingredient' && normalizedApiBaseUrl ? (
         <Modal
           animationType="fade"
-          onRequestClose={() => setEditor(undefined)}
+          onRequestClose={modalBack}
           transparent
           visible
         >
@@ -226,7 +229,7 @@ export function InventoryManagementScreen({
       {selected && editor !== 'ingredient' && normalizedApiBaseUrl ? (
         <Modal
           animationType="fade"
-          onRequestClose={closeDetails}
+          onRequestClose={modalBack}
           transparent
           visible
         >

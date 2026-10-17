@@ -1,11 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import {
   themeColors,
   themeSpacing,
   themeTypography,
 } from '../theme/tokens';
+import { OperationalText as Text } from '../theme/operational-typography';
 import { ScreenBackButton } from './screen-back-button';
 
 export function BrandedScreenHeader({
@@ -32,6 +33,7 @@ export function BrandedScreenHeader({
           ) : null}
           <Text
             adjustsFontSizeToFit
+            fontRole="heading"
             minimumFontScale={0.78}
             numberOfLines={1}
             style={styles.title}

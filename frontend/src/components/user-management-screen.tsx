@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useNavigationGuard, useSafeBack } from '../navigation/safe-navigation';
+import { permissionDisplayName } from '../services/roles-api';
 import {
-  ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +10,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import {
-  createUser, isUserRoleCode, loadUsers, UserApiError,
+  createUser, loadUsers, UserApiError,
   type AdminUser, type AdminUsers, type CreateUserInput, type UserRole,
 } from '../services/users-api';
 import { themeColors as colors, themeRadii, themeSpacing, themeTypography } from '../theme/tokens';
@@ -18,10 +20,11 @@ type ListState = { kind: 'loading' } | { kind: 'error'; forbidden: boolean } | {
 
 export function UserManagementScreen({
   apiBaseUrl = process.env.EXPO_PUBLIC_API_URL, canManageUsers, bottomNavigation,
-  loadRequest = loadUsers, createRequest = createUser, onBack,
+  loadRequest = loadUsers, createRequest = createUser, onBack, onEditRole,
 }: {
   apiBaseUrl?: string; canManageUsers: boolean; bottomNavigation?: ReactNode;
   loadRequest?: typeof loadUsers; createRequest?: typeof createUser; onBack: () => void;
+  onEditRole?: (userId: string) => void;
 }) {
   const [state, setState] = useState<ListState>({ kind: 'loading' });
   const [creating, setCreating] = useState(false);
@@ -50,7 +53,7 @@ export function UserManagementScreen({
   if (!canManageUsers || (state.kind === 'error' && state.forbidden)) {
     return <SafeAreaView style={styles.screen}>
       <BrandedScreenHeader title="Usuários" onBack={onBack} />
-      <View style={styles.center}><Text style={styles.body}>Acesso exclusivo do dono.</Text></View>
+      <View style={styles.center}><Text style={styles.body}>Sem permissão para gerenciar usuários.</Text></View>
     </SafeAreaView>;
   }
   if (creating && state.kind === 'ready' && baseUrl) {
@@ -84,7 +87,9 @@ export function UserManagementScreen({
           </View>
         </View>}
         {state.data.users.length === 0 && <Text style={styles.body}>Nenhum usuário cadastrado.</Text>}
-        {state.data.users.map((user) => <UserCard key={user.id} user={user} />)}
+        {state.data.users.map((user) => <View key={user.id}><UserCard user={user} />
+          {user.canReassign && onEditRole && <Action label={`Alterar cargo de ${user.name}`} onPress={() => onEditRole(user.id)} secondary />}
+        </View>)}
       </>}
     </ScrollView>
     {state.kind === 'ready' && <View style={styles.actions}>
@@ -116,18 +121,16 @@ function UserForm({ apiBaseUrl, roles, createRequest, onCancel, onCreated }: {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [roleCode, setRoleCode] = useState('');
+  const [roleId, setRoleId] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  useNavigationGuard({ busy: saving, dirty: Boolean(name || password || confirmation || roleId), onBack: onCancel });
+  const formBack = useSafeBack(onCancel);
   const inFlight = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
-    const back = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!inFlight.current) onCancel();
-      return true;
-    });
-    return () => { mounted.current = false; back.remove(); };
+    return () => { mounted.current = false; };
   }, [onCancel]);
   const submit = async () => {
     if (inFlight.current) return;
@@ -136,12 +139,12 @@ function UserForm({ apiBaseUrl, roles, createRequest, onCancel, onCreated }: {
     if (normalizedName.length < 2 || normalizedName.length > 80) next.name = 'Use um nome de acesso de 2 a 80 caracteres.';
     if (password.length < 8 || password.length > 128) next.password = 'Use uma senha de 8 a 128 caracteres.';
     if (confirmation !== password) next.confirmation = 'As senhas não coincidem.';
-    if (!isUserRoleCode(roleCode) || !roles.some((role) => role.code === roleCode)) next.role = 'Selecione um perfil.';
+    if (!roles.some((role) => role.id === roleId)) next.role = 'Selecione um cargo.';
     setErrors(next);
-    if (Object.keys(next).length || !isUserRoleCode(roleCode)) return;
+    if (Object.keys(next).length) return;
     inFlight.current = true; setSaving(true);
     try {
-      const input: CreateUserInput = { name: normalizedName, password, roleCode };
+      const input: CreateUserInput = { name: normalizedName, password, roleId };
       const user = await createRequest(apiBaseUrl, input);
       if (mounted.current) {
         setPassword(''); setConfirmation('');
@@ -150,7 +153,7 @@ function UserForm({ apiBaseUrl, roles, createRequest, onCancel, onCreated }: {
     } catch (error) {
       if (!mounted.current) return;
       if (error instanceof UserApiError && error.status === 409) setErrors({ name: 'Este nome de acesso já está em uso.' });
-      else if (error instanceof UserApiError && error.status === 403) setErrors({ request: 'Acesso exclusivo do dono.' });
+      else if (error instanceof UserApiError && error.status === 403) setErrors({ request: 'Sem permissão para atribuir este cargo.' });
       else if (error instanceof UserApiError && error.status === 400) setErrors({ request: 'Confira o nome, a senha e o perfil informado.' });
       else setErrors({ request: 'Não foi possível confirmar o cadastro. Verifique a conexão e consulte a lista antes de tentar novamente.' });
     } finally {
@@ -158,7 +161,7 @@ function UserForm({ apiBaseUrl, roles, createRequest, onCancel, onCreated }: {
       if (mounted.current) setSaving(false);
     }
   };
-  const cancel = () => { if (!inFlight.current) onCancel(); };
+  const cancel = () => { if (!inFlight.current) formBack(); };
   return <SafeAreaView style={styles.screen}>
     <BrandedScreenHeader title="Novo usuário" onBack={cancel} />
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -169,13 +172,15 @@ function UserForm({ apiBaseUrl, roles, createRequest, onCancel, onCreated }: {
           <Field label="Confirmar senha" value={confirmation} onChangeText={setConfirmation} editable={!saving} password error={errors.confirmation} />
         </View>
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Perfil</Text>
-          {roles.filter((role) => isUserRoleCode(role.code)).map((role) => <Pressable key={role.id} accessibilityRole="radio" accessibilityLabel={role.name}
-            accessibilityState={{ checked: roleCode === role.code, disabled: saving }} disabled={saving}
-            onPress={() => setRoleCode(role.code)} style={[styles.radioRow, roleCode === role.code && styles.selectedRow]}>
-            <View style={[styles.radio, roleCode === role.code && styles.selectedRadio]}>{roleCode === role.code && <View style={styles.radioDot} />}</View>
+          <Text style={styles.sectionTitle}>Cargo</Text>
+          {roles.map((role) => <Pressable key={role.id} accessibilityRole="radio" accessibilityLabel={role.name}
+            aria-checked={roleId === role.id} aria-disabled={saving}
+            accessibilityState={{ checked: roleId === role.id, disabled: saving }} disabled={saving}
+            onPress={() => setRoleId(role.id)} style={[styles.radioRow, roleId === role.id && styles.selectedRow]}>
+            <View style={[styles.radio, roleId === role.id && styles.selectedRadio]}>{roleId === role.id && <View style={styles.radioDot} />}</View>
             <Text style={styles.body}>{role.name}</Text>
           </Pressable>)}
+          {Boolean(roleId) && <Text style={styles.body}>Permissões: {roles.find((role) => role.id === roleId)?.permissions?.map(permissionDisplayName).join(', ') || 'consulte a configuração deste cargo'}.</Text>}
           <ErrorText message={errors.role} />
         </View>
         <ErrorText message={errors.request} />

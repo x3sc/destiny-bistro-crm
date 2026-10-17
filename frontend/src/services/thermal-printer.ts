@@ -25,10 +25,14 @@ export async function sendToThermalPrinter(
   if (runtime.platform === 'web') {
     throw new Error('Impressão térmica disponível somente no aplicativo mobile.');
   }
+  let nativePrinter: NativeThermalPrinter;
   try {
-    const written = await runtime
-      .getModule()
-      .print(settings.host, settings.port, bytesToBase64(bytes), settings.timeoutMs);
+    nativePrinter = runtime.getModule();
+  } catch {
+    throw new Error('A impressão exige um build nativo com ThermalPrinter; não está disponível no Expo Go.');
+  }
+  try {
+    const written = await nativePrinter.print(settings.host, settings.port, bytesToBase64(bytes), settings.timeoutMs);
     if (written !== bytes.length) {
       throw new Error('A impressora não recebeu todos os dados.');
     }

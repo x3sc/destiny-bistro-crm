@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 
 import type { Comanda } from '../../services/comandas-api';
 import type { Product } from '../../services/products-api';
@@ -86,7 +92,8 @@ it('shows all products and filters them with category chips', async () => {
   expect(screen.getByText('Já lançado: 2')).toBeTruthy();
   expect(screen.getByText('2 unidades temporárias')).toBeTruthy();
   expect(screen.getByText('2 itens pendentes')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Voltar à comanda' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Adicionar 2 itens' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancelar' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Diminuir Café' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Aumentar Café' })).toBeTruthy();
 
@@ -99,6 +106,57 @@ it('shows all products and filters them with category chips', async () => {
 
   expect(await screen.findByText('Café')).toBeTruthy();
   expect(screen.getByText('Água')).toBeTruthy();
+});
+
+it('returns to details keeping every temporary item pending', async () => {
+  const onAdded = jest.fn();
+  render(
+    <ProductCatalogScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadProductsRequest={() => Promise.resolve(products)}
+      onBack={jest.fn()}
+      onAdded={onAdded}
+    />,
+  );
+
+  fireEvent.press(
+    await screen.findByRole('button', { name: 'Adicionar 2 itens' }),
+  );
+
+  await waitFor(() => {
+    expect(onAdded).toHaveBeenCalledWith(comanda);
+  });
+});
+
+it('cancels all temporary items before returning to details', async () => {
+  const comandaWithoutPending = { ...comanda, items: [] };
+  const discardPendingItemsRequest = jest.fn(() =>
+    Promise.resolve(comandaWithoutPending),
+  );
+  const onAdded = jest.fn();
+  render(
+    <ProductCatalogScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      discardPendingItemsRequest={discardPendingItemsRequest}
+      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadProductsRequest={() => Promise.resolve(products)}
+      onBack={jest.fn()}
+      onAdded={onAdded}
+    />,
+  );
+
+  fireEvent.press(await screen.findByRole('button', { name: 'Cancelar' }));
+
+  await waitFor(() => {
+    expect(discardPendingItemsRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+    );
+    expect(onAdded).toHaveBeenCalledWith(comandaWithoutPending);
+  });
 });
 
 it('uses the shared light theme on the product catalog', () => {
@@ -174,48 +232,136 @@ it('stays in catalog after adding a product', async () => {
   fireEvent.press(await screen.findByRole('button', { name: 'Bebidas' }));
   fireEvent.press(screen.getByRole('button', { name: 'Adicionar Água' }));
 
+  expect(addItemRequest).not.toHaveBeenCalled();
+  expect(await screen.findByText('Já lançado: 1')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 3 itens' }));
+
+  await waitFor(() => {
   expect(addItemRequest).toHaveBeenCalledWith(
     'http://192.168.0.10:3333',
     'comanda-id',
     'water-id',
   );
-  expect(await screen.findByText('Já lançado: 1')).toBeTruthy();
+  });
   expect(screen.getByText('Adicionar produtos')).toBeTruthy();
+  expect(screen.getByTestId('branded-screen-header')).toBeTruthy();
 });
 
-it('increments an existing temporary product from the catalog', async () => {
-  const changeItemQuantityRequest = jest.fn(() =>
+it('saves rapid quantity changes only after adding the pending items', async () => {
+  const setItemPendingQuantityRequest = jest.fn(() =>
     Promise.resolve({
       ...comanda,
-      items: [{ ...comanda.items[0], quantity: 3, subtotalCents: 1800 }],
-      totalCents: 1800,
+      items: [{ ...comanda.items[0], quantity: 5, subtotalCents: 3000 }],
+      totalCents: 3000,
     }),
   );
 
   render(
     <ProductCatalogScreen
       apiBaseUrl="http://192.168.0.10:3333"
-      changeItemQuantityRequest={changeItemQuantityRequest}
       comandaId="comanda-id"
       loadComandaRequest={() => Promise.resolve(comanda)}
       loadProductsRequest={() => Promise.resolve(products)}
       onBack={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
     />,
   );
 
-  fireEvent.press(await screen.findByRole('button', { name: 'Aumentar Café' }));
+  await screen.findByRole('button', { name: 'Aumentar Café' });
+  fireEvent.press(screen.getByRole('button', { name: 'Aumentar Café' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Aumentar Café' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Aumentar Café' }));
 
-  expect(changeItemQuantityRequest).toHaveBeenCalledWith(
-    'http://192.168.0.10:3333',
-    'comanda-id',
-    'item-id',
-    1,
+  expect(screen.getByText('5 unidades temporárias')).toBeTruthy();
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
+
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 5 itens' }));
+
+  await waitFor(() => {
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledTimes(1);
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+      5,
+    );
+  });
+});
+
+it('sets an integer temporary quantity directly from the catalog', async () => {
+  const setItemPendingQuantityRequest = jest.fn(() =>
+    Promise.resolve({
+      ...comanda,
+      items: [{ ...comanda.items[0], quantity: 20, subtotalCents: 12_000 }],
+      totalCents: 12_000,
+    }),
   );
-  expect(await screen.findByText('Já lançado: 3')).toBeTruthy();
+
+  render(
+    <ProductCatalogScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadProductsRequest={() => Promise.resolve(products)}
+      onBack={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
+    />,
+  );
+
+  const quantityInput = await screen.findByLabelText(
+    'Quantidade temporária de Café',
+  );
+  fireEvent.changeText(quantityInput, '20');
+  fireEvent(quantityInput, 'submitEditing');
+
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
+  expect(await screen.findByText('Já lançado: 20')).toBeTruthy();
+  expect(screen.getByText('20 unidades temporárias')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 20 itens' }));
+  await waitFor(() => {
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+      20,
+    );
+  });
+});
+
+it('rejects direct quantities outside the integer range from 1 to 99', async () => {
+  const setItemPendingQuantityRequest = jest.fn();
+
+  render(
+    <ProductCatalogScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadProductsRequest={() => Promise.resolve(products)}
+      onBack={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
+    />,
+  );
+
+  const quantityInput = await screen.findByLabelText(
+    'Quantidade temporária de Café',
+  );
+  fireEvent.changeText(quantityInput, '100');
+  fireEvent(quantityInput, 'submitEditing');
+
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
+  expect(quantityInput).toHaveProp('value', '2');
+
+  fireEvent.changeText(quantityInput, '2x');
+  expect(quantityInput).toHaveProp('value', '2');
 });
 
 it('decrements only the temporary quantity of a product', async () => {
-  const changeItemQuantityRequest = jest.fn(() =>
+  const setItemPendingQuantityRequest = jest.fn(() =>
     Promise.resolve({
       ...comanda,
       items: [{ ...comanda.items[0], quantity: 1, subtotalCents: 600 }],
@@ -226,23 +372,27 @@ it('decrements only the temporary quantity of a product', async () => {
   render(
     <ProductCatalogScreen
       apiBaseUrl="http://192.168.0.10:3333"
-      changeItemQuantityRequest={changeItemQuantityRequest}
       comandaId="comanda-id"
       loadComandaRequest={() => Promise.resolve(comanda)}
       loadProductsRequest={() => Promise.resolve(products)}
       onBack={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
     />,
   );
 
   fireEvent.press(await screen.findByRole('button', { name: 'Diminuir Café' }));
 
-  expect(changeItemQuantityRequest).toHaveBeenCalledWith(
-    'http://192.168.0.10:3333',
-    'comanda-id',
-    'item-id',
-    -1,
-  );
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
   expect(await screen.findByText('Já lançado: 1')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 1 item' }));
+  await waitFor(() => {
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+      1,
+    );
+  });
 });
 
 it('removes the item when its last temporary unit reaches zero', async () => {
@@ -268,12 +418,53 @@ it('removes the item when its last temporary unit reaches zero', async () => {
 
   fireEvent.press(await screen.findByRole('button', { name: 'Diminuir Café' }));
 
-  expect(removeItemRequest).toHaveBeenCalledWith(
-    'http://192.168.0.10:3333',
-    'comanda-id',
-    'item-id',
-  );
+  expect(removeItemRequest).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 0 itens' }));
+  await waitFor(() => {
+    expect(removeItemRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+    );
+  });
   expect(await screen.findByRole('button', { name: 'Adicionar Café' })).toBeTruthy();
+});
+
+it('consolidates rapid decrements to zero into one removal request', async () => {
+  const threeItemComanda: Comanda = {
+    ...comanda,
+    items: [{ ...comanda.items[0], quantity: 3, subtotalCents: 1800 }],
+    totalCents: 1800,
+  };
+  const removeItemRequest = jest.fn(() =>
+    Promise.resolve({ ...threeItemComanda, items: [], totalCents: 0 }),
+  );
+  const setItemPendingQuantityRequest = jest.fn();
+
+  render(
+    <ProductCatalogScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadComandaRequest={() => Promise.resolve(threeItemComanda)}
+      loadProductsRequest={() => Promise.resolve(products)}
+      onBack={jest.fn()}
+      removeItemRequest={removeItemRequest}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
+    />,
+  );
+
+  await screen.findByRole('button', { name: 'Diminuir Café' });
+  fireEvent.press(screen.getByRole('button', { name: 'Diminuir Café' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Diminuir Café' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Diminuir Café' }));
+
+  expect(await screen.findByRole('button', { name: 'Adicionar Café' })).toBeTruthy();
+  expect(removeItemRequest).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 0 itens' }));
+  await waitFor(() => {
+    expect(removeItemRequest).toHaveBeenCalledTimes(1);
+  });
+  expect(setItemPendingQuantityRequest).not.toHaveBeenCalled();
 });
 
 it('does not decrement a confirmed product below its confirmed quantity', async () => {
@@ -304,7 +495,10 @@ it('does not decrement a confirmed product below its confirmed quantity', async 
 
   expect(await screen.findByRole('button', { name: 'Adicionar Café' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Diminuir Café' })).toBeNull();
-  expect(changeItemQuantityRequest).toHaveBeenCalledTimes(1);
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 0 itens' }));
+  await waitFor(() => {
+    expect(changeItemQuantityRequest).toHaveBeenCalledTimes(1);
+  });
 });
 
 it('shows an error when adding a product fails', async () => {
@@ -323,6 +517,11 @@ it('shows an error when adding a product fails', async () => {
   fireEvent.press(
     await screen.findByRole('button', { name: 'Adicionar Água' }),
   );
+  fireEvent.press(screen.getByRole('button', { name: 'Adicionar 3 itens' }));
 
-  expect(await screen.findByText('Não foi possível adicionar o produto.')).toBeTruthy();
+  expect(
+    await screen.findByText(
+      'Não foi possível concluir as alterações. Recarregue a comanda e tente novamente.',
+    ),
+  ).toBeTruthy();
 });

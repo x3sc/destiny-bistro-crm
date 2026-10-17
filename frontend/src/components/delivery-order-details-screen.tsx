@@ -1,3 +1,4 @@
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
@@ -71,6 +72,7 @@ export function DeliveryOrderDetailsScreen({
   const [saving, setSaving] = useState(false);
   const [selectingCourier, setSelectingCourier] = useState(false);
   const [actionError, setActionError] = useState(false);
+  useNavigationGuard({ busy: saving, closeModal: selectingCourier ? () => setSelectingCourier(false) : undefined });
 
   const refresh = useCallback(() => {
     if (!normalizedApiBaseUrl || !orderId) {

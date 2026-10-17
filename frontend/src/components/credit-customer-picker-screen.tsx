@@ -1,14 +1,15 @@
 import { type ReactNode, useCallback, useState } from 'react';
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import {
@@ -17,6 +18,7 @@ import {
   type CreditCustomerSummary,
 } from '../services/credits-api';
 import { themeColors } from '../theme/tokens';
+import { AppIcon } from './app-icon';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
 import { BrandedScreenHeader } from './branded-screen-header';
@@ -50,6 +52,7 @@ export function CreditCustomerPickerScreen({
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [name, setName] = useState(initialName);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  useNavigationGuard({ busy: isSubmitting });
   const [submitError, setSubmitError] = useState(false);
   const [state, setState] = useState<State>({ kind: 'loading' });
 
@@ -71,6 +74,16 @@ export function CreditCustomerPickerScreen({
   }, [loadRequest, normalizedApiBaseUrl]);
 
   useFocusEffect(refresh);
+
+  const normalizedName = normalizeSearchText(name.trim());
+  const visibleCustomers =
+    state.kind === 'success'
+      ? state.customers.filter(
+          (customer) =>
+            !normalizedName ||
+            normalizeSearchText(customer.name).includes(normalizedName),
+        )
+      : [];
 
   const chooseCustomer = async (customer: CreditCustomerSummary) => {
     setIsSubmitting(true);
@@ -112,11 +125,14 @@ export function CreditCustomerPickerScreen({
         title={title}
       />
       <ScrollView
-        contentContainerStyle={creditStyles.content}
+        contentContainerStyle={creditStyles.detailsContent}
         style={creditStyles.scroll}
       >
         <View style={creditStyles.formCard}>
-          <Text style={creditStyles.sectionTitle}>Cadastrar pessoa</Text>
+          <Text fontRole="heading" style={creditStyles.sectionTitle}>Novo cadastro</Text>
+          <Text style={creditStyles.description}>
+            Digite o nome completo. Cadastros semelhantes aparecerão abaixo.
+          </Text>
           <TextInput
             accessibilityLabel="Nome da pessoa"
             editable={!isSubmitting}
@@ -141,7 +157,16 @@ export function CreditCustomerPickerScreen({
           </Text>
         )}
 
-        <Text style={creditStyles.sectionTitle}>Pessoas cadastradas</Text>
+        <View style={creditStyles.sectionHeading}>
+          <Text fontRole="heading" style={creditStyles.sectionTitle}>
+            Pessoas cadastradas
+          </Text>
+          {state.kind === 'success' && (
+            <Text style={creditStyles.sectionCount}>
+              {visibleCustomers.length} encontradas
+            </Text>
+          )}
+        </View>
 
         {state.kind === 'loading' && (
           <View style={creditStyles.loading}>
@@ -161,8 +186,9 @@ export function CreditCustomerPickerScreen({
         )}
         {state.kind === 'success' && state.customers.length > 0 && (
           <View style={creditStyles.list}>
-            {state.customers.map((customer) => (
+            {visibleCustomers.map((customer) => (
               <Pressable
+                accessibilityLabel={`${customer.name}, usar este cadastro`}
                 accessibilityRole="button"
                 disabled={isSubmitting}
                 key={customer.id}
@@ -170,21 +196,36 @@ export function CreditCustomerPickerScreen({
                   void chooseCustomer(customer);
                 }}
                 style={({ pressed }) => [
-                  creditStyles.card,
+                  creditStyles.personCard,
                   pressed && !isSubmitting && creditStyles.cardPressed,
                   isSubmitting && creditStyles.buttonDisabled,
                 ]}
               >
-                <Text style={creditStyles.cardTitle}>{customer.name}</Text>
-                <Text style={creditStyles.description}>
-                  Usar este cadastro
-                </Text>
+                <View style={creditStyles.personCopy}>
+                  <Text fontRole="heading" style={creditStyles.customerName}>
+                    {customer.name}
+                  </Text>
+                  <Text style={creditStyles.description}>Usar este cadastro</Text>
+                </View>
+                <AppIcon color={themeColors.primary} name="next" size={15} />
               </Pressable>
             ))}
+            {visibleCustomers.length === 0 && (
+              <Text style={creditStyles.empty}>
+                Nenhum cadastro semelhante. Você pode criar “{name.trim()}”.
+              </Text>
+            )}
           </View>
         )}
       </ScrollView>
       {bottomNavigation}
     </SafeAreaView>
   );
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
 }

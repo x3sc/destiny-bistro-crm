@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useNavigationGuard, useSafeNavigationCompletion } from '../navigation/safe-navigation';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openComanda, type Comanda } from '../services/comandas-api';
@@ -10,6 +11,7 @@ import {
   themeSpacing,
   themeTypography,
 } from '../theme/tokens';
+import { OperationalText as Text } from '../theme/operational-typography';
 import { ScreenBackButton } from './screen-back-button';
 
 interface OpenComandaScreenProps {
@@ -32,6 +34,8 @@ export function OpenComandaScreen({
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [error, setError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const completeNavigation = useSafeNavigationCompletion();
+  useNavigationGuard({ busy: isSubmitting });
   const [name, setName] = useState('');
   const isValidTable = Number.isInteger(tableId) && tableId > 0 && Number.isInteger(tableNumber);
 
@@ -44,7 +48,8 @@ export function OpenComandaScreen({
     setIsSubmitting(true);
 
     try {
-      onOpened(await openRequest(normalizedApiBaseUrl, tableId, name.trim()));
+      const opened = await openRequest(normalizedApiBaseUrl, tableId, name.trim());
+      completeNavigation(() => onOpened(opened));
     } catch {
       setError('Não foi possível abrir a comanda.');
       setIsSubmitting(false);
@@ -59,7 +64,7 @@ export function OpenComandaScreen({
           onPress={onBack}
           tone="light"
         />
-        <Text numberOfLines={1} style={styles.title}>
+        <Text fontRole="heading" numberOfLines={1} style={styles.title}>
           Abrir comanda
         </Text>
         <View style={styles.headerSpacer} />
@@ -77,7 +82,7 @@ export function OpenComandaScreen({
           <>
             <View style={styles.card} testID="open-comanda-card">
               <View style={styles.tableHeading}>
-                <Text style={styles.table}>Mesa {tableNumber}</Text>
+                <Text fontRole="heading" style={styles.table}>Mesa {tableNumber}</Text>
                 <Text style={styles.freeBadge}>Livre</Text>
               </View>
               <Text style={styles.description}>
@@ -188,7 +193,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.border,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     gap: 12,
     padding: 20,
@@ -229,7 +234,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     color: themeColors.foreground,
     fontSize: 15,
@@ -240,7 +245,7 @@ const styles = StyleSheet.create({
   helper: {
     backgroundColor: themeColors.surfaceMuted,
     borderColor: themeColors.divider,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalCard,
     borderWidth: 1,
     color: themeColors.foregroundMuted,
     fontSize: 13,
@@ -249,7 +254,7 @@ const styles = StyleSheet.create({
   },
   error: {
     backgroundColor: themeColors.dangerSurface,
-    borderRadius: themeRadii.compact,
+    borderRadius: themeRadii.operationalCard,
     color: themeColors.dangerText,
     padding: 16,
   },
@@ -261,7 +266,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.primary,
     borderColor: themeColors.primary,
-    borderRadius: themeRadii.standard,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,

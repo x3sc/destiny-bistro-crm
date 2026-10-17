@@ -1,3 +1,4 @@
+import { useNavigationGuard } from '../navigation/safe-navigation';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -88,6 +89,7 @@ export function DeliveryCourierScreen({
   const [filter, setFilter] = useState<DeliveryPeriodFilter>('ALL');
   const [dailyRateCents, setDailyRateCents] = useState(0);
   const [starting, setStarting] = useState(false);
+  useNavigationGuard({ busy: starting });
   const [formError, setFormError] = useState<string | null>(null);
 
   const load = useCallback(

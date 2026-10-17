@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import type {
   PaymentAllocationInput,
@@ -10,7 +12,8 @@ import {
   formatCentsAsBrl,
   formatCentsForBrlInput,
 } from '../services/money';
-import { themeColors } from '../theme/tokens';
+import { themeColors, themeRadii, themeSpacing } from '../theme/tokens';
+import { AppIcon, type AppIconName } from './app-icon';
 
 const methods: { label: string; method: PaymentMethod }[] = [
   { label: 'Dinheiro', method: 'CASH' },
@@ -19,13 +22,18 @@ const methods: { label: string; method: PaymentMethod }[] = [
   { label: 'Cartão de crédito', method: 'CREDIT_CARD' },
 ];
 
+const methodIcons: Record<PaymentMethod, AppIconName> = {
+  COUNTER: 'store',
+  CASH: 'cash', PIX: 'pix', DEBIT_CARD: 'card', CREDIT_CARD: 'card',
+};
+
 interface PaymentEntry {
   amountCents: number;
   id: number;
   method: PaymentMethod | null;
 }
 
-interface PaymentSummary {
+export interface PaymentSummary {
   payments: PaymentAllocationInput[];
   totalCents: number;
   valid: boolean;
@@ -38,6 +46,7 @@ export function PaymentForm({
   onPaymentChange,
   onSubmit,
   submitLabel,
+  variant = 'default',
 }: {
   allowZero: boolean;
   disabled?: boolean;
@@ -45,6 +54,7 @@ export function PaymentForm({
   onPaymentChange?: (summary: PaymentSummary) => void;
   onSubmit?: (payments: PaymentAllocationInput[]) => void;
   submitLabel?: string;
+  variant?: 'default' | 'checkout';
 }) {
   const [entries, setEntries] = useState<PaymentEntry[]>([
     { amountCents: 0, id: 1, method: null },
@@ -55,6 +65,9 @@ export function PaymentForm({
     [allowZero, entries, maxCents],
   );
   const remainingCents = maxCents - summary.totalCents;
+  const changeCallback = useRef(onPaymentChange);
+  useLayoutEffect(() => { changeCallback.current = onPaymentChange; }, [onPaymentChange]);
+  useEffect(() => { changeCallback.current?.(summary); }, [summary]);
   const canAddPayment =
     summary.totalCents > 0 &&
     remainingCents > 0 &&
@@ -63,7 +76,6 @@ export function PaymentForm({
 
   const updateEntries = (next: PaymentEntry[]) => {
     setEntries(next);
-    onPaymentChange?.(summarizePayments(next, allowZero, maxCents));
   };
 
   return (
@@ -74,15 +86,23 @@ export function PaymentForm({
             .filter((candidate) => candidate.id !== entry.id)
             .flatMap((candidate) => (candidate.method ? [candidate.method] : [])),
         );
+        const availableCents = Math.max(maxCents - entries.reduce(
+          (total, candidate) => candidate.id === entry.id ? total : total + candidate.amountCents, 0,
+        ), 0);
+        const updateAmount = (amountCents: number) => updateEntries(entries.map((candidate) =>
+          candidate.id === entry.id ? { ...candidate, amountCents: Math.min(amountCents, availableCents) } : candidate,
+        ));
 
         return (
-          <View key={entry.id} style={styles.paymentCard}>
+          <View key={entry.id} style={[styles.paymentCard, variant === 'checkout' && styles.checkoutCard]}>
             <View style={styles.paymentHeading}>
               <Text style={styles.label}>Pagamento {index + 1}</Text>
               {index > 0 && (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={`Remover pagamento ${index + 1}`}
                   disabled={disabled}
+                  style={styles.removeButton}
                   onPress={() => {
                     if (openEntryId === entry.id) {
                       setOpenEntryId(null);
@@ -95,6 +115,31 @@ export function PaymentForm({
               )}
             </View>
 
+            {variant === 'checkout' ? (
+              <>
+                <Text style={styles.label}>Forma de pagamento</Text>
+                <View style={styles.methodGrid}>
+                  {methods.map(({ label, method }) => {
+                    const selected = entry.method === method;
+                    const unavailable = disabled || selectedByAnotherEntry.has(method);
+                    return (
+                      <Pressable key={method} accessibilityRole="button"
+                        accessibilityLabel={`Selecionar ${label} no pagamento ${index + 1}`}
+                        accessibilityState={{ disabled: unavailable, selected }} disabled={unavailable}
+                        onPress={() => updateEntries(entries.map((candidate) => candidate.id === entry.id ? { ...candidate, method } : candidate))}
+                        style={({ pressed }) => [styles.methodTile, selected && styles.methodTileSelected,
+                          unavailable && styles.buttonDisabled, pressed && !unavailable && styles.buttonPressed]}>
+                        <View style={[styles.methodIcon, selected && styles.methodIconSelected]}>
+                          <AppIcon name={methodIcons[method]} size={18} color={themeColors.primary} />
+                        </View>
+                        <Text style={[styles.methodLabel, selected && styles.buttonText]}>{label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : (
+              <>
             <Text style={styles.methodPrompt}>Forma de pagamento</Text>
             <Pressable
               accessibilityLabel={`Forma de pagamento ${index + 1}`}
@@ -167,38 +212,38 @@ export function PaymentForm({
                 })}
               </View>
             )}
+              </>
+            )}
 
+            {variant === 'checkout' && <Text style={styles.label}>Valor do pagamento (R$)</Text>}
+            <View style={variant === 'checkout' ? styles.inputRow : undefined}>
             <TextInput
               accessibilityLabel={`Valor do pagamento ${index + 1}`}
               editable={!disabled}
               keyboardType="number-pad"
+              inputMode="numeric"
               onChangeText={(value) => {
-                const allocatedByOtherPayments = entries.reduce(
-                  (total, candidate) =>
-                    candidate.id === entry.id
-                      ? total
-                      : total + candidate.amountCents,
-                  0,
-                );
-                const availableCents = Math.max(
-                  maxCents - allocatedByOtherPayments,
-                  0,
-                );
-                const amountCents = Math.min(
-                  centsFromBrlInput(value),
-                  availableCents,
-                );
-                updateEntries(
-                  entries.map((candidate) =>
-                    candidate.id === entry.id
-                      ? { ...candidate, amountCents }
-                      : candidate,
-                  ),
-                );
+                updateAmount(centsFromBrlInput(value));
               }}
-              style={styles.input}
+              style={[styles.input, variant === 'checkout' && styles.checkoutInput]}
               value={formatCentsForBrlInput(entry.amountCents)}
             />
+              {variant === 'checkout' && <Pressable accessibilityRole="button"
+                accessibilityLabel={`Limpar valor do pagamento ${index + 1}`} disabled={disabled}
+                style={styles.clearButton} onPress={() => updateAmount(0)}>
+                <AppIcon name="close" size={18} color={themeColors.foregroundMuted} />
+              </Pressable>}
+            </View>
+            {variant === 'checkout' && <Pressable accessibilityRole="button"
+              accessibilityLabel={`Pagamento total no pagamento ${index + 1}`} disabled={disabled}
+              onPress={() => updateAmount(availableCents)}
+              style={({ pressed }) => [styles.fillButton, disabled && styles.buttonDisabled, pressed && styles.buttonPressed]}>
+              <AppIcon name="quickSale" size={20} color={themeColors.primary} />
+              <View style={styles.fillCopy}>
+                <Text style={styles.fillTitle}>Pagamento total · {formatCentsAsBrl(availableCents)}</Text>
+                <Text style={styles.fillDescription}>Preenche o saldo disponível sem confirmar</Text>
+              </View>
+            </Pressable>}
           </View>
         );
       })}
@@ -223,14 +268,14 @@ export function PaymentForm({
         </Pressable>
       )}
 
-      <View style={styles.summary}>
+      {variant === 'default' && <View style={styles.summary}>
         <Text style={styles.summaryText}>
           Pago: {formatCentsAsBrl(summary.totalCents)}
         </Text>
         <Text style={styles.summaryText}>
           Restante: {formatCentsAsBrl(Math.max(remainingCents, 0))}
         </Text>
-      </View>
+      </View>}
 
       {onSubmit && submitLabel && (
         <Pressable
@@ -281,10 +326,48 @@ function summarizePayments(
 }
 
 const styles = StyleSheet.create({
+  checkoutCard: {
+    backgroundColor: themeColors.surface,
+    borderColor: themeColors.border,
+    borderRadius: themeRadii.operationalCard,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  checkoutInput: {
+    backgroundColor: themeColors.surfaceMuted,
+    borderColor: themeColors.primary,
+    borderWidth: 2,
+    color: themeColors.primary,
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '700',
+    minHeight: 52,
+    paddingRight: 48,
+  },
+  clearButton: { alignItems: 'center', justifyContent: 'center', position: 'absolute', right: 4, minHeight: 44, width: 44 },
+  fillButton: {
+    alignItems: 'center', backgroundColor: themeColors.surfaceAccent, borderColor: themeColors.accent,
+    borderRadius: themeRadii.operationalControl, borderWidth: 2, flexDirection: 'row', gap: 10, minHeight: 58, padding: 12,
+  },
+  fillCopy: { flex: 1, gap: 3 },
+  fillDescription: { color: themeColors.foregroundMuted, fontSize: 11, lineHeight: 16 },
+  fillTitle: { color: themeColors.primary, fontSize: 14, fontWeight: '700' },
+  inputRow: { justifyContent: 'center', flexDirection: 'row' },
+  methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  methodIcon: { alignItems: 'center', backgroundColor: themeColors.surfaceAccent, borderRadius: 8, height: 32, justifyContent: 'center', width: 32 },
+  methodIconSelected: { backgroundColor: themeColors.surface },
+  methodLabel: { color: themeColors.foreground, flex: 1, fontSize: 13, fontWeight: '700' },
+  methodTile: {
+    alignItems: 'center', borderColor: themeColors.border, borderRadius: themeRadii.operationalControl,
+    borderWidth: 1, flexDirection: 'row', flexGrow: 1, flexBasis: '47%', gap: 8, minHeight: 62, padding: 10,
+  },
+  methodTileSelected: { backgroundColor: themeColors.primary, borderColor: themeColors.primary },
+  removeButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   addButton: {
     alignItems: 'center',
     borderColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     minHeight: 46,
     padding: 12,
@@ -293,18 +376,18 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     backgroundColor: themeColors.primary,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     minHeight: 48,
     padding: 14,
   },
   buttonDisabled: { opacity: 0.45 },
   buttonPressed: { opacity: 0.8 },
   buttonText: { color: themeColors.foregroundOnPrimary, fontWeight: '700' },
-  container: { gap: 12 },
+  container: { gap: themeSpacing.sm },
   input: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     color: themeColors.foreground,
     fontSize: 17,
@@ -327,14 +410,19 @@ const styles = StyleSheet.create({
   optionList: {
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     overflow: 'hidden',
   },
   optionSelected: { backgroundColor: themeColors.surfaceMuted },
   optionText: { color: themeColors.foregroundBody, fontWeight: '600' },
   optionTextSelected: { color: themeColors.primary, fontWeight: '800' },
-  paymentCard: { gap: 9 },
+  paymentCard: {
+    borderBottomColor: themeColors.divider,
+    borderBottomWidth: 1,
+    gap: 9,
+    paddingBottom: themeSpacing.sm,
+  },
   paymentHeading: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -345,7 +433,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.surface,
     borderColor: themeColors.borderStrong,
-    borderRadius: 22,
+    borderRadius: themeRadii.operationalControl,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -360,7 +448,9 @@ const styles = StyleSheet.create({
   selectText: { color: themeColors.foreground, fontWeight: '700' },
   summary: {
     backgroundColor: themeColors.surfaceMuted,
-    borderRadius: 22,
+    borderColor: themeColors.divider,
+    borderRadius: themeRadii.operationalControl,
+    borderWidth: 1,
     gap: 5,
     padding: 14,
   },

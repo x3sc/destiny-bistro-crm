@@ -3,7 +3,15 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { themeColors } from '../../theme/tokens';
 import { AppBottomNavigation } from '../app-bottom-navigation';
 
-const mockUser = { permissions: ['credits.read'], roles: [{ code: 'OWNER' }] };
+const mockUser = {
+  permissions: [
+    'comandas.read', 'quick-sales.read',
+    'credits.read',
+    'products.write',
+    'tables.read',
+  ],
+  roles: [{ code: 'OWNER' }],
+};
 jest.mock('../../auth/auth-context', () => ({
   useAuth: () => ({ user: mockUser }),
   hasPermission: (user: unknown, permission: string) => jest.requireActual('../../services/authorization').hasAppPermission(user, permission),
@@ -20,15 +28,23 @@ beforeEach(() => {
   mockUser.roles = [{ code: 'OWNER' }];
 });
 
-it('shows the three labeled destinations from the Stitch navigation bar', () => {
+it('shows the five permitted destinations from the operational navigation bar', () => {
   render(<AppBottomNavigation activeItem="credits" />);
 
+  expect(screen.getByRole('tab', { name: 'Início' })).toBeTruthy();
   expect(screen.getByRole('tab', { name: 'Mesas' })).toBeTruthy();
+  expect(screen.getByRole('tab', { name: 'Venda rápida' })).toBeTruthy();
   const activeTab = screen.getByRole('tab', {
     name: 'Fiados',
     selected: true,
   });
-  expect(activeTab).toHaveStyle({ backgroundColor: themeColors.surfaceAccent });
+  expect(activeTab).toHaveStyle({ borderTopColor: themeColors.primary });
+  expect(screen.getByTestId('bottom-nav-icon-quick-sales')).toHaveStyle({
+    backgroundColor: themeColors.accent,
+    borderRadius: 999,
+    height: 48,
+    width: 48,
+  });
   expect(screen.getByRole('tab', { name: 'Administrativo' })).toBeTruthy();
   expect(screen.getByText('Mesas')).toBeTruthy();
   expect(screen.getByText('Fiados')).toHaveStyle({ color: themeColors.primary });
@@ -47,7 +63,8 @@ it('replaces the current route when a destination is selected', () => {
   expect(mockReplace).toHaveBeenNthCalledWith(3, '/tables');
 });
 
-it('hides credits for waiter even with a legacy grant', () => {
+it('hides credits without an explicit grant', () => {
+  mockUser.permissions = mockUser.permissions.filter((permission) => permission !== 'credits.read');
   mockUser.roles = [{ code: 'WAITER' }];
   render(<AppBottomNavigation activeItem="tables" />);
   expect(screen.queryByRole('tab', { name: 'Fiados' })).toBeNull();

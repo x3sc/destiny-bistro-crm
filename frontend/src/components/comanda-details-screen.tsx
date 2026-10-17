@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import { formatOperationalDateTime } from '../services/date-time';
@@ -13,9 +14,11 @@ import {
   confirmComandaItem,
   loadComanda,
   removeComandaItem,
+  setComandaItemPendingQuantity,
   type Comanda,
   type ComandaItem,
   type ComandaItemConfiguration,
+  type InventoryWarning,
 } from '../services/comandas-api';
 import { loadProducts, type Product } from '../services/products-api';
 import {
@@ -34,8 +37,10 @@ import {
 import { styles } from './comanda-details-screen.styles';
 import { ScreenBackButton } from './screen-back-button';
 import { ThermalPrintSection } from './thermal-print-section';
+import { comandaNavigationResource, useNavigationGuard } from '../navigation/safe-navigation';
 
 interface ComandaDetailsScreenProps {
+  canOperate?: (comanda: Comanda) => boolean;
   apiBaseUrl?: string;
   cancelCreditRequest?: typeof cancelCreditOrder;
   canPrint?: boolean;
@@ -45,15 +50,20 @@ interface ComandaDetailsScreenProps {
   comandaId: string;
   confirmItemRequest?: typeof confirmComandaItem;
   finalizeCreditRequest?: typeof finalizeCreditOrder;
+  initialInventoryWarnings?: InventoryWarning[];
   loadRequest?: typeof loadComanda;
   onAddProducts: (comandaId: string) => void;
   onBack: () => void;
   onCancelled: () => void;
   onCheckout?: (comanda: Comanda) => void;
+  onEditCounterName?: (comanda: Comanda) => void;
   onCreditFinished?: (customerId: string) => void;
   readOnly?: boolean;
   removeItemRequest?: typeof removeComandaItem;
+  setItemPendingQuantityRequest?: typeof setComandaItemPendingQuantity;
 }
+
+const emptyInventoryWarnings: InventoryWarning[] = [];
 
 type ComandaDetailsState =
   | { kind: 'error' }
@@ -70,14 +80,18 @@ export function ComandaDetailsScreen({
   comandaId,
   confirmItemRequest = confirmComandaItem,
   finalizeCreditRequest = finalizeCreditOrder,
+  initialInventoryWarnings = emptyInventoryWarnings,
   loadRequest = loadComanda,
   onAddProducts,
   onBack,
   onCancelled,
   onCheckout,
+  onEditCounterName,
   onCreditFinished = onCancelled,
   readOnly = false,
+  canOperate = () => true,
   removeItemRequest = removeComandaItem,
+  setItemPendingQuantityRequest = setComandaItemPendingQuantity,
 }: ComandaDetailsScreenProps) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const [isMutating, setIsMutating] = useState(false);
@@ -108,6 +122,12 @@ export function ComandaDetailsScreen({
     requestId: string;
   }>();
 
+  useNavigationGuard({ busy: isMutating || isClosing,
+    resource: state.kind === 'success' ? comandaNavigationResource(state.comanda) : undefined,
+    closeModal: totalCancellationEditor ? () => setTotalCancellationEditor(undefined) :
+      cancellationEditor ? () => setCancellationEditor(undefined) : additionalEditor ? () => setAdditionalEditor(undefined) : undefined,
+  });
+  readOnly = readOnly || (state.kind === 'success' && !canOperate(state.comanda));
   const refresh = useCallback(() => {
     if (!normalizedApiBaseUrl || !comandaId) {
       return;
@@ -116,13 +136,24 @@ export function ComandaDetailsScreen({
     setState({ kind: 'loading' });
     void loadRequest(normalizedApiBaseUrl, comandaId).then(
       (comanda) => {
-        setState({ comanda, kind: 'success' });
+        setState({
+          comanda:
+            initialInventoryWarnings.length > 0
+              ? { ...comanda, inventoryWarnings: initialInventoryWarnings }
+              : comanda,
+          kind: 'success',
+        });
       },
       () => {
         setState({ kind: 'error' });
       },
     );
-  }, [comandaId, loadRequest, normalizedApiBaseUrl]);
+  }, [
+    comandaId,
+    initialInventoryWarnings,
+    loadRequest,
+    normalizedApiBaseUrl,
+  ]);
 
   useFocusEffect(refresh);
 
@@ -212,6 +243,20 @@ export function ComandaDetailsScreen({
     }
   };
 
+  const counterPrintActions = (stage: 'pending' | 'final') => {
+    if (state.kind !== 'success' || !normalizedApiBaseUrl || state.comanda.tableName !== 'Balcão' || state.comanda.credit) return null;
+    return <ThermalPrintSection
+      key={JSON.stringify(state.comanda)}
+      apiBaseUrl={normalizedApiBaseUrl}
+      canPrint={canPrint}
+      comandaId={comandaId}
+      counterSale={state.comanda}
+      counterStage={stage}
+      disabled={isMutating}
+      onConflict={refresh}
+    />;
+  };
+
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <ScrollView
@@ -248,6 +293,10 @@ export function ComandaDetailsScreen({
 
         {state.kind === 'success' && (
           <>
+            {onEditCounterName && !readOnly && state.comanda.status === 'OPEN' && state.comanda.tableName === 'Balcão' && (
+              <ActionButton label={state.comanda.name ? 'Editar identificação' : 'Identificação opcional'}
+                onPress={() => onEditCounterName(state.comanda)} tone="secondary" />
+            )}
             {actionError ? <Message text={actionError} /> : null}
             {actionMessage ? <Message text={actionMessage} tone="notice" /> : null}
             {state.comanda.inventoryWarnings?.map((warning, index) => (
@@ -263,7 +312,7 @@ export function ComandaDetailsScreen({
             ))}
             {additionalEditor && normalizedApiBaseUrl ? (
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Adicionais · {additionalEditor.productName}</Text>
+                <Text fontRole="heading" style={styles.sectionTitle}>Adicionais · {additionalEditor.productName}</Text>
                 <Text style={styles.description}>Escolha os adicionais e quantas unidades pendentes receberão essa configuração.</Text>
                 {additionalEditor.additionals.map((additional) => {
                   const selected = additionalEditor.selectedIds.includes(additional.id);
@@ -319,8 +368,8 @@ export function ComandaDetailsScreen({
               </View>
             ) : null}
             {cancellationEditor && normalizedApiBaseUrl ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Cancelar unidades · {cancellationEditor.item.productName}</Text>
+              <View style={[styles.card, styles.cancellationEditorScreen]} testID="item-cancellation-screen">
+                <Text fontRole="heading" style={styles.sectionTitle}>Cancelar unidades · {cancellationEditor.item.productName}</Text>
                 <Text style={styles.description}>Informe a quantidade confirmada, o motivo e se os insumos retornam ao estoque.</Text>
                 <TextInput accessibilityLabel="Quantidade a cancelar" keyboardType="number-pad" onChangeText={(quantity) => setCancellationEditor((current) => current ? { ...current, quantity } : current)} placeholder="Quantidade" style={styles.input} value={cancellationEditor.quantity} />
                 <TextInput accessibilityLabel="Motivo do cancelamento" onChangeText={(reason) => setCancellationEditor((current) => current ? { ...current, reason } : current)} placeholder="Motivo" style={styles.input} value={cancellationEditor.reason} />
@@ -354,8 +403,8 @@ export function ComandaDetailsScreen({
               </View>
             ) : null}
             {totalCancellationEditor ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Cancelar comanda completa</Text>
+              <View style={[styles.card, styles.cancellationEditorScreen]} testID="total-cancellation-screen">
+                <Text fontRole="heading" style={styles.sectionTitle}>Cancelar comanda completa</Text>
                 <Text style={styles.description}>
                   {totalCancellationEditor.hasConfirmedItems
                     ? 'Itens confirmados exigem a destinação dos insumos. Itens pendentes serão cancelados sem movimentar o estoque.'
@@ -378,9 +427,13 @@ export function ComandaDetailsScreen({
                 <ActionButton label="Voltar" onPress={() => setTotalCancellationEditor(undefined)} tone="tertiary" />
               </View>
             ) : null}
+            {!cancellationEditor && !totalCancellationEditor ? (
+              <>
             <ComandaItems
+              pendingActions={counterPrintActions('pending')}
+              confirmedActions={counterPrintActions('final')}
               comanda={state.comanda}
-            disabled={isMutating || readOnly}
+            disabled={isMutating || readOnly || state.comanda.status !== 'OPEN'}
             onChangeQuantity={(item, delta) => {
               if (!normalizedApiBaseUrl) {
                 return;
@@ -423,7 +476,7 @@ export function ComandaDetailsScreen({
                 () => setActionMessage('Não foi possível carregar os adicionais.'),
               );
             }}
-            onCancelConfiguration={canCancelConfirmed ? (item, configuration) => {
+            onCancelConfiguration={canCancelConfirmed && !readOnly && state.comanda.status === 'OPEN' ? (item, configuration) => {
               setActionMessage(undefined);
               setCancellationEditor({
                 configuration,
@@ -439,9 +492,25 @@ export function ComandaDetailsScreen({
                 void mutateComanda(removeItemRequest(normalizedApiBaseUrl, comandaId, item.id));
               }
             }}
+            onSetPendingQuantity={(item, pendingQuantity) => {
+              if (!normalizedApiBaseUrl) {
+                return;
+              }
+              void mutateComanda(
+                setItemPendingQuantityRequest(
+                  normalizedApiBaseUrl,
+                  comandaId,
+                  item.id,
+                  pendingQuantity,
+                ),
+                'Não foi possível atualizar a quantidade. Tente novamente.',
+              );
+            }}
             />
-            {normalizedApiBaseUrl ? (
+            {normalizedApiBaseUrl && (state.comanda.tableName !== 'Balcão' || state.comanda.credit) ? (
               <ThermalPrintSection
+                disabled={isMutating}
+                onConflict={refresh}
                 apiBaseUrl={normalizedApiBaseUrl}
                 canPrint={canPrint}
                 comandaId={comandaId}
@@ -473,11 +542,13 @@ export function ComandaDetailsScreen({
                   }}
                 />
               )}
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
 
-      {state.kind === 'success' && (
+      {state.kind === 'success' && !cancellationEditor && !totalCancellationEditor && (
         <SafeAreaView
           edges={['bottom']}
           onLayout={({ nativeEvent }) => {
@@ -487,7 +558,8 @@ export function ComandaDetailsScreen({
           testID="comanda-footer"
         >
           <ComandaActions
-            canClose={state.comanda.items.every(
+            closeLabel={state.comanda.tableName === 'Balcão' ? 'Concluir venda' : undefined}
+            canClose={(state.comanda.tableName !== 'Balcão' || (state.comanda.items.length > 0 && state.comanda.totalCents > 0)) && state.comanda.items.every(
               (item) => item.quantity === item.confirmedQuantity,
             )}
             canCreateCredit={
@@ -528,8 +600,8 @@ function ComandaHeader({
   onBack: () => void;
 }) {
   return (
-    <View style={styles.screenHeader}>
-      <ScreenBackButton onPress={onBack} />
+    <View style={styles.screenHeader} testID="comanda-details-header">
+      <ScreenBackButton onPress={onBack} tone="light" />
       <View style={styles.headerCopy}>
         <View style={styles.contextRow}>
           <Text style={styles.eyebrow}>
@@ -537,7 +609,7 @@ function ComandaHeader({
           </Text>
           {comanda?.name && <Text style={styles.contextName}>· {comanda.name}</Text>}
         </View>
-        <Text style={styles.title}>
+        <Text fontRole="heading" style={styles.title}>
           {comanda ? `Comanda #${comanda.number}` : 'Detalhes da comanda'}
         </Text>
         {comanda && (

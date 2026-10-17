@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 const storageKey = 'destiny-bistro-session';
 let activeToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
+let forbiddenHandler: (() => void) | null = null;
 
 export interface StoredSession {
   expiresAt: string;
@@ -13,15 +14,18 @@ export interface StoredSession {
 export function configureAuthenticatedFetch(
   token: string | null,
   onUnauthorized?: () => void,
+  onForbidden?: () => void,
 ) {
   activeToken = token;
   unauthorizedHandler = onUnauthorized ?? null;
+  forbiddenHandler = onForbidden ?? null;
 }
 
 export async function authenticatedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ) {
+  const requestToken = activeToken;
   const headers = activeToken
     ? {
         ...Object.fromEntries(new Headers(init.headers).entries()),
@@ -38,9 +42,10 @@ export async function authenticatedFetch(
       ? await fetch(input)
       : await fetch(input, requestInit);
 
-  if (response.status === 401 && activeToken) {
+  if (response.status === 401 && activeToken && requestToken === activeToken) {
     unauthorizedHandler?.();
   }
+  if (response.status === 403 && activeToken && requestToken === activeToken) forbiddenHandler?.();
 
   return response;
 }

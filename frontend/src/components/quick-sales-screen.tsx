@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useNavigationGuard, useSafeNavigationCompletion } from '../navigation/safe-navigation';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +23,8 @@ export function QuickSalesScreen({
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const completeNavigation = useSafeNavigationCompletion();
+  useNavigationGuard({ busy: submitting });
   const submittingRef = useRef(false);
   const [error, setError] = useState<string>();
   const [state, setState] = useState<
@@ -50,7 +53,7 @@ export function QuickSalesScreen({
       const sale = await openRequest(url, name.trim());
       setName('');
       refresh();
-      onSelect(sale);
+      completeNavigation(() => onSelect(sale));
     } catch {
       setError('Não foi possível abrir a venda rápida.');
     } finally {

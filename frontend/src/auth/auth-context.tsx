@@ -6,8 +6,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { AppState } from 'react-native';
 
 import {
   loadCurrentUser,
@@ -20,12 +22,14 @@ import {
   configureAuthenticatedFetch,
   readStoredSession,
   storeSession,
+  getActiveAuthToken,
 } from '../services/auth-session';
 
 interface AuthContextValue {
   loading: boolean;
   signIn(name: string, password: string): Promise<void>;
   signOut(): Promise<void>;
+  refreshSession(): Promise<void>;
   user: AuthUser | null;
 }
 
@@ -40,6 +44,21 @@ export function AuthProvider({
 }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const refreshing = useRef<Promise<void> | null>(null);
+  const refreshSession = useCallback(() => {
+    if (refreshing.current) return refreshing.current;
+    const token = getActiveAuthToken();
+    if (!token) return Promise.resolve();
+    const task = loadCurrentUser(apiBaseUrl).then((current) => {
+      if (getActiveAuthToken() === token) setUser((previous) => JSON.stringify(previous) === JSON.stringify(current) ? previous : current);
+    }, () => {}).finally(() => { if (refreshing.current === task) refreshing.current = null; });
+    refreshing.current = task;
+    return task;
+  }, [apiBaseUrl]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') void refreshSession(); });
+    return () => subscription.remove();
+  }, [refreshSession]);
 
   const clearSession = useCallback(async () => {
     configureAuthenticatedFetch(null);
@@ -66,7 +85,7 @@ export function AuthProvider({
 
       configureAuthenticatedFetch(stored.token, () => {
         void clearSession();
-      });
+      }, () => { void refreshSession(); });
 
       try {
         const currentUser = await loadCurrentUser(apiBaseUrl);
@@ -87,7 +106,7 @@ export function AuthProvider({
     return () => {
       active = false;
     };
-  }, [apiBaseUrl, clearSession]);
+  }, [apiBaseUrl, clearSession, refreshSession]);
 
   const signIn = useCallback(
     async (name: string, password: string) => {
@@ -98,10 +117,10 @@ export function AuthProvider({
       });
       configureAuthenticatedFetch(session.token, () => {
         void clearSession();
-      });
+      }, () => { void refreshSession(); });
       setUser(session.user);
     },
-    [apiBaseUrl, clearSession],
+    [apiBaseUrl, clearSession, refreshSession],
   );
 
   const signOut = useCallback(async () => {
@@ -117,9 +136,10 @@ export function AuthProvider({
       loading,
       signIn,
       signOut,
+      refreshSession,
       user,
     }),
-    [loading, signIn, signOut, user],
+    [loading, signIn, signOut, user, refreshSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
