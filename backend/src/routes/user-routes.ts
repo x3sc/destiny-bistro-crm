@@ -2,14 +2,17 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { requireAuthUser } from "../authentication.js";
 import { AuthInputError, UserProvisionConflictError } from "../auth-types.js";
 import { canManageUsers, userRoleCodes, UserAccessError, type CreateUserInput, type UserRepository } from "../user-types.js";
+import { accessError } from './role-routes.js';
+import { validVersion } from '../role-repository.js';
+import { RoleAccessError, RoleConflictError, RoleNotFoundError } from '../role-policy.js';
 
 function isCreateUserInput(body: unknown): body is CreateUserInput {
   if (!body || typeof body !== "object" || Array.isArray(body)) return false;
   const value = body as Record<string, unknown>;
   return Object.keys(value).length === 3 &&
     typeof value.name === "string" && typeof value.password === "string" &&
-    typeof value.roleCode === "string" &&
-    userRoleCodes.some((code) => code === value.roleCode);
+    ((typeof value.roleCode === 'string' && userRoleCodes.some((code) => code === value.roleCode) && value.roleId === undefined) ||
+      (typeof value.roleId === 'string' && value.roleId.length > 0 && value.roleCode === undefined));
 }
 
 export function registerUserRoutes(app: FastifyInstance, users: UserRepository) {
@@ -28,6 +31,13 @@ export function registerUserRoutes(app: FastifyInstance, users: UserRepository) 
       return reply.code(201).send({ user: await users.create(actor, request.body) });
     } catch (error) { return failed(error, reply, app); }
   });
+  app.patch<{ Params: { id: string }; Body: { roleId?: unknown; expectedVersion?: unknown } }>('/admin/users/:id/role', options, async (request, reply) => {
+    if (!users.updateRole) return reply.code(503).send({ message: 'User administration unavailable' });
+    if (!request.body || typeof request.body.roleId !== 'string' || !request.body.roleId || !validVersion(request.body.expectedVersion) ||
+      Object.keys(request.body).some((key) => !['roleId', 'expectedVersion'].includes(key))) return invalid(reply);
+    try { return { user: await users.updateRole(requireAuthUser(request), request.params.id, request.body.roleId, request.body.expectedVersion) }; }
+    catch (error) { return failed(error, reply, app); }
+  });
 }
 
 function forbidden(reply: FastifyReply) {
@@ -37,6 +47,7 @@ function invalid(reply: FastifyReply) {
   return reply.code(400).send({ status: "error", message: "Invalid user data" });
 }
 function failed(error: unknown, reply: FastifyReply, app: FastifyInstance) {
+  if (error instanceof RoleAccessError || error instanceof RoleConflictError || error instanceof RoleNotFoundError) return accessError(error, reply);
   if (error instanceof UserAccessError) return forbidden(reply);
   if (error instanceof AuthInputError) return invalid(reply);
   if (error instanceof UserProvisionConflictError) {

@@ -1,6 +1,11 @@
-export type ComandaPrintKind = "CONFIRMED" | "KITCHEN_PENDING";
+export type ComandaPrintKind = "CONFIRMED" | "KITCHEN_PENDING" | 'CHECKOUT_PREVIEW' | 'COUNTER_PENDING' | 'COUNTER_FINAL';
 
 export interface ComandaPrintSource {
+  creditOrder?: unknown;
+  serviceFeeApplied?: boolean | null;
+  serviceFeePercent?: number;
+  serviceFeeSubtotalCents?: number | null;
+  serviceFeeAmountCents?: number;
   deliveryFeeCents: number | null;
   establishmentName: string;
   id: string;
@@ -27,6 +32,8 @@ export interface ComandaPrintSource {
 }
 
 export interface ComandaPrintDocument {
+  serviceFee?: { included: boolean; percent: number; subtotalCents: number; amountCents: number };
+  externalPaymentMethod?: 'COUNTER';
   comandaId: string;
   comandaName: string | null;
   comandaNumber: number;
@@ -57,6 +64,7 @@ export interface ComandaPrintItem {
 }
 
 export class PrintDocumentEmptyError extends Error {}
+export class CounterPrintConflictError extends Error {}
 
 export function buildComandaPrintDocument(
   source: ComandaPrintSource,
@@ -64,6 +72,16 @@ export function buildComandaPrintDocument(
   generatedBy: string,
   generatedAt = new Date(),
 ): ComandaPrintDocument {
+  const counterPending = kind === 'COUNTER_PENDING';
+  const counterFinal = kind === 'COUNTER_FINAL';
+  if (counterPending || counterFinal) {
+    if (source.tableName !== 'Balcão' || source.tableNumber !== null || source.deliveryFeeCents !== null ||
+      source.creditOrder || source.status !== 'OPEN') throw new PrintDocumentEmptyError();
+    if (counterFinal && source.items.some((item) => item.configurations.some(
+      (configuration) => configuration.quantity > configuration.confirmedQuantity,
+    ))) throw new CounterPrintConflictError();
+  }
+  const includeServiceFee = kind !== 'KITCHEN_PENDING' && !counterPending;
   const items = source.items.flatMap((item) => {
     if (kind === "KITCHEN_PENDING" && !item.requiresKitchen) {
       return [];
@@ -71,7 +89,7 @@ export function buildComandaPrintDocument(
 
     return item.configurations.flatMap((configuration) => {
       const quantity =
-        kind === "CONFIRMED"
+        kind !== "KITCHEN_PENDING" && !counterPending
           ? configuration.confirmedQuantity
           : configuration.quantity - configuration.confirmedQuantity;
       if (quantity <= 0) {
@@ -91,13 +109,13 @@ export function buildComandaPrintDocument(
             name: additional.additionalName,
             quantityPerUnit: additional.quantityPerUnit,
             unitPriceCents:
-              kind === "CONFIRMED" ? additional.unitPriceCents : null,
+              kind !== "KITCHEN_PENDING" ? additional.unitPriceCents : null,
           })),
           productName: item.productName,
           quantity,
           subtotalCents:
-            kind === "CONFIRMED" ? quantity * unitPriceCents : null,
-          unitPriceCents: kind === "CONFIRMED" ? unitPriceCents : null,
+            kind !== "KITCHEN_PENDING" ? quantity * unitPriceCents : null,
+          unitPriceCents: kind !== "KITCHEN_PENDING" ? unitPriceCents : null,
         },
       ];
     });
@@ -108,14 +126,18 @@ export function buildComandaPrintDocument(
   }
 
   const deliveryFeeCents =
-    kind === "CONFIRMED" ? source.deliveryFeeCents : null;
+    includeServiceFee ? source.deliveryFeeCents : null;
   const itemTotalCents = items.reduce(
     (total, item) => total + (item.subtotalCents ?? 0),
     0,
   );
 
   return {
+    ...(includeServiceFee && typeof source.serviceFeeApplied === 'boolean' ? { serviceFee: {
+      included: source.serviceFeeApplied, percent: source.serviceFeePercent ?? 0, subtotalCents: source.serviceFeeSubtotalCents ?? itemTotalCents,
+      amountCents: source.serviceFeeAmountCents ?? 0 } } : {}),
     comandaId: source.id,
+    ...(source.tableName === 'Balcão' && source.status === 'CLOSED' && kind === 'CONFIRMED' ? { externalPaymentMethod: 'COUNTER' as const } : {}),
     comandaName: source.name,
     comandaNumber: source.number,
     deliveryFeeCents,
@@ -134,8 +156,8 @@ export function buildComandaPrintDocument(
     status: source.status,
     tableNumber: source.tableNumber,
     totalCents:
-      kind === "CONFIRMED"
-        ? itemTotalCents + (deliveryFeeCents ?? 0)
+      kind !== "KITCHEN_PENDING"
+        ? itemTotalCents + (deliveryFeeCents ?? 0) + (includeServiceFee ? source.serviceFeeAmountCents ?? 0 : 0)
         : null,
   };
 }

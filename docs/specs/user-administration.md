@@ -1,5 +1,13 @@
 # Administração de usuários
 
+> Atualizado pela issue #139: a especificação vigente é
+> [Cargos locais e permissões](tenant-roles.md). A seção abaixo registra a entrega
+> histórica #101, não o contrato atual. Agora `users.manage` é delegável dentro do
+> alcance do operador, o usuário tem um cargo local, o cadastro aceita `roleId` ou
+> `roleCode` padrão (nunca ambos) e `PATCH /admin/users/:id/role` recebe
+> `{ roleId, expectedVersion }`. A resposta inclui `roleVersion`, `permissions` e
+> `canReassign`. Não há edição de senha, exclusão ou desativação de usuários.
+
 O dono acessa Administrativo → Usuários para consultar os usuários do seu estabelecimento e criar novos acessos. Implementa a issue #101, com referência visual aprovada no [Stitch](https://stitch.withgoogle.com/projects/2218287996926224711).
 
 ## Acesso e dados

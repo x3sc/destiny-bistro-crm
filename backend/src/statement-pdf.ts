@@ -18,6 +18,7 @@ const colors = {
 };
 
 const originLabels: Record<StatementEntry["origin"], string> = {
+  COUNTER: 'Balcão',
   CREDIT_MANUAL: "Fiado manual",
   CREDIT_TABLE: "Fiado de mesa",
   DELIVERY: "Delivery",
@@ -32,6 +33,7 @@ const statusLabels: Record<StatementEntry["status"], string> = {
 };
 
 const paymentMethodLabels = {
+  COUNTER: 'Balcão (caixa externo)',
   CASH: "Dinheiro",
   CREDIT_CARD: "Cartão de crédito",
   DEBIT_CARD: "Cartão de débito",
@@ -58,6 +60,7 @@ const movementTypeLabels: Record<StatementMovementType, string> = {
 };
 
 const originFilterLabels: Record<StatementOriginFilter, string> = {
+  COUNTER: 'Balcão',
   ALL: "Todas",
   CREDIT_MANUAL: "Fiado manual",
   CREDIT_TABLE: "Fiado de mesa",
@@ -329,6 +332,10 @@ function renderEntries(
           indent: 10,
         });
       }
+      if (entry.serviceFeeCents !== undefined) {
+        document.text(`Consumo: ${formatCents(entry.soldCents - entry.serviceFeeCents)}`, { indent: 10 });
+        document.text(`Taxa de serviço: ${formatCents(entry.serviceFeeCents)}`, { indent: 10 });
+      }
       if (presentation.note) {
         document.text(presentation.note, { indent: 10 });
       }
@@ -384,6 +391,7 @@ function commandLocation(entry: StatementEntry) {
   if (entry.origin === "DELIVERY") {
     return entry.deliveryAddress ?? "Entrega";
   }
+  if (entry.origin === 'COUNTER') return 'Balcão';
   if (entry.origin === "QUICK_SALE") return "Venda rápida";
   if (entry.tableNumber !== null) {
     return `Mesa ${entry.tableNumber}`;
@@ -407,7 +415,7 @@ function entryPresentation(entry: StatementEntry): {
       title: "Comanda cancelada",
     };
   }
-  if (entry.event === "TABLE_CLOSED" || entry.event === "QUICK_SALE_CLOSED") {
+  if (entry.event === "TABLE_CLOSED" || entry.event === "QUICK_SALE_CLOSED" || entry.event === 'COUNTER_CLOSED') {
     return {
       rows: [
         { label: "Total", valueCents: entry.soldCents },

@@ -1,3 +1,4 @@
+import { RoleAccessError } from "../role-policy.js";
 import type { FastifyInstance } from "fastify";
 import { requireAuthUser } from "../authentication.js";
 import {
@@ -57,6 +58,7 @@ export function registerCreditRoutes(
           ),
         };
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         app.log.error(error, "Credit customer query failed");
 
         return reply.code(503).send({
@@ -87,6 +89,7 @@ export function registerCreditRoutes(
           ),
         });
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (error instanceof CreditCustomerNameError) {
           return reply.code(409).send({
             status: "error",
@@ -116,6 +119,7 @@ export function registerCreditRoutes(
           ),
         };
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (error instanceof CreditCustomerNotFoundError) {
           return reply.code(404).send({
             status: "error",
@@ -146,6 +150,7 @@ export function registerCreditRoutes(
           ),
         });
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (error instanceof CreditCustomerNotFoundError) {
           return reply.code(404).send({
             status: "error",
@@ -176,6 +181,7 @@ export function registerCreditRoutes(
           ),
         };
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         return sendOrderError(app, reply, error, "Credit order finalization failed");
       }
     },
@@ -194,6 +200,7 @@ export function registerCreditRoutes(
           ),
         };
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         return sendOrderError(app, reply, error, "Credit order cancellation failed");
       }
     },
@@ -208,6 +215,7 @@ export function registerCreditRoutes(
       try {
         payments = normalizePaymentAllocations(body?.payments ?? []);
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (error instanceof PaymentInputError) {
           return reply.code(400).send({
             status: "error",
@@ -225,6 +233,7 @@ export function registerCreditRoutes(
             requireAuthUser(request).id,
           );
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (error instanceof CreditOrderNotFoundError) {
           return reply.code(404).send({
             status: "error",
@@ -274,6 +283,7 @@ export function registerCreditRoutes(
           ),
         };
       } catch (error) {
+        if (error instanceof RoleAccessError) return reply.code(403).send({ status: "error", message: "Permission denied" });
         if (
           error instanceof CreditCustomerNotFoundError ||
           error instanceof CreditOrderNotFoundError

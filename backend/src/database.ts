@@ -1,4 +1,5 @@
 import { createUserRepository } from "./user-repository.js";
+import { createRoleRepository, type RoleRepository } from './role-repository.js';
 import type { UserRepository } from "./user-types.js";
 import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
@@ -46,6 +47,7 @@ export interface Database {
 }
 
 export interface Persistence {
+  roles: RoleRepository;
   users: UserRepository;
   auth: AuthRepository;
   comandas: ComandaRepository;
@@ -86,6 +88,7 @@ export function createPersistence(): Persistence {
   const prisma = createPrismaClient();
 
   return {
+    roles: createRoleRepository(prisma),
     auth: createAuthRepository(prisma),
     users: createUserRepository(prisma),
     comandas: createComandaRepository(prisma),

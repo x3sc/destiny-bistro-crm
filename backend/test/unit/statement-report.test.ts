@@ -16,10 +16,52 @@ void test("statement periods use inclusive Sao Paulo calendar dates", () => {
   assert.equal(period.endAt.toISOString(), "2026-07-29T03:00:00.000Z");
 });
 
+void test('counter sales keep external receipts separate from cash and count the sale once', () => {
+  const date = new Date('2026-10-16T12:00:00.000Z');
+  const report = buildStatementReport(parseStatementPeriod('2026-10-16', '2026-10-16'), {
+    cancelledComandas: [], creditOrders: [], closedComandas: [{
+      id: 'counter', name: null, number: 1, tableName: 'Balcão', tableNumber: null, status: 'CLOSED',
+      closedAt: date, creditOrder: null,
+      items: [{ productId: 'item', productName: 'Item', quantity: 2, confirmedQuantity: 2, unitPriceCents: 500 }],
+      payments: [{ id: 'payment', amountCents: 1000, origin: 'COUNTER_CHECKOUT', paidAt: date,
+        allocations: [{ amountCents: 1000, method: 'COUNTER' }] }],
+    }],
+  });
+  assert.equal(report.entries[0]?.origin, 'COUNTER');
+  assert.equal(report.entries[0]?.event, 'COUNTER_CLOSED');
+  assert.equal(report.summary.soldCents, 1000);
+  assert.equal(report.summary.receivedCents, 1000);
+  assert.equal(report.indicators.saleCommandCount, 1);
+  assert.equal(report.indicators.paymentMethodSummaries.find((item) => item.method === 'COUNTER')?.receivedCents, 1000);
+  assert.equal(report.indicators.paymentMethodSummaries.find((item) => item.method === 'CASH')?.receivedCents, 0);
+});
+
 void test("statement periods reject missing, invalid and inverted dates", () => {
   assert.throws(() => parseStatementPeriod(undefined, "2026-07-28"));
   assert.throws(() => parseStatementPeriod("2026-02-30", "2026-03-01"));
   assert.throws(() => parseStatementPeriod("2026-07-29", "2026-07-28"));
+});
+
+void test('service fee credit ledger preserves the original sale and dates later reductions and installments separately', () => {
+  const initialAt = new Date('2026-10-15T12:00:00Z'), reductionAt = new Date('2026-10-16T12:00:00Z');
+  const source: StatementSourceData = { cancelledComandas: [], closedComandas: [], creditOrders: [{
+    customerName: 'Cliente', source: 'TABLE', finalizedAt: initialAt,
+    comanda: { id: 'fee-credit', name: null, number: 1, status: 'OPEN', tableNumber: 1, events: [],
+      serviceFeeEvents: [
+        { id: 'initial', createdAt: initialAt, consumptionDeltaCents: 1000, deltaCents: 100, itemCountDelta: 2 },
+        { id: 'reduction', createdAt: reductionAt, consumptionDeltaCents: -500, deltaCents: -50, itemCountDelta: -1 },
+      ] },
+    payments: [{ id: 'installment', amountCents: 550, origin: 'CREDIT_INSTALLMENT', paidAt: new Date('2026-10-17T12:00:00Z'),
+      allocations: [{ method: 'PIX', amountCents: 550 }] }],
+  }] };
+  const original = buildStatementReport(parseStatementPeriod('2026-10-15', '2026-10-15'), source);
+  assert.equal(original.summary.soldCents, 1100); assert.equal(original.summary.receivedCents, 0);
+  const reduction = buildStatementReport(parseStatementPeriod('2026-10-16', '2026-10-16'), source);
+  assert.equal(reduction.summary.soldCents, -550); assert.equal(reduction.entries[0]?.serviceFeeCents, -50);
+  assert.equal(reduction.entries[0]?.creditBalanceAfterCents, 550);
+  const installment = buildStatementReport(parseStatementPeriod('2026-10-17', '2026-10-17'), source);
+  assert.equal(installment.summary.soldCents, 0); assert.equal(installment.summary.receivedCents, 550);
+  assert.equal(installment.entries[0]?.creditBalanceAfterCents, 0);
 });
 
 void test("statements separate sales, later credit additions and receipts", () => {

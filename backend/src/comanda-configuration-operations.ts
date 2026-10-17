@@ -198,7 +198,7 @@ export async function configureComandaItemAdditionals(
     }),
   });
 
-  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId);
+  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId, actorUserId);
   return getComandaOrThrow(transaction, establishmentId, comandaId);
 }
 
@@ -223,6 +223,7 @@ export async function cancelComandaItemConfiguration(
     reason: input.reason,
   });
   validateCancellationInput(input);
+  await transaction.$queryRaw`SELECT id FROM Comanda WHERE id = ${comandaId} AND establishmentId = ${establishmentId} FOR UPDATE`;
 
   const replay = await transaction.inventoryOperation.findUnique({
     where: {
@@ -348,7 +349,7 @@ export async function cancelComandaItemConfiguration(
     }),
   });
 
-  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId);
+  await syncOpenCreditOrderTotal(transaction, establishmentId, comandaId, actorUserId);
   return {
     comanda: await getComandaOrThrow(transaction, establishmentId, comandaId),
     inventoryWarnings: [],
