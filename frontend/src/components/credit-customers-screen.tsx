@@ -4,10 +4,11 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OperationalText as Text } from '../theme/operational-typography';
 
 import { normalizeApiBaseUrl } from '../services/api-base-url';
 import {
@@ -16,6 +17,7 @@ import {
 } from '../services/credits-api';
 import { formatCentsAsBrl } from '../services/money';
 import { themeColors } from '../theme/tokens';
+import { AppIcon } from './app-icon';
 import { CreditButton } from './credit-screen-parts';
 import { creditStyles } from './credit-screens.styles';
 import { BrandedScreenHeader } from './branded-screen-header';
@@ -41,6 +43,7 @@ export function CreditCustomersScreen({
   onSelectCustomer: (customer: CreditCustomerSummary) => void;
 }) {
   const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  const [searchQuery, setSearchQuery] = useState('');
   const [state, setState] = useState<State>({ kind: 'loading' });
 
   const refresh = useCallback(() => {
@@ -66,6 +69,13 @@ export function CreditCustomersScreen({
     state.kind === 'success'
       ? state.customers.reduce((total, customer) => total + customer.balanceCents, 0)
       : 0;
+  const normalizedSearchQuery = normalizeSearchText(searchQuery.trim());
+  const visibleCustomers =
+    state.kind === 'success'
+      ? state.customers.filter((customer) =>
+          normalizeSearchText(customer.name).includes(normalizedSearchQuery),
+        )
+      : [];
 
   return (
     <SafeAreaView style={creditStyles.safeArea}>
@@ -75,13 +85,13 @@ export function CreditCustomersScreen({
         title="Fiados"
       />
       <ScrollView
-        contentContainerStyle={creditStyles.content}
+        contentContainerStyle={creditStyles.detailsContent}
         style={creditStyles.scroll}
       >
         {state.kind === 'success' && (
-          <View style={creditStyles.summaryCard}>
+          <View style={creditStyles.portfolioSummary}>
             <Text style={creditStyles.summaryLabel}>Total em aberto</Text>
-            <Text style={creditStyles.summaryValue}>
+            <Text fontRole="heading" style={creditStyles.summaryValue}>
               {formatCentsAsBrl(totalBalanceCents)}
             </Text>
             <Text style={creditStyles.summaryCount}>
@@ -94,6 +104,20 @@ export function CreditCustomersScreen({
         <View style={creditStyles.actions}>
           <CreditButton label="Adicionar um novo fiado" onPress={onNewCredit} />
         </View>
+
+        {state.kind === 'success' && state.customers.length > 0 && (
+          <View style={creditStyles.searchField}>
+            <AppIcon color={themeColors.icon} name="search" size={17} />
+            <TextInput
+              accessibilityLabel="Buscar cliente"
+              onChangeText={setSearchQuery}
+              placeholder="Buscar cliente..."
+              placeholderTextColor={themeColors.placeholder}
+              style={creditStyles.searchInput}
+              value={searchQuery}
+            />
+          </View>
+        )}
 
         {state.kind === 'loading' && (
           <View style={creditStyles.loading}>
@@ -119,22 +143,30 @@ export function CreditCustomersScreen({
 
         {state.kind === 'success' && state.customers.length > 0 && (
           <View style={creditStyles.list}>
-            <Text style={creditStyles.sectionTitle}>Fiados recentes</Text>
-            {state.customers.map((customer) => (
+            <View style={creditStyles.sectionHeading}>
+              <Text fontRole="heading" style={creditStyles.sectionTitle}>
+                Clientes
+              </Text>
+              <Text style={creditStyles.sectionCount}>
+                {visibleCustomers.length} encontrados
+              </Text>
+            </View>
+            {visibleCustomers.map((customer) => (
               <Pressable
+                accessibilityLabel={`${customer.name}, saldo ${formatCentsAsBrl(customer.balanceCents)}`}
                 accessibilityRole="button"
                 key={customer.id}
                 onPress={() => {
                   onSelectCustomer(customer);
                 }}
                 style={({ pressed }) => [
-                  creditStyles.card,
+                  creditStyles.customerCard,
                   pressed && creditStyles.cardPressed,
                 ]}
               >
                 <View style={creditStyles.row}>
-                  <Text style={creditStyles.cardTitle}>{customer.name}</Text>
-                  <Text style={creditStyles.balance}>
+                  <Text fontRole="heading" style={creditStyles.customerName}>{customer.name}</Text>
+                  <Text fontRole="heading" style={creditStyles.customerBalance}>
                     {formatCentsAsBrl(customer.balanceCents)}
                   </Text>
                 </View>
@@ -148,12 +180,27 @@ export function CreditCustomersScreen({
                     {customer.draftOrderCount === 1 ? 'rascunho' : 'rascunhos'}
                   </Text>
                 )}
+                <View style={creditStyles.customerNext}>
+                  <AppIcon color={themeColors.placeholder} name="next" size={14} />
+                </View>
               </Pressable>
             ))}
+            {visibleCustomers.length === 0 && (
+              <Text style={creditStyles.empty}>
+                Nenhum cliente encontrado para “{searchQuery}”.
+              </Text>
+            )}
           </View>
         )}
       </ScrollView>
       {bottomNavigation}
     </SafeAreaView>
   );
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
 }

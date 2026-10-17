@@ -41,7 +41,7 @@ it('lists existing multiple roles and creates a user without changing the owner 
   fireEvent.press(screen.getByRole('button', { name: 'Criar usuário' }));
   await screen.findByText('Usuário criado com sucesso.');
   expect(screen.getByText('Bruno')).toBeTruthy();
-  expect(createRequest).toHaveBeenCalledWith('http://localhost:3333', { name: 'Bruno', password: 'test-password', roleCode: 'WAITER' });
+  expect(createRequest).toHaveBeenCalledWith('http://localhost:3333', { name: 'Bruno', password: 'test-password', roleId: 'waiter' });
   fireEvent.press(screen.getByRole('button', { name: 'Novo usuário' }));
   expect(screen.getByLabelText('Senha').props.value).toBe('');
 });
@@ -49,7 +49,7 @@ it('lists existing multiple roles and creates a user without changing the owner 
 it('validates required fields, mismatch and requires one role', async () => {
   const { createRequest } = setup(); await openForm();
   fireEvent.press(screen.getByRole('button', { name: 'Criar usuário' }));
-  expect(screen.getByText('Selecione um perfil.')).toBeTruthy();
+  expect(screen.getByText('Selecione um cargo.')).toBeTruthy();
   fillForm();
   fireEvent.changeText(screen.getByLabelText('Confirmar senha'), 'different-password');
   fireEvent.press(screen.getByRole('button', { name: 'Criar usuário' }));
@@ -71,7 +71,7 @@ it('displays a duplicate name error and clears passwords on cancel', async () =>
 
 it('blocks unauthorized direct access without any API calls', () => {
   const { loadRequest } = setup({ canManageUsers: false });
-  expect(screen.getByText('Acesso exclusivo do dono.')).toBeTruthy();
+  expect(screen.getByText('Sem permissão para gerenciar usuários.')).toBeTruthy();
   expect(loadRequest).not.toHaveBeenCalled();
   expect(screen.queryByRole('button', { name: 'Novo usuário' })).toBeNull();
 });

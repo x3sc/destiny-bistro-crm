@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import type { Comanda } from '../../services/comandas-api';
 import type {
@@ -24,14 +24,19 @@ jest.mock('expo-router', () => {
 });
 
 function selectMethod(paymentNumber: number, method: string) {
-  fireEvent.press(
-    screen.getByRole('button', { name: `Forma de pagamento ${paymentNumber}` }),
-  );
+  const selector = screen.queryByRole('button', { name: `Forma de pagamento ${paymentNumber}` });
+  if (selector) fireEvent.press(selector);
   fireEvent.press(
     screen.getByRole('button', {
       name: `Selecionar ${method} no pagamento ${paymentNumber}`,
     }),
   );
+}
+
+function quoteRequest(request: () => Promise<Comanda>) {
+  return async () => { const value = await request(); return { comanda: value, eligible: false, canClose: value.status === 'OPEN',
+    subtotalCents: value.totalCents, serviceFee: { percent: 0, amountCents: 0 },
+    totalWithoutServiceFeeCents: value.totalCents, totalWithServiceFeeCents: value.totalCents, expectedSnapshot: 'a'.repeat(64) }; };
 }
 
 const comanda: Comanda = {
@@ -77,8 +82,61 @@ it('uses the Stitch spacing and radius tokens on checkout surfaces', () => {
     expect.objectContaining({ paddingHorizontal: themeSpacing.mobileMargin }),
   );
   expect(creditStyles.button).toEqual(
-    expect.objectContaining({ borderRadius: themeRadii.standard }),
+    expect.objectContaining({ borderRadius: themeRadii.operationalControl }),
   );
+});
+
+it('shows real checkout items and draft financial summary with a non-submitting balance shortcut', async () => {
+  const closeRequest = jest.fn();
+  render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
+    closeRequest={closeRequest} loadSummaryRequest={quoteRequest(() => Promise.resolve({ ...comanda, items: [{
+      id: 'water', productId: 'water-product', productName: 'Água mineral',
+      quantity: 2, confirmedQuantity: 2, unitPriceCents: 2500, subtotalCents: 5000,
+      createdAt: comanda.openedAt,
+    }] }))} onBack={jest.fn()} onFinished={jest.fn()} />);
+  expect(await screen.findByText('2 itens confirmados')).toBeTruthy();
+  expect(screen.getByText('Resumo do pagamento')).toBeTruthy();
+  expect(screen.getByText('Água mineral')).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Selecionar Pix no pagamento 1' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Pagamento total no pagamento 1' }));
+  expect(screen.getByText('Valores prontos para confirmar')).toBeTruthy();
+  expect(closeRequest).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: /Itens da comanda/ }));
+  expect(screen.queryByText('Água mineral')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Limpar valor do pagamento 1' }));
+  expect(screen.queryByText('Valores prontos para confirmar')).toBeNull();
+});
+
+it('offers retry when checkout cannot load', async () => {
+  const load = jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(comanda);
+  render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
+    loadSummaryRequest={quoteRequest(load)} onBack={jest.fn()} onFinished={jest.fn()} />);
+  fireEvent.press(await screen.findByRole('button', { name: 'Tentar novamente' }));
+  expect(await screen.findByText('Total da comanda')).toBeTruthy();
+  expect(load).toHaveBeenCalledTimes(2);
+});
+
+it('sends only one close request even for rapid repeated confirmation', async () => {
+  const closeRequest = jest.fn(() => new Promise<Comanda>(() => undefined));
+  render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
+    closeRequest={closeRequest} loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))}
+    onBack={jest.fn()} onFinished={jest.fn()} />);
+  fireEvent.press(await screen.findByRole('button', { name: 'Selecionar Pix no pagamento 1' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Pagamento total no pagamento 1' }));
+  const confirm = screen.getByRole('button', { name: 'Confirmar e fechar mesa' });
+  act(() => { fireEvent.press(confirm); fireEvent.press(confirm); });
+  expect(closeRequest).toHaveBeenCalledTimes(1);
+});
+
+it('keeps an already closed comanda read-only', async () => {
+  const closeRequest = jest.fn();
+  render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
+    closeRequest={closeRequest} loadSummaryRequest={quoteRequest(() => Promise.resolve({ ...comanda, status: 'CLOSED' }))}
+    onBack={jest.fn()} onFinished={jest.fn()} />);
+  expect(await screen.findByText('Esta comanda já foi encerrada. Volte para consultar os detalhes.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Confirmar e fechar mesa' })).toBeDisabled();
+  expect(screen.getByLabelText('Valor do pagamento 1').props.editable).toBe(false);
+  expect(closeRequest).not.toHaveBeenCalled();
 });
 
 it('closes a table with mixed partial payment and a selected customer', async () => {
@@ -106,7 +164,7 @@ it('closes a table with mixed partial payment and a selected customer', async ()
       apiBaseUrl="http://localhost:3333"
       closeRequest={closeRequest}
       comandaId="comanda-id"
-      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))}
       loadCustomersRequest={() =>
         Promise.resolve([
           {
@@ -129,7 +187,9 @@ it('closes a table with mixed partial payment and a selected customer', async ()
   fireEvent.changeText(screen.getByLabelText('Valor do pagamento 2'), '1500');
   selectMethod(2, 'Pix');
   expect(screen.getByText('Total da comanda')).toBeTruthy();
+  expect(screen.getByTestId('branded-screen-header')).toBeTruthy();
   expect(screen.getByTestId('checkout-footer')).toBeTruthy();
+  expect(screen.queryByText(/taxa de serviço/i)).toBeNull();
   expect(screen.getByText(`Restante: ${formatCentsAsBrl(1500)}`)).toBeTruthy();
   expect(
     screen.getByText(
@@ -140,7 +200,7 @@ it('closes a table with mixed partial payment and a selected customer', async ()
     screen.getByRole('button', { name: 'Confirmar e deixar saldo em fiado' }),
   );
   expect(screen.getByText('Selecionar fiado')).toBeTruthy();
-  expect(screen.getByText('Fechar mesa')).toBeTruthy();
+  expect(screen.getByText('Fechar comanda')).toBeTruthy();
   expect(screen.queryByText('Maria')).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: 'Buscar cadastrados' }));
   fireEvent.changeText(screen.getByLabelText('Buscar pessoa cadastrada'), 'mari');
@@ -162,6 +222,7 @@ it('closes a table with mixed partial payment and a selected customer', async ()
         { amountCents: 1500, method: 'PIX' },
       ],
       'customer-id',
+      expect.objectContaining({ includeServiceFee: false, expectedSnapshot: 'a'.repeat(64) }),
     );
     expect(onFinished).toHaveBeenCalledWith('customer-id');
   });
@@ -200,7 +261,7 @@ it('creates and selects a new credit without leaving checkout', async () => {
       closeRequest={closeRequest}
       comandaId="comanda-id"
       createCustomerRequest={createCustomerRequest}
-      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))}
       loadCustomersRequest={() => Promise.resolve([])}
       onBack={jest.fn()}
       onFinished={jest.fn()}
@@ -233,6 +294,7 @@ it('creates and selects a new credit without leaving checkout', async () => {
       'comanda-id',
       [],
       'new-customer-id',
+      expect.objectContaining({ includeServiceFee: false, expectedSnapshot: 'a'.repeat(64) }),
     );
   });
 });
@@ -243,7 +305,7 @@ it('searches only customers who already have an open credit', async () => {
       canCreateCredit
       apiBaseUrl="http://localhost:3333"
       comandaId="comanda-id"
-      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))}
       loadCustomersRequest={() =>
         Promise.resolve([
           {
@@ -300,7 +362,7 @@ it('allows a full table payment when credit customers are unavailable', async ()
       apiBaseUrl="http://localhost:3333"
       closeRequest={closeRequest}
       comandaId="comanda-id"
-      loadComandaRequest={() => Promise.resolve(comanda)}
+      loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))}
       loadCustomersRequest={() => Promise.reject(new Error('forbidden'))}
       onBack={jest.fn()}
       onFinished={jest.fn()}
@@ -319,6 +381,7 @@ it('allows a full table payment when credit customers are unavailable', async ()
       'comanda-id',
       [{ amountCents: 5000, method: 'PIX' }],
       undefined,
+      expect.objectContaining({ includeServiceFee: false, expectedSnapshot: 'a'.repeat(64) }),
     );
   });
 });
@@ -347,6 +410,9 @@ it('registers a mixed installment only on the selected credit order', async () =
     />,
   );
 
+  expect(await screen.findByTestId('branded-screen-header')).toBeTruthy();
+  expect(screen.getByText('Saldo a receber')).toBeTruthy();
+  expect(screen.getByText(formatCentsAsBrl(1500))).toBeTruthy();
   fireEvent.changeText(await screen.findByLabelText('Valor do pagamento 1'), '1000');
   selectMethod(1, 'Pix');
   fireEvent.press(screen.getByRole('button', { name: /Adicionar outra forma/ }));
@@ -372,7 +438,7 @@ it('requires full payment and never loads credit customers for a waiter', async 
   const closeRequest = jest.fn(() => Promise.resolve({ ...comanda, status: 'CLOSED' as const }));
   render(<ComandaCheckoutScreen apiBaseUrl="http://localhost:3333" comandaId="comanda-id"
     canCreateCredit={false} loadCustomersRequest={loadCustomers}
-    loadComandaRequest={() => Promise.resolve(comanda)} closeRequest={closeRequest}
+    loadSummaryRequest={quoteRequest(() => Promise.resolve(comanda))} closeRequest={closeRequest}
     onBack={jest.fn()} onFinished={jest.fn()} />);
   const amount = await screen.findByLabelText('Valor do pagamento 1');
   fireEvent.changeText(amount, '2000');
@@ -383,5 +449,5 @@ it('requires full payment and never loads credit customers for a waiter', async 
   expect(closeRequest).not.toHaveBeenCalled();
   fireEvent.changeText(amount, '5000');
   fireEvent.press(screen.getByRole('button', { name: 'Confirmar e fechar mesa' }));
-  await waitFor(() => expect(closeRequest).toHaveBeenCalledWith('http://localhost:3333', 'comanda-id', [{ amountCents: 5000, method: 'PIX' }], undefined));
+  await waitFor(() => expect(closeRequest).toHaveBeenCalledWith('http://localhost:3333', 'comanda-id', [{ amountCents: 5000, method: 'PIX' }], undefined, expect.objectContaining({ includeServiceFee: false })));
 });

@@ -49,6 +49,15 @@ const comanda: Comanda = {
   totalCents: 0,
 };
 
+it('never exposes confirmed cancellation on an already closed comanda', async () => {
+  render(<ComandaDetailsScreen apiBaseUrl="http://localhost:3333" comandaId={comanda.id} canCancelConfirmed
+    loadRequest={async () => ({ ...comanda, status: 'CLOSED', items: [{ ...comanda.items[0], quantity: 1, confirmedQuantity: 1,
+      configurations: [{ id: 'closed-config', configurationKey: 'BASE', quantity: 1, confirmedQuantity: 1, subtotalCents: 500, additionals: [] }],
+    }] })} onBack={jest.fn()} onCancelled={jest.fn()} onAddProducts={jest.fn()} />);
+  await screen.findByText('Itens confirmados');
+  expect(screen.queryByRole('button', { name: 'Cancelar unidades confirmadas' })).toBeNull();
+});
+
 const comandaWithItem: Comanda = {
   ...comanda,
   items: [
@@ -416,6 +425,9 @@ it('cancels a pending-only comanda with a reason and without an inventory dispos
   });
 
   expect(screen.getByLabelText('Motivo do cancelamento total')).toBeTruthy();
+  expect(screen.getByTestId('total-cancellation-screen')).toBeTruthy();
+  expect(screen.queryByTestId('comanda-footer')).toBeNull();
+  expect(screen.queryByText('Itens em aberto')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Devolver ao estoque' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Registrar perda' })).toBeNull();
 
@@ -499,6 +511,40 @@ it('shows items, total and blocks cancellation when the comanda has consumption'
   expect(screen.getByText('Confirme todos os itens antes de fechar')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: 'Fechar mesa' }));
   expect(onCheckout).not.toHaveBeenCalled();
+});
+
+it('allows entering an integer pending quantity directly', async () => {
+  const setItemPendingQuantityRequest = jest.fn(() =>
+    Promise.resolve({
+      ...comandaWithItem,
+      items: [{ ...comandaWithItem.items[0], quantity: 7 }],
+    }),
+  );
+
+  render(
+    <ComandaDetailsScreen
+      apiBaseUrl="http://192.168.0.10:3333"
+      comandaId="comanda-id"
+      loadRequest={() => Promise.resolve(comandaWithItem)}
+      onAddProducts={jest.fn()}
+      onBack={jest.fn()}
+      onCancelled={jest.fn()}
+      setItemPendingQuantityRequest={setItemPendingQuantityRequest}
+    />,
+  );
+
+  const input = await screen.findByLabelText('Quantidade nova de Cafe');
+  fireEvent.changeText(input, '7');
+  fireEvent(input, 'submitEditing');
+
+  await waitFor(() => {
+    expect(setItemPendingQuantityRequest).toHaveBeenCalledWith(
+      'http://192.168.0.10:3333',
+      'comanda-id',
+      'item-id',
+      7,
+    );
+  });
 });
 
 it('keeps cancellation inside the scroll content and outside the fixed footer', async () => {
@@ -1009,6 +1055,9 @@ it('does not expose a separate close-as-credit action', async () => {
   );
 
   expect(await screen.findByRole('button', { name: 'Fechar mesa' })).toBeTruthy();
+  expect(screen.getByTestId('comanda-details-header')).toHaveStyle({
+    backgroundColor: themeColors.primary,
+  });
   expect(screen.queryByRole('button', { name: 'Fechar como fiado' })).toBeNull();
 });
 
@@ -1025,4 +1074,26 @@ it('shows an error when loading fails', async () => {
   );
 
   expect(await screen.findByText(/foi poss/)).toBeTruthy();
+});
+
+
+it('places the two pending print actions with pending items and the final actions with delivered items', async () => {
+  const originalPlatform = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  try {
+    const sale = { ...comandaWithConfirmedAndNewItem, name: 'João', number: 42, table: null, tableName: 'Balcão' };
+    render(<ComandaDetailsScreen apiBaseUrl="http://localhost:3333" comandaId={sale.id} canPrint
+      loadRequest={async () => sale} onBack={jest.fn()} onCancelled={jest.fn()} onAddProducts={jest.fn()} />);
+    await screen.findByText('Itens em aberto');
+    const pending = within(screen.getByTestId('comanda-pending-items'));
+    const delivered = within(screen.getByTestId('comanda-confirmed-items'));
+    expect(pending.getByRole('button', { name: 'Imprimir pendentes para o cliente' })).toBeTruthy();
+    expect(pending.getByRole('button', { name: 'Imprimir pendentes para o balcão' })).toBeTruthy();
+    expect(pending.queryByText('Imprimir conferência final para o cliente')).toBeNull();
+    expect(delivered.getByRole('button', { name: 'Imprimir conferência final para o cliente' })).toBeDisabled();
+    expect(delivered.getByRole('button', { name: 'Imprimir conferência final para o balcão' })).toBeDisabled();
+    expect(delivered.queryByText('Imprimir pendentes para o cliente')).toBeNull();
+    expect(screen.getAllByText('Balcão · Comanda #42 · João')).toHaveLength(4);
+    expect(screen.queryByText(/2 vias/)).toBeNull();
+  } finally { Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform }); }
 });

@@ -18,19 +18,27 @@ it('exposes the mobile layout tokens defined by the Stitch design system', () =>
       xxl: 32,
     }),
   );
-  expect(themeRadii).toEqual({ compact: 16, pill: 999, standard: 22 });
+  expect(themeRadii).toEqual({
+    compact: 16,
+    operationalCard: 16,
+    operationalControl: 12,
+    pill: 999,
+    standard: 22,
+  });
   expect(themeTypography.body).toEqual(
-    expect.objectContaining({ fontFamily: 'Roboto', fontSize: 16 }),
+    expect.objectContaining({ fontFamily: 'WorkSans', fontSize: 16 }),
   );
+  expect(themeTypography.screenTitle.fontFamily).toBe('Manrope');
 });
 
-it('uses a sans-serif fallback on web when Roboto is not installed', () => {
+it('uses sans-serif fallbacks for the operational families on web', () => {
   try {
     jest.isolateModules(() => {
       jest.doMock('react-native', () => ({ Platform: { OS: 'web' } }));
       const { themeTypography: webTypography } = jest.requireActual<typeof import('../tokens')>('../tokens');
       expect(webTypography.body.fontFamily).toContain('sans-serif');
-      expect(webTypography.body.fontFamily).toContain('Roboto');
+      expect(webTypography.body.fontFamily).toContain('Work Sans');
+      expect(webTypography.screenTitle.fontFamily).toContain('Manrope');
     });
   } finally {
     jest.dontMock('react-native');

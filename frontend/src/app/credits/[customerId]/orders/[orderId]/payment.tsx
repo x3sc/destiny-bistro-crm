@@ -1,9 +1,12 @@
-import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
+import { useLocalSearchParams } from 'expo-router';
 
 import { CreditPaymentScreen } from '@/components/credit-payment-screen';
+import { useCompletedFlowNavigation } from '@/navigation/use-completed-flow-navigation';
 
 export default function CreditPaymentRoute() {
-  const router = useRouter();
+  const safeBack = useRouteSafeBack();
+  const finishFlow = useCompletedFlowNavigation();
   const { customerId = '', orderId = '' } = useLocalSearchParams<{
     customerId?: string;
     orderId?: string;
@@ -11,8 +14,8 @@ export default function CreditPaymentRoute() {
   return (
     <CreditPaymentScreen
       customerId={customerId}
-      onBack={() => router.back()}
-      onFinished={() => router.replace(`/credits/${encodeURIComponent(customerId)}` as Href)}
+      onBack={safeBack}
+      onFinished={() => finishFlow({ kind: 'credit', customerId })}
       orderId={orderId}
     />
   );

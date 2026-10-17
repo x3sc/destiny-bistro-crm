@@ -1,3 +1,4 @@
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { CreditCustomerDetailsScreen } from '@/components/credit-customer-details-screen';
@@ -5,6 +6,7 @@ import { createCreditOrder } from '@/services/credits-api';
 
 export default function CreditDetailsRoute() {
   const router = useRouter();
+  const safeBack = useRouteSafeBack();
   const { customerId = '' } = useLocalSearchParams<{
     customerId?: string;
   }>();
@@ -12,9 +14,7 @@ export default function CreditDetailsRoute() {
   return (
     <CreditCustomerDetailsScreen
       customerId={customerId}
-      onBack={() => {
-        router.replace('/credits' as Href);
-      }}
+      onBack={safeBack}
       onNewCredit={(id) => {
         void createCreditOrder(process.env.EXPO_PUBLIC_API_URL ?? '', id).then(
           (order) => {

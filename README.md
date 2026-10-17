@@ -77,25 +77,36 @@ npm.cmd run user:provision
 Remove-Item Env:\USER_PROVISION_PASSWORD
 ```
 
-O comando solicita o estabelecimento, o nome e os cargos e grava diretamente no
-MySQL. No aplicativo, o dono pode usar **Administrativo → Usuários → Novo usuário**
-para listar a equipe e criar acessos com nome, senha e um perfil: Dono, Gerente,
-Garçom ou Cozinha. Esse fluxo é exclusivo de OWNER, mesmo que o Gerente tenha
-`users.manage`. A senha deve ter de 8 a 128 caracteres; o nome de acesso deve
+O comando solicita o estabelecimento, o nome e um único cargo e grava diretamente no
+MySQL. No aplicativo, **Administrativo → Usuários → Novo usuário** permite criar
+acessos com nome, senha e um cargo local, inclusive personalizado. Exige
+`users.manage`, respeitando o alcance do operador. A senha deve ter de 8 a 128 caracteres; o nome de acesso deve
 ter de 2 a 80 e ser único no sistema. O novo acesso funciona no login atual.
-Criação e atribuição do perfil são auditadas na mesma transação. Consulte os
+Criação e troca do cargo pela API são auditadas na mesma transação. Consulte os
 [contratos e limites](docs/specs/user-administration.md).
 
 Um estabelecimento
 pode ter vários owners, e todo usuário pertence obrigatoriamente a um
 estabelecimento. Os cargos iniciais são `OWNER`,
-`MANAGER`, `WAITER` e `KITCHEN`; cargos e permissões são tabelas relacionais, de
-modo que outros poderão ser adicionados posteriormente. O módulo de delivery é
-liberado para `OWNER`, `MANAGER` e `WAITER` pelas permissões `deliveries.read` e
-`deliveries.write`.
+`MANAGER`, `WAITER` e `KITCHEN`, locais por estabelecimento. Em **Administrativo →
+Cargos**, quem tem `roles.manage` cria e ajusta grupos operacionais dentro do seu
+próprio alcance. Somente o Dono delega gestão de cargos/usuários; o cargo Dono é
+protegido. Cargos vinculados a usuários, inclusive inativos, não podem ser excluídos.
+Venda Rápida e Balcão exigem `quick-sales.read/write` e `counter-sales.read/write`,
+independentemente de Mesas; Fiados utiliza `credits.read/write`, sem exigir o nome
+Gerente. Sessões refletem alterações na próxima requisição; a interface atualiza
+acessos ao voltar ao aplicativo, navegar e receber `403`.
 A impressão térmica exige `printing.write`, concedida inicialmente a `OWNER`,
 `MANAGER`, `WAITER` e `KITCHEN`. Cargos personalizados não recebem a permissão
 automaticamente.
+
+A migração `20261016120000_tenant_roles` adiciona a estrutura local, converte os
+acessos efetivos legados (sem promover Gerentes a administradores), preserva a
+união de múltiplos cargos e torna o vínculo local obrigatório. Execute somente
+com API/CLI antigos parados, backup verificado e a versão nova pronta para subir.
+Não reverta apenas o código para a autorização global antiga, pois ela pode ampliar
+acessos revogados. Os seeds não sobrescrevem cargos locais personalizados.
+Detalhes de implantação e recuperação: [Cargos e permissões](docs/specs/tenant-roles.md).
 
 A API fica disponivel em `http://localhost:3333`:
 
@@ -268,6 +279,14 @@ inteiros e formatados em reais somente na interface. Em Fiados, o
 aplicativo permite cadastrar ou selecionar uma pessoa, retomar rascunhos e pagar
 cada fiado individualmente. A tela unica de fechamento aceita pagamento integral,
 misto, parcial ou tudo em fiado; a pessoa e exigida somente quando restar saldo.
+O fechamento usa o layout Stitch com formas de pagamento em grade, atalho para
+preencher o saldo sem enviar, limpeza do valor, resumo dos valores informados e
+itens recolhiveis. Os pagamentos so sao registrados ao confirmar; o rodape separa
+pagamento integral e saldo em fiado conforme permissao. Nao ha calculo de troco,
+taxa de servico ou integracao fiscal nesta entrega visual.
+Ao concluir pagamento, conversao em fiado ou cancelamento, o aplicativo limpa
+as telas operacionais concluidas da pilha de navegacao. O voltar nativo retorna
+pelas listas da origem e pelo Inicio, sem reabrir o checkout ou a comanda anterior.
 Fiados em aberto continuam editaveis, inclusive depois de pagamentos parciais. A
 comanda exibe o historico de recebimentos e a data e hora em que cada produto foi
 adicionado. O detalhe da pessoa mostra total, pago e restante, permite filtrar
@@ -432,3 +451,104 @@ No menu principal, **Venda rápida** abre uma comanda pelo nome do cliente (obri
 A comanda persiste `name` com o cliente, `tableId = NULL` e `tableName = "Venda rápida"`. Não existe mesa fictícia. A origem financeira é `QUICK_SALE` / `QUICK_SALE_CHECKOUT`, identificada no extrato e nos recibos. Vendas convertidas em fiado passam a ser acompanhadas em **Fiados**. As mesas existentes continuam funcionando como antes.
 
 A API adiciona `GET /quick-sales` (comandas abertas do estabelecimento, permissão `comandas.read`) e `POST /quick-sales` (`{ "name": "Maria" }`, permissão `comandas.write`). A resposta de abertura contém `{ comanda }`, com `table: null` e `tableName: "Venda rápida"`; a listagem contém `{ comandas }`. Aplique a migração `20260916120000_quick_sales` com `npm run prisma:migrate:deploy` dentro de `backend` antes de iniciar a API atualizada. A migração adiciona um campo opcional e amplia as origens financeiras, preservando os registros existentes.
+
+### Taxa opcional e impressão da conta
+
+No fechamento de **Mesas e Venda rápida**, a opção **Incluir taxa de serviço de
+10%** vem marcada. O servidor calcula consumo, taxa e total em centavos; alternar
+a seleção não envia requisições e preserva os pagamentos digitados. Se os valores
+ultrapassarem o novo total, ajuste-os antes de confirmar. Balcão, Delivery e Fiados
+criados diretamente não recebem essa taxa; registros antigos não são recalculados.
+
+Com `printing.write`, **Imprimir conta** prepara uma conferência com pagamento
+pendente, sem fechar a comanda nem registrar recebimento. A impressão física usa
+o build nativo e a impressora térmica existentes; não funciona no Expo Go ou Web.
+Se a opção mudar após imprimir, imprima novamente. O comprovante de uma comanda
+encerrada usa exclusivamente os valores persistidos.
+
+O saldo convertido em Fiado inclui a taxa escolhida uma única vez. Consumo
+confirmado posterior mantém o percentual escolhido, com ajustes datados no
+extrato. Parcelas apenas liquidam a dívida. Não é permitido reduzir o total abaixo
+do que já foi recebido.
+
+Esta entrega exige as migrações aditivas `20261017090000_optional_service_fee`,
+`20261017091000_service_fee_consumption_ledger` e
+`20261017092000_service_fee_item_ledger`. **Não executar no banco operacional sem
+backup verificado e janela de implantação autorizada.** Contratos, compatibilidade
+e recuperação: [Taxa de serviço](docs/specs/optional-service-fee.md).
+
+### Balcão — pagamento no sistema externo
+
+O Menu oferece **Balcão** separadamente de Venda rápida. Uma nova comanda recebe
+número automático e abre o catálogo sem exigir nome; a identificação pode ser
+informada nos detalhes. Quantidades temporárias são locais, inteiras de 1 a 99;
+**Adicionar N itens** salva os lançamentos e **Cancelar** descarta os temporários.
+Confirme a entrega dos itens antes de concluir a venda.
+
+A impressão do Balcão é manual e separada por destinatário. No topo dos itens
+em aberto, **Imprimir pendentes para o cliente** e **Imprimir pendentes para o
+balcão** imprimem uma via cada, com todos os pendentes e seus valores. Essas
+ações desaparecem quando não há pendências. Junto aos itens confirmados,
+**Imprimir conferência final para o cliente** e **Imprimir conferência final
+para o balcão** imprimem uma via cada e só são liberadas sem pendências e com
+itens entregues. Os quatro botões identificam Balcão, cliente e número da
+comanda; o comprovante identifica também seu destinatário. Sem nome informado,
+a identificação mostra cliente não identificado.
+
+A via final do cliente é para apresentar ao caixa; a do balcão fica para
+controle. Imprimir mantém a comanda aberta e não comprova pagamento. Novos
+pedidos bloqueiam a final até tratar as novas pendências; a próxima conferência
+substitui a anterior. Repetir o envio pode duplicar a via selecionada. Requer
+build nativo com ThermalPrinter e `printing.write`.
+
+**Concluir venda** exige confirmação do operador: o app registra a comanda como
+fechada e paga integralmente por **Balcão (caixa externo)**. O backend calcula o
+valor e não recebe preço, método ou estabelecimento do cliente. Não há integração
+ou confirmação automática pelo caixa externo, taxa de serviço, pagamento misto
+ou conversão em Fiado neste fluxo. Comandas vazias, com total não positivo ou
+itens pendentes não podem ser concluídas. Concluídas ficam somente para consulta.
+
+Contratos autenticados e tenant-scoped:
+
+- `POST /counter-sales`: `{ requestId }`, abre a comanda.
+- `GET /counter-sales?status=OPEN`: lista todas as abertas; `status=CLOSED&date=AAAA-MM-DD`
+  lista as concluídas no dia de São Paulo, inicialmente hoje.
+- `PUT /counter-sales/:id/name`: `{ name }`, identificação opcional de até 80 caracteres.
+- `POST /counter-sales/:id/complete`: `{ requestId, expectedSnapshot }`, conclui
+  integralmente. Use o `counterSnapshot` retornado pela comanda; ele identifica
+  os itens conferidos e não permite alterar o valor calculado pelo servidor.
+
+Abertura e conclusão persistem `requestId` por estabelecimento. Repetições da
+mesma operação não duplicam comanda, pagamento ou auditoria; reutilização com
+outro operador, ação, recurso ou revisão retorna `409`. Se os itens mudarem,
+recarregue a comanda e confira novamente antes de confirmar. Não há fila offline.
+São usadas `comandas.read` e `comandas.write`; as exigências existentes para
+cancelamento de confirmados, estoque, cozinha e impressão são preservadas.
+
+A origem financeira é `COUNTER` / `COUNTER_CHECKOUT`, e o meio é `COUNTER`,
+exibido como Balcão no extrato, PDF e comprovante existente. Os valores entram
+uma vez nas vendas e recebimentos registrados, separados de Dinheiro/Pix/Cartão.
+Ao concluir ou cancelar, a navegação remove as telas operacionais da pilha.
+
+Antes de iniciar a API atualizada, aplique `npm.cmd run prisma:migrate:deploy`
+dentro de `backend`. A migração `20261016090000_add_counter_sales` amplia os enums
+e adiciona o registro de idempotência, sem reclassificar vendas históricas.
+Atualize API e app em conjunto. Um rollback deve preservar a leitura dos novos
+enums e os registros financeiros; não remova esses dados para reverter a interface.
+
+### Retorno seguro no aplicativo
+
+Os botões Voltar e o retorno nativo do Android usam a mesma política: histórico
+seguro primeiro, pai lógico do fluxo quando não houver histórico válido e Início
+como último destino. No Início, o Android pede confirmação antes de sair.
+Pagamentos e cancelamentos concluídos continuam removendo as etapas operacionais
+da pilha; consultar uma venda fechada não permite reabrir sua operação.
+
+Ao sair do catálogo com um rascunho local, escolha continuar editando ou descartar
+e voltar. Esse descarte não grava requisições nem remove itens já persistidos.
+O botão Cancelar do catálogo mantém sua operação própria de descarte dos itens
+temporários salvos. Gravações críticas bloqueiam a saída até sucesso ou falha.
+
+A política considera permissões e dados carregados da operação, sem usar a origem
+informada na URL como autorização. No Expo Web há proteção da navegação interna
+e aviso de saída com alterações locais; o navegador controla fechar a aba.

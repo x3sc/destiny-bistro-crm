@@ -1,3 +1,4 @@
+import { useRouteSafeBack } from '@/navigation/safe-navigation';
 import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { hasPermission, useAuth } from '@/auth/auth-context';
@@ -5,6 +6,7 @@ import { DeliveryOrderDetailsScreen } from '@/components/delivery-order-details-
 
 export default function DeliveryOrderRoute() {
   const router = useRouter();
+  const safeBack = useRouteSafeBack();
   const { user } = useAuth();
   const { orderId = '' } = useLocalSearchParams<{ orderId?: string }>();
 
@@ -15,7 +17,7 @@ export default function DeliveryOrderRoute() {
           `/deliveries/orders/${encodeURIComponent(orderId)}/products` as Href,
         );
       }}
-      onBack={() => router.replace('/deliveries' as Href)}
+      onBack={safeBack}
       onCheckout={() => {
         router.push(
           `/deliveries/orders/${encodeURIComponent(orderId)}/checkout` as Href,
@@ -23,8 +25,7 @@ export default function DeliveryOrderRoute() {
       }}
       orderId={orderId}
       readOnly={
-        !hasPermission(user, 'deliveries.write') ||
-        !hasPermission(user, 'comandas.write')
+        !hasPermission(user, 'deliveries.write')
       }
     />
   );

@@ -1,7 +1,11 @@
-import { Alert, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { useRef, useState } from 'react';
+import { ServiceFeeBreakdown } from './service-fee-breakdown';
+import { Alert, Platform, Pressable, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { type Comanda, type ComandaItem, type ComandaItemConfiguration } from '../services/comandas-api';
 import { formatCentsAsBrl } from '../services/money';
+import { OperationalText as Text } from '../theme/operational-typography';
 import { styles } from './comanda-details-screen.styles';
 
 export const statusLabels: Record<Comanda['status'], string> = {
@@ -11,6 +15,7 @@ export const statusLabels: Record<Comanda['status'], string> = {
 };
 
 const paymentMethodLabels = {
+  COUNTER: 'Balcão (caixa externo)',
   CASH: 'Dinheiro',
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
@@ -30,19 +35,25 @@ export function Message({
 export function ComandaItems({
   comanda,
   disabled,
+  pendingActions,
+  confirmedActions,
   onChangeQuantity,
   onConfirmItem,
   onConfigureAdditionals,
   onCancelConfiguration,
   onRemoveItem,
+  onSetPendingQuantity,
 }: {
   comanda: Comanda;
   disabled: boolean;
+  pendingActions?: ReactNode;
+  confirmedActions?: ReactNode;
   onChangeQuantity: (item: ComandaItem, delta: 1 | -1) => void;
   onConfirmItem: (item: ComandaItem) => void;
   onConfigureAdditionals: (item: ComandaItem) => void;
   onCancelConfiguration?: (item: ComandaItem, configuration: ComandaItemConfiguration) => void;
   onRemoveItem: (item: ComandaItem) => void;
+  onSetPendingQuantity: (item: ComandaItem, pendingQuantity: number) => void;
 }) {
   const newItems = comanda.items.filter(
     (item) => item.quantity > item.confirmedQuantity,
@@ -68,7 +79,7 @@ export function ComandaItems({
     <View style={styles.itemsContainer}>
       {comanda.items.length === 0 && (
         <View style={[styles.card, styles.emptyState]}>
-          <Text style={styles.emptyStateTitle}>Nenhum item lançado ainda</Text>
+          <Text fontRole="heading" style={styles.emptyStateTitle}>Nenhum item lançado ainda</Text>
           <Text style={styles.description}>
             Use a ação abaixo para adicionar o primeiro produto.
           </Text>
@@ -77,13 +88,14 @@ export function ComandaItems({
 
       {comanda.items.length > 0 && (
         <>
-          <View style={styles.openItemsSection}>
+          <View style={styles.openItemsSection} testID="comanda-pending-items">
             <View style={styles.sectionHeading}>
-              <Text style={styles.sectionTitle}>Itens em aberto</Text>
+              <Text fontRole="heading" style={styles.sectionTitle}>Itens em aberto</Text>
               <Text style={styles.sectionDescription}>
                 Editáveis até a confirmação da entrega.
               </Text>
             </View>
+            {pendingActions}
             {newItems.length === 0 && (
               <Text style={styles.emptySectionText}>Nenhum item em aberto.</Text>
             )}
@@ -93,7 +105,7 @@ export function ComandaItems({
               return (
                 <View key={`${item.id}-new`} style={styles.itemRow}>
                   <View style={styles.itemHeader}>
-                    <Text style={styles.itemName}>{item.productName}</Text>
+                    <Text fontRole="heading" style={styles.itemName}>{item.productName}</Text>
                   </View>
                   <Text style={styles.itemUnitPrice}>
                     {formatCentsAsBrl(item.unitPriceCents)} por unidade
@@ -109,10 +121,12 @@ export function ComandaItems({
                   <QuantityControls
                     disabled={disabled}
                     item={item}
+                    key={`${item.id}-${newQuantity}`}
                     onChangeQuantity={onChangeQuantity}
                     onConfirmItem={onConfirmItem}
                     onConfigureAdditionals={onConfigureAdditionals}
                     onRemoveItem={onRemoveItem}
+                    onSetPendingQuantity={onSetPendingQuantity}
                   />
                 </View>
               );
@@ -125,20 +139,21 @@ export function ComandaItems({
             </View>
           </View>
 
-          <View style={styles.confirmedItemsSection}>
+          <View style={styles.confirmedItemsSection} testID="comanda-confirmed-items">
             <View style={styles.sectionHeading}>
-              <Text style={styles.sectionTitle}>Itens confirmados</Text>
+              <Text fontRole="heading" style={styles.sectionTitle}>Itens confirmados</Text>
               <Text style={styles.sectionDescription}>
                 Entregues ao cliente. Não podem mais ser alterados.
               </Text>
             </View>
+            {confirmedActions}
             {confirmedItems.length === 0 && (
               <Text style={styles.emptySectionText}>Nenhum item confirmado.</Text>
             )}
             {confirmedItems.map((item) => (
               <View key={`${item.id}-confirmed`} style={styles.itemRow}>
                 <View style={[styles.itemHeader, styles.confirmedItemHeader]}>
-                  <Text style={styles.itemName}>{item.productName}</Text>
+                  <Text fontRole="heading" style={styles.itemName}>{item.productName}</Text>
                   <Text style={styles.confirmedBadge}>Confirmado</Text>
                 </View>
                 <Text style={styles.itemUnitPrice}>
@@ -167,12 +182,14 @@ export function ComandaItems({
           </View>
         </>
       )}
+      {comanda.serviceFee && <ServiceFeeBreakdown fee={comanda.serviceFee} />}
       <View style={styles.totalCard}>
         <Text style={styles.totalLabel}>
           Total da comanda · {totalQuantity}{' '}
           {totalQuantity === 1 ? 'item' : 'itens'}
         </Text>
         <Text
+          fontRole="heading"
           accessibilityLabel={`Total ${formatCentsAsBrl(comanda.totalCents)}`}
           style={styles.totalText}
         >
@@ -182,7 +199,7 @@ export function ComandaItems({
       {(comanda.payments.length > 0 || comanda.credit || comanda.status === 'CLOSED') && (
         <View style={styles.confirmedItemsSection}>
           <View style={styles.sectionHeading}>
-            <Text style={styles.sectionTitle}>Pagamentos</Text>
+            <Text fontRole="heading" style={styles.sectionTitle}>Pagamentos</Text>
             {comanda.credit && (
               <Text style={styles.sectionDescription}>
                 Total {formatCentsAsBrl(comanda.credit.totalCents)} · Pago{' '}
@@ -300,6 +317,7 @@ function formatItemDateTime(value: string) {
 }
 
 export function ComandaActions({
+  closeLabel = 'Fechar mesa',
   canClose,
   canCreateCredit,
   credit,
@@ -312,6 +330,7 @@ export function ComandaActions({
   readOnly,
   status,
 }: {
+  closeLabel?: string;
   canClose: boolean;
   canCreateCredit: boolean;
   credit: Comanda['credit'];
@@ -428,7 +447,7 @@ export function ComandaActions({
         >
           <ActionButton
             disabled={disabled || !canClose}
-            label={isClosing ? 'Fechando...' : 'Fechar mesa'}
+            label={isClosing ? 'Fechando...' : closeLabel}
             onPress={onClose}
             tone="secondary"
           />
@@ -454,7 +473,7 @@ export function ComandaCancellationAction({
 }) {
   return (
     <View style={styles.cancellationSection} testID="comanda-cancellation-actions">
-      <Text style={styles.sectionTitle}>Ações da comanda</Text>
+      <Text fontRole="heading" style={styles.sectionTitle}>Ações da comanda</Text>
       <Text style={styles.cancellationDescription}>
         O cancelamento exige confirmação e registro do motivo.
       </Text>
@@ -489,6 +508,7 @@ function QuantityControls({
   onConfirmItem,
   onConfigureAdditionals,
   onRemoveItem,
+  onSetPendingQuantity,
 }: {
   disabled: boolean;
   item: ComandaItem;
@@ -496,9 +516,33 @@ function QuantityControls({
   onConfirmItem: (item: ComandaItem) => void;
   onConfigureAdditionals: (item: ComandaItem) => void;
   onRemoveItem: (item: ComandaItem) => void;
+  onSetPendingQuantity: (item: ComandaItem, pendingQuantity: number) => void;
 }) {
   const minimumQuantity = Math.max(1, item.confirmedQuantity);
   const newQuantity = item.quantity - item.confirmedQuantity;
+  const [quantityText, setQuantityText] = useState(String(newQuantity));
+  const lastSubmittedQuantity = useRef<number | undefined>(undefined);
+
+  const submitQuantity = () => {
+    const quantity = Number(quantityText);
+    const maximumPendingQuantity = 99 - item.confirmedQuantity;
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > maximumPendingQuantity
+    ) {
+      setQuantityText(String(newQuantity));
+      return;
+    }
+    if (
+      quantity === newQuantity ||
+      quantity === lastSubmittedQuantity.current
+    ) {
+      return;
+    }
+    lastSubmittedQuantity.current = quantity;
+    onSetPendingQuantity(item, quantity);
+  };
 
   return (
     <View style={styles.quantityActions}>
@@ -520,7 +564,21 @@ function QuantityControls({
             onChangeQuantity(item, -1);
           }}
         />
-        <Text style={styles.quantityText}>{newQuantity}</Text>
+        <TextInput
+          accessibilityLabel={`Quantidade nova de ${item.productName}`}
+          editable={!disabled}
+          keyboardType="number-pad"
+          maxLength={2}
+          onBlur={submitQuantity}
+          onChangeText={(value) => {
+            lastSubmittedQuantity.current = undefined;
+            setQuantityText(value.replace(/[^0-9]/g, ''));
+          }}
+          onSubmitEditing={submitQuantity}
+          selectTextOnFocus
+          style={styles.quantityInput}
+          value={quantityText}
+        />
         <SmallButton
           disabled={disabled}
           label="+"

@@ -3,13 +3,16 @@ import {
   cancelComanda,
   cancelComandaItemConfiguration,
   changeComandaItemQuantity,
+  discardPendingComandaItems,
   closeComanda,
   confirmComandaItem,
+  confirmComandaItemsBatch,
   loadComanda,
   openComanda,
   openQuickSale,
   loadQuickSales,
   removeComandaItem,
+  setComandaItemPendingQuantity,
 } from '../comandas-api';
 
 const mockFetch = jest.fn();
@@ -279,6 +282,82 @@ it('confirms a comanda item quantity', async () => {
       headers: {
         'Content-Type': 'application/json',
       },
+      method: 'POST',
+    },
+  );
+});
+
+it('sets the pending quantity of a comanda item', async () => {
+  mockFetch.mockResolvedValueOnce({
+    json: () => Promise.resolve({ comanda }),
+    ok: true,
+  });
+
+  await expect(
+    setComandaItemPendingQuantity(
+      'http://192.168.0.10:3333',
+      'comanda/id',
+      'item/id',
+      7,
+    ),
+  ).resolves.toEqual(comanda);
+  expect(mockFetch).toHaveBeenCalledWith(
+    'http://192.168.0.10:3333/comandas/comanda%2Fid/items/item%2Fid',
+    expect.objectContaining({
+      body: JSON.stringify({ pendingQuantity: 7 }),
+      method: 'PATCH',
+    }),
+  );
+});
+
+it('discards every pending comanda item quantity', async () => {
+  mockFetch.mockResolvedValueOnce({
+    json: () => Promise.resolve({ comanda }),
+    ok: true,
+  });
+
+  await expect(
+    discardPendingComandaItems('http://192.168.0.10:3333', 'comanda/id'),
+  ).resolves.toEqual(comanda);
+  expect(mockFetch).toHaveBeenCalledWith(
+    'http://192.168.0.10:3333/comandas/comanda%2Fid/items/pending',
+    expect.objectContaining({ method: 'DELETE' }),
+  );
+});
+
+it('confirms all pending items with an idempotent snapshot', async () => {
+  mockFetch.mockResolvedValueOnce({
+    json: () =>
+      Promise.resolve({
+        comanda,
+        inventoryWarnings: [],
+        replayed: false,
+      }),
+    ok: true,
+  });
+  const input = {
+    items: [
+      {
+        expectedConfirmedQuantity: 0,
+        expectedQuantity: 1,
+        itemId: 'item-id',
+      },
+    ],
+    requestId: 'batch-request-1',
+  };
+
+  await expect(
+    confirmComandaItemsBatch(
+      'http://192.168.0.10:3333',
+      'comanda/id',
+      input,
+    ),
+  ).resolves.toEqual({ comanda, inventoryWarnings: [], replayed: false });
+  expect(mockFetch).toHaveBeenCalledWith(
+    'http://192.168.0.10:3333/comandas/comanda%2Fid/items/confirm-batch',
+    {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     },
   );

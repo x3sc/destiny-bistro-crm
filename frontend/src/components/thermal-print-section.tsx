@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -13,6 +13,7 @@ import {
 
 import {
   loadComandaPrintDocument,
+  PrintAccountConflictError,
   type ComandaPrintDocument,
   type ComandaPrintKind,
 } from '../services/comanda-print-api';
@@ -27,11 +28,19 @@ import { sendToThermalPrinter } from '../services/thermal-printer';
 import {
   buildThermalReceiptBytes,
   thermalReceiptPreview,
+  type CounterReceiptRecipient,
 } from '../services/thermal-receipt';
 import { themeColors } from '../theme/tokens';
 import { AppIcon } from './app-icon';
+import { useNavigationGuard } from '../navigation/safe-navigation';
 
 interface ThermalPrintSectionProps {
+  counterStage?: 'pending' | 'final';
+  counterSale?: { name: string | null; number: number; status: 'OPEN' | 'CLOSED' | 'CANCELLED'; items: readonly { quantity: number; confirmedQuantity: number }[] };
+  checkoutPreview?: { includeServiceFee: boolean; expectedSnapshot: string };
+  disabled?: boolean;
+  onPrinted?: () => void;
+  onConflict?: () => void;
   apiBaseUrl: string;
   canPrint: boolean;
   comandaId: string;
@@ -43,6 +52,12 @@ interface ThermalPrintSectionProps {
 }
 
 export function ThermalPrintSection({
+  counterSale,
+  counterStage,
+  checkoutPreview,
+  disabled = false,
+  onPrinted,
+  onConflict,
   apiBaseUrl,
   canPrint,
   comandaId,
@@ -52,7 +67,10 @@ export function ThermalPrintSection({
   saveSettings = savePrinterSettings,
   sendPrint = sendToThermalPrinter,
 }: ThermalPrintSectionProps) {
-  const [document, setDocument] = useState<ComandaPrintDocument>();
+  const counterSnapshot = JSON.stringify(counterSale);
+  const [preview, setPreview] = useState<{ document: ComandaPrintDocument; snapshot: string | undefined; recipient?: CounterReceiptRecipient }>();
+  const document = preview?.snapshot === counterSnapshot ? preview?.document : undefined;
+  const setDocument = (value?: ComandaPrintDocument, recipient?: CounterReceiptRecipient) => setPreview(value ? { document: value, snapshot: counterSnapshot, recipient } : undefined);
   const [settings, setSettings] = useState<PrinterSettings>(defaultPrinterSettings);
   const [host, setHost] = useState(defaultPrinterSettings.host);
   const [port, setPort] = useState(String(defaultPrinterSettings.port));
@@ -60,6 +78,13 @@ export function ThermalPrintSection({
   const [sending, setSending] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [message, setMessage] = useState<string>();
+  const sendingLock = useRef(false);
+  const loadingLock = useRef(false);
+  const hasPending = Boolean(counterSale?.items.some((item) => item.quantity > item.confirmedQuantity));
+  const hasDelivered = Boolean(counterSale?.items.some((item) => item.confirmedQuantity > 0));
+  const counterOpen = counterSale?.status === 'OPEN';
+  useNavigationGuard({ busy: sending || loading,
+    closeModal: document ? () => setDocument(undefined) : showSettings ? () => setShowSettings(false) : undefined });
 
   useEffect(() => {
     void loadSettings().then((value) => {
@@ -69,16 +94,28 @@ export function ThermalPrintSection({
     });
   }, [loadSettings]);
 
-  if (!canPrint || platform === 'web') return null;
+  if (!canPrint || platform === 'web' || (counterSale && counterStage === 'pending' && (!counterOpen || !hasPending))) return null;
 
-  const openPreview = async (kind: ComandaPrintKind) => {
+  const openPreview = async (kind: ComandaPrintKind, recipient?: CounterReceiptRecipient) => {
+    if (disabled || loadingLock.current || sendingLock.current) return;
+    if (counterSale && (!counterOpen || (kind === 'COUNTER_PENDING' ? !hasPending : hasPending || !hasDelivered))) return;
+    loadingLock.current = true;
     setLoading(true);
     setMessage(undefined);
     try {
-      setDocument(await loadDocument(apiBaseUrl, comandaId, kind));
+      const [value, currentSettings] = await Promise.all([
+        loadDocument(apiBaseUrl, comandaId, kind, ...(checkoutPreview ? [checkoutPreview] : [])),
+        loadSettings(),
+      ]);
+      setSettings(currentSettings);
+      setHost(currentSettings.host);
+      setPort(String(currentSettings.port));
+      setDocument(value, recipient);
     } catch (error) {
+      if (error instanceof PrintAccountConflictError) onConflict?.();
       setMessage(error instanceof Error ? error.message : 'Não foi possível preparar a impressão.');
     } finally {
+      loadingLock.current = false;
       setLoading(false);
     }
   };
@@ -96,20 +133,26 @@ export function ThermalPrintSection({
   };
 
   const send = async (target: ComandaPrintDocument) => {
+    if (sendingLock.current || disabled) return;
+    sendingLock.current = true;
     setSending(true);
     setMessage(undefined);
     try {
-      await sendPrint(buildThermalReceiptBytes(target), settings);
+      await sendPrint(buildThermalReceiptBytes(target, preview?.recipient), settings);
+      if (target.kind === 'CHECKOUT_PREVIEW') onPrinted?.();
       setDocument(undefined);
       setMessage(`Enviado à impressora ${settings.host}:${settings.port}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível imprimir.');
     } finally {
+      sendingLock.current = false;
       setSending(false);
     }
   };
 
   const testPrinter = async () => {
+    if (sendingLock.current || loadingLock.current) return;
+    sendingLock.current = true;
     const now = new Date().toISOString();
     const testDocument: ComandaPrintDocument = {
       comandaId: 'test',
@@ -141,6 +184,7 @@ export function ThermalPrintSection({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível testar a impressora.');
     } finally {
+      sendingLock.current = false;
       setSending(false);
     }
   };
@@ -149,11 +193,12 @@ export function ThermalPrintSection({
     <View style={printStyles.section} testID="thermal-print-section">
       <View style={printStyles.headingRow}>
         <View style={printStyles.headingCopy}>
-          <Text style={printStyles.sectionTitle}>Impressão</Text>
-          <Text style={printStyles.description}>Bobina térmica 80 mm em preto e branco</Text>
+          <Text style={printStyles.sectionTitle}>{counterSale ? counterStage === 'pending' ? 'Impressão dos pendentes' : counterStage === 'final' ? 'Conferência final' : 'Impressão do balcão' : 'Impressão'}</Text>
+          <Text style={printStyles.description}>{counterSale ? 'Escolha uma via para imprimir.' : 'Bobina térmica 80 mm em preto e branco'}</Text>
         </View>
         <Pressable
           accessibilityLabel="Configurar impressora"
+          accessibilityRole="button"
           onPress={() => setShowSettings(true)}
           style={printStyles.settingsButton}
         >
@@ -161,24 +206,60 @@ export function ThermalPrintSection({
         </Pressable>
       </View>
 
-      <View style={printStyles.buttonRow}>
-        <PrintButton
-          disabled={loading}
-          label="Imprimir comanda"
-          onPress={() => void openPreview('CONFIRMED')}
-        />
-        <PrintButton
-          disabled={loading}
-          label="Imprimir cozinha"
-          onPress={() => void openPreview('KITCHEN_PENDING')}
-        />
+      <View style={counterSale ? printStyles.counterButtons : printStyles.buttonRow}>
+        {counterSale ? <>
+          {counterStage !== 'final' && counterOpen && hasPending && <>
+            <PrintButton
+              disabled={loading || sending || disabled}
+              label="Imprimir pendentes para o cliente"
+              description={`Balcão · Comanda #${counterSale.number} · ${counterSale.name || 'Cliente não identificado'}`}
+              onPress={() => void openPreview('COUNTER_PENDING', 'CLIENT')}
+            />
+            <PrintButton
+              disabled={loading || sending || disabled}
+              label="Imprimir pendentes para o balcão"
+              description={`Balcão · Comanda #${counterSale.number} · ${counterSale.name || 'Cliente não identificado'}`}
+              onPress={() => void openPreview('COUNTER_PENDING', 'COUNTER')}
+              secondary
+            />
+          </>}
+          {counterStage !== 'pending' && <>
+            <PrintButton
+              disabled={loading || sending || disabled || !counterOpen || hasPending || !hasDelivered}
+              label="Imprimir conferência final para o cliente"
+              description={`Balcão · Comanda #${counterSale.number} · ${counterSale.name || 'Cliente não identificado'}`}
+              onPress={() => void openPreview('COUNTER_FINAL', 'CLIENT')}
+            />
+            <PrintButton
+              disabled={loading || sending || disabled || !counterOpen || hasPending || !hasDelivered}
+              label="Imprimir conferência final para o balcão"
+              description={`Balcão · Comanda #${counterSale.number} · ${counterSale.name || 'Cliente não identificado'}`}
+              onPress={() => void openPreview('COUNTER_FINAL', 'COUNTER')}
+              secondary
+            />
+          </>}
+        </> : <>
+          <PrintButton
+            disabled={loading || sending || disabled}
+            label={checkoutPreview ? 'Imprimir conta' : 'Imprimir comanda'}
+            onPress={() => void openPreview(checkoutPreview ? 'CHECKOUT_PREVIEW' : 'CONFIRMED')}
+          />
+          {!checkoutPreview && <PrintButton
+            disabled={loading || sending || disabled}
+            label="Imprimir cozinha"
+            onPress={() => void openPreview('KITCHEN_PENDING')}
+          />}
+        </>}
       </View>
+      {counterSale && counterStage !== 'pending' && counterOpen && hasPending && <Text style={printStyles.description}>
+        Entregue ou cancele os itens pendentes para emitir a conferência final.
+      </Text>}
       {loading && <ActivityIndicator color={themeColors.primaryActivity} />}
       {message && <Text style={printStyles.message}>{message}</Text>}
 
       <Modal
         animationType="slide"
-        onRequestClose={() => setDocument(undefined)}
+        onRequestClose={() => { if (!sendingLock.current) setDocument(undefined); }}
         transparent
         visible={Boolean(document)}
       >
@@ -186,17 +267,18 @@ export function ThermalPrintSection({
           <View style={printStyles.modalCard}>
             <Text style={printStyles.modalTitle}>Prévia da impressão</Text>
             <Text style={printStyles.modalDescription}>
-              Confira antes de enviar. Repetir o envio pode produzir uma segunda via.
+              {counterSale ? 'Confira a via selecionada antes de enviar. Repetir o envio pode duplicar esta via.' : 'Confira antes de enviar. Repetir o envio pode produzir uma segunda via.'}
             </Text>
             <ScrollView style={printStyles.previewScroll}>
               <Text style={printStyles.paperPreview} testID="thermal-paper-preview">
-                {document ? thermalReceiptPreview(document) : ''}
+                {document ? thermalReceiptPreview(document, preview?.recipient) : ''}
               </Text>
             </ScrollView>
             <Text style={printStyles.endpoint}>{settings.host}:{settings.port}</Text>
             {message && <Text style={printStyles.message}>{message}</Text>}
             <View style={printStyles.modalActions}>
               <PrintButton
+                disabled={sending}
                 label="Configurar"
                 onPress={() => {
                   setDocument(undefined);
@@ -205,12 +287,12 @@ export function ThermalPrintSection({
                 secondary
               />
               <PrintButton
-                disabled={sending}
+                disabled={sending || disabled}
                 label={sending ? 'Enviando...' : 'Enviar à impressora'}
                 onPress={() => document && void send(document)}
               />
             </View>
-            <Pressable onPress={() => setDocument(undefined)} style={printStyles.cancelButton}>
+            <Pressable disabled={sending} onPress={() => setDocument(undefined)} style={printStyles.cancelButton}>
               <Text style={printStyles.cancelText}>Cancelar</Text>
             </Pressable>
           </View>
@@ -261,11 +343,13 @@ export function ThermalPrintSection({
 
 function PrintButton({
   disabled = false,
+  description,
   label,
   onPress,
   secondary = false,
 }: {
   disabled?: boolean;
+  description?: string;
   label: string;
   onPress: () => void;
   secondary?: boolean;
@@ -273,16 +357,20 @@ function PrintButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={description}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         printStyles.button,
+        description && printStyles.describedButton,
         secondary && printStyles.secondaryButton,
         pressed && printStyles.pressedButton,
         disabled && printStyles.disabledButton,
       ]}
     >
       <Text style={[printStyles.buttonText, secondary && printStyles.secondaryButtonText]}>{label}</Text>
+      {description && <Text style={[printStyles.buttonDescription, secondary && printStyles.secondaryButtonText]}>{description}</Text>}
     </Pressable>
   );
 }
@@ -300,6 +388,9 @@ const printStyles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   buttonRow: { flexDirection: 'row', gap: 8 },
+  counterButtons: { gap: 8 },
+  describedButton: { flex: 0, gap: 4, paddingVertical: 12, minHeight: 76 },
+  buttonDescription: { color: themeColors.foregroundOnPrimary, fontSize: 12, lineHeight: 18, textAlign: 'center' },
   buttonText: { color: themeColors.foregroundOnPrimary, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   cancelButton: { alignItems: 'center', minHeight: 44, padding: 12 },
   cancelText: { color: themeColors.foregroundMuted, fontSize: 14, fontWeight: '700' },

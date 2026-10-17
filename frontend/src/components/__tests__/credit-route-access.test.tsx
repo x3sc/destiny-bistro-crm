@@ -3,6 +3,7 @@ import CreditsLayout from '../../app/credits/_layout';
 import ConvertCredit from '../../app/comandas/[comandaId]/credit';
 
 const mockUser = { permissions: ['credits.read', 'credits.write'], roles: [{ code: 'WAITER' }] };
+jest.mock('@/navigation/use-completed-flow-navigation', () => ({ useCompletedFlowNavigation: () => jest.fn() }));
 jest.mock('@/auth/auth-context', () => ({
   useAuth: () => ({ user: mockUser }),
   hasPermission: (user: unknown, permission: string) => jest.requireActual('../../services/authorization').hasAppPermission(user, permission),
@@ -24,6 +25,7 @@ jest.mock('@/components/credit-customer-picker-screen', () => ({
 }));
 
 it.each(['WAITER', 'KITCHEN'])('blocks direct credit URLs for %s before mounting screens', (code) => {
+  mockUser.permissions = [];
   mockUser.roles = [{ code }];
   const view = render(<CreditsLayout />);
   expect(screen.getByText('redirect:/')).toBeTruthy();
@@ -33,7 +35,8 @@ it.each(['WAITER', 'KITCHEN'])('blocks direct credit URLs for %s before mounting
   expect(screen.getByText('redirect:/')).toBeTruthy();
   expect(screen.queryByText('credit-picker')).toBeNull();
 });
-it.each(['OWNER', 'MANAGER'])('allows credit routes for %s', (code) => {
+it.each(['OWNER', 'MANAGER', 'CUSTOM_FINANCE'])('allows credit routes for %s with explicit permission', (code) => {
+  mockUser.permissions = ['credits.read', 'credits.write'];
   mockUser.roles = [{ code }];
   const view = render(<CreditsLayout />);
   expect(screen.getByText('credit-stack')).toBeTruthy();

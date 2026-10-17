@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 
-const fontFamily = Platform.OS === 'web' ? 'Roboto, Arial, sans-serif' : 'Roboto';
+const bodyFontFamily =
+  Platform.OS === 'web' ? 'Work Sans, Arial, sans-serif' : 'WorkSans';
+const headingFontFamily =
+  Platform.OS === 'web' ? 'Manrope, Arial, sans-serif' : 'Manrope';
 export const themeColors = {
   accent: '#d4a853',
   accentPressed: '#bd9140',
@@ -56,43 +59,45 @@ export const themeSpacing = {
 
 export const themeRadii = {
   compact: 16,
+  operationalCard: 16,
+  operationalControl: 12,
   standard: 22,
   pill: 999,
 } as const;
 
 export const themeTypography = {
   display: {
-    fontFamily,
+    fontFamily: headingFontFamily,
     fontSize: 32,
     fontWeight: '800',
     lineHeight: 38,
   },
   screenTitle: {
-    fontFamily,
+    fontFamily: headingFontFamily,
     fontSize: 28,
     fontWeight: '800',
     lineHeight: 34,
   },
   sectionTitle: {
-    fontFamily,
+    fontFamily: headingFontFamily,
     fontSize: 20,
     fontWeight: '700',
     lineHeight: 24,
   },
   body: {
-    fontFamily,
+    fontFamily: bodyFontFamily,
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
   },
   label: {
-    fontFamily,
+    fontFamily: bodyFontFamily,
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 18,
   },
   auxiliary: {
-    fontFamily,
+    fontFamily: bodyFontFamily,
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 16,

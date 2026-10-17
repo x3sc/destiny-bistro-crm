@@ -73,8 +73,11 @@ it('shows order origins and resumes a manual draft', async () => {
     />,
   );
 
-  expect(await screen.findByText('Maria')).toBeTruthy();
-  expect(screen.getByText('Saldo R$ 21,98')).toBeTruthy();
+  expect(await screen.findByText(/Maria/)).toBeTruthy();
+  expect(screen.getByTestId('branded-screen-header')).toBeTruthy();
+  expect(screen.getByText('Saldo devedor total')).toBeTruthy();
+  expect(screen.getAllByText('R$ 21,98').length).toBeGreaterThan(0);
+  expect(screen.getByText('2 registros')).toBeTruthy();
   expect(screen.getByText('Lançamento manual')).toBeTruthy();
   expect(screen.getByText('Mesa 4')).toBeTruthy();
 
@@ -128,7 +131,7 @@ it('filters open and settled orders without showing cancelled records', async ()
     />,
   );
 
-  expect(await screen.findByText('Saldo R$ 0,00')).toBeTruthy();
+  expect((await screen.findAllByText('R$ 0,00')).length).toBeGreaterThan(0);
   expect(screen.queryByText('Quitado')).toBeNull();
 
   fireEvent.press(screen.getByRole('button', { name: 'Quitados' }));
