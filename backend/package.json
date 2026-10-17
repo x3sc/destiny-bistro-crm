@@ -25,7 +25,7 @@
     "@prisma/adapter-mariadb": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "fastify": "^5.12.4",
+    "fastify": "^5.12.5",
     "pdfkit": "^0.20.2"
   },
   "devDependencies": {
