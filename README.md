@@ -331,6 +331,16 @@ o tema automatico no Android. `@react-native/jest-preset` atende ao peer do
 `jest-expo` 57. O modulo da impressora termica acessa
 `requireNativeModule` pela API publica do pacote `expo`.
 
+O frontend fixa TypeScript em `6.0.3`: o parser TypeScript do ESLint usado
+pelo Expo suporta `>=4.8.4 <6.1.0`. TypeScript 7 nao expoe a API `TypeFlags`
+consumida por essa cadeia e causa erro `Intrinsic` ao iniciar o lint (#148).
+`@typescript-eslint/parser` tambem e declarado em desenvolvimento, na versao
+`8.71.0` usada pelo Expo, pois as regras de imports precisam resolve-lo a partir
+do projeto; nao basta depender da copia interna de `eslint-config-expo`.
+Uma atualizacao principal exige validar a compatibilidade do parser,
+lint, verificacao de tipos, testes e exportacao antes de alterar essa versao.
+Consulte a [compatibilidade oficial do typescript-eslint](https://typescript-eslint.io/users/dependency-versions/).
+
 `react-native-calendars` fornece a selecao visual do periodo.
 `@expo/vector-icons` renderiza no Android, iOS e web os mesmos glifos Font
 Awesome usados no design do Figma, sem depender de imagens remotas temporarias.
